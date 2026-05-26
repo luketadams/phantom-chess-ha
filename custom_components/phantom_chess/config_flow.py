@@ -100,7 +100,15 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Confirm Bluetooth discovery."""
         if user_input is not None:
-            return await self.async_step_lichess_token(user_input)
+            # Advance to the Lichess-token step WITHOUT forwarding
+            # bluetooth_confirm's (empty) user_input — that step expects
+            # `user_input=None` to render its own form, and
+            # `user_input={'lichess_token': '...'}` when the user submits
+            # it. Forwarding the bluetooth_confirm empty dict caused a
+            # KeyError on `user_input[CONF_LICHESS_TOKEN]` which HA
+            # surfaced as "Unknown error occurred" in the UI. Fixed
+            # 2026-05-25 after the clean-install validation exposed it.
+            return await self.async_step_lichess_token()
 
         return self.async_show_form(
             step_id="bluetooth_confirm",

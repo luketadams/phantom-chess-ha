@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0-beta2] — 2026-05-25
+
+### Fixed
+
+- **Config flow's Bluetooth-discovery path raised "Unknown error occurred" on the confirm step.** When the Bluetooth-confirm form was submitted, the empty `user_input` dict was being forwarded straight into the Lichess-token step, which then tried `user_input[CONF_LICHESS_TOKEN]` → `KeyError` → HA surfaced as "Unknown error occurred" in the UI with no useful detail. Existing installs that originally went through the manual-MAC path never saw this because they advanced via `async_step_user → async_step_lichess_token()` (no user_input forwarded). The bug only manifested on a true fresh install from BT discovery — exposed by the v0.3.0-beta1 clean-install validation pass. Fix: `async_step_bluetooth_confirm` now calls `async_step_lichess_token()` with no argument, so the token step renders its own form first.
+
 ## [0.3.0-beta1] — 2026-05-25
 
 First public beta. Focus areas: protocol correctness against firmware 0.3.0, multi-game stability, release infrastructure (HACS-compatible repo layout, CI). Builds on the internal v0.2.0 release-readiness pass with several round-of-fixes after Efraín's 2026-05-24 protocol clarifications.
