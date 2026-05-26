@@ -1,0 +1,217 @@
+"""Constants for the Phantom Chess Board integration."""
+
+DOMAIN = "phantom_chess"
+
+# ── BLE ──────────────────────────────────────────────────────────────────────
+
+# Primary GATT service
+BLE_SERVICE_UUID = "fd31a840-22e7-11eb-adc1-0242ac120002"
+
+# Characteristic UUIDs (from phantomchessboard/Firmware → include/BLE.h)
+UUID_RECEIVE_MOVEMENT = "c60c786b-bf3f-49d8-bd9e-c268e0519a7b"  # Write AI moves to board
+UUID_STATUS_BOARD     = "06034924-77e8-433e-ac4c-27302e5e853f"  # Notify: physical move made
+UUID_SELECT_MODE      = "c08d3691-e60f-4467-b2d0-4a4b7c72777e"  # Write board mode (1-6)
+UUID_PAUSE            = "cc4cbbe0-9b5a-11ee-b9d1-0242ac120002"  # Write pause/resume
+UUID_BATTERY_INFO     = "7b204548-40c4-11eb-adc1-0242ac120002"  # Notify: battery state
+UUID_SEND_MATRIX      = "1b034927-77e8-433e-ac4c-27302e5e853f"  # Write LED matrix
+UUID_ERROR_MSG        = "7b204d4a-30c3-11eb-adc1-0242ac120002"  # Notify: error messages
+UUID_PLAY_INFO        = "d7f0b4ea-9b52-11ee-b9d1-0242ac120002"  # Game parameters
+UUID_VERSION          = "392d9e66-937a-11ee-b9d1-0242ac120002"  # Read firmware version
+UUID_MECHANISM_SPEED  = "acb646cc-92ca-11ee-b9d1-0242ac120002"  # Write piece movement speed
+UUID_SOUND_LEVEL      = "acb64a32-92ca-11ee-b9d1-0242ac120002"  # Write sound volume
+UUID_TAKEBACK         = "89185e7a-78ef-4bb0-b48f-c0f53f21fc1b"  # Write takeback request
+UUID_CHECK_MOVE       = "9cc3b57e-eee5-4d3e-8c1d-3fbd636d6780"  # Validate a move
+UUID_VOICE            = "3e42feb6-7c91-4e17-a1ed-31b51840613f"  # Voice enable/disable
+UUID_JUMP_TO_CENTER   = "5e316147-4550-4cf3-8e2b-edc098312a43"  # Move piece to center (confirmed on board)
+# UUID_MATRIX_INIT_GAME e00b41ea was a speculative LED-init characteristic
+# for firmware-0.1.6 era. Doesn't exist on 0.3.0. Removed 2026-05-17 after
+# its write triggered a false-positive GATT-staleness force-reconnect that
+# aborted Lichess game activation. Kept here as a comment so future audits
+# don't re-add it.
+UUID_SINGLE_MOVE      = "d9a6b488-1d61-423f-8713-f3b0eedc9904"  # Move single piece
+UUID_OTA              = "93601602-bbc2-4e53-95bd-a3ba326bc04b"  # OTA firmware update
+UUID_BOARD_ROTATION   = "b5a650ea-92ca-11ee-b9d1-0242ac120002"  # 0=normal, 1=rotated 180°
+# ── Firmware 0.3.0 UUIDs (not present in 0.1.6) ──────────────────────────────
+# UUID_GAME (cc68a66e) is the consolidated gameplay-flow channel. All opcodes
+# 0–14 (GAME_START, GAME_END, MOVEMENT, MOVEMENT_VERIFY, VOICE_COMMAND,
+# TAKE_BACK, BOARD_STATE, CALIBRATION, ERROR_MSG, CHECK_SOUND, SIDE,
+# GAME_ASSISTANCE, BLE_MOVE_DONE, SNAPTOCENTERCOM, RESET_DETECTION) are
+# routed through this single characteristic. Authoritative reference:
+# EFRAIN_GAMEPLAY_DOC_2026-05-14.txt (Efraín's protocol doc).
+UUID_GAME             = "cc68a66e-3bfa-4614-a77f-f46954a4c103"  # Consolidated gameplay channel (firmware 0.3.0+)
+# UUID_SCULPTURE (7eeaef37) — Per Efraín 2026-05-24, this is named
+# UUID_SCULPTURE in firmware source, NOT "UUID_GAME_CONFIG". The single-byte
+# read/write the integration historically used here is meaningless to the
+# firmware — the firmware does NOT interpret bytes on this characteristic
+# as `(ai_level*2)+(1 if white else 0)`; that encoding is app-side only.
+# Real use: sculpture-mode opcodes 9 (PLAYLIST), 11 (DATABASE), 12
+# (CHECK_SOUNDS — write "0"/"1" to disable/enable sounds during playback;
+# persisted as `checkSoundsSc` preference). This is also the only
+# characteristic on which the firmware uses application-level chunking.
+# Reference: Luke's protocol-questions reply, 2026-05-24, item 7.
+UUID_SCULPTURE        = "7eeaef37-1078-4462-9fcc-1a2a1152da45"
+# Backward-compat alias for the old (incorrect) name. Slated for removal
+# in a future cleanup; keep one release cycle so external scripts/tests
+# importing UUID_GAME_CONFIG from this module don't break immediately.
+UUID_GAME_CONFIG      = UUID_SCULPTURE  # DEPRECATED: use UUID_SCULPTURE
+# UUID_SLIDE_DELAY (NEW in firmware 0.3.2; one-byte difference from
+# UUID_BOARD_ROTATION's `…0002`). Integer-as-string ms, range 0–1500,
+# default 250. Stored in preferences; applied immediately.
+UUID_SLIDE_DELAY      = "b5a650ea-92ca-11ee-b9d1-0242ac120004"
+# UUID_RECEIVE_MOVE_V2 is the firmware's notify-only 1b034928 characteristic
+# (the public Firmware repo calls it SEND_TESTMODE_ERROR). It is NOT the
+# movement channel — movement goes through UUID_GAME opcode 2. Kept for
+# subscription/observation only. Renamed in comment 2026-05-24; consider
+# renaming the symbol itself in a future const.py refresh.
+UUID_RECEIVE_MOVE_V2  = "1b034928-77e8-433e-ac4c-27302e5e853f"  # Notify-only firmware diagnostic (NOT the movement channel)
+UUID_OFFSET_PIECES    = "acb650ea-92ca-11ee-b9d1-0242ac120002"  # Piece offset calibration
+UUID_SET_STATE        = "acb6543c-92ca-11ee-b9d1-0242ac120002"  # Set board state string
+UUID_CALIB_TYPE       = "c43f07d7-a64a-4776-a35f-6190a53c1c86"  # Calibration type
+UUID_FACTORY_RESET    = "b583ff00-b77a-42f5-a53f-a9bf4c291d80"  # Factory reset
+UUID_PLAYLIST         = "4f1c9720-939a-11ee-b9d1-0242ac120002"  # Playlist control
+UUID_PLAYLIST_DB      = "a00125d2-cf9e-494a-b834-6dad6360729c"  # Playlist database
+UUID_PLAYLIST_SYNC    = "ea41f202-d149-4a1d-80a7-09b4a613be7f"  # Playlist sync
+UUID_PLAYLIST_DEL     = "855fce26-94df-4b3f-b5a8-735a85d220fe"  # Playlist delete
+
+# Board modes (written to UUID_SELECT_MODE)
+MODE_SCULPTURE  = 1
+MODE_CHESS_PLAY = 2
+MODE_PAUSE      = 3
+MODE_TEST       = 4
+MODE_TUTORIAL   = 5
+MODE_CALIBRATION = 6
+
+# Move format: "M 1 e2-e4" or "M 1 d5xe4"
+# Strip "M 1 " prefix and replace "-" or "x" to get UCI: "e2e4" or "d5e4"
+MOVE_PREFIX = "M 1 "
+MOVE_MAX_LEN = 25  # board rejects moves longer than 25 chars
+
+# Battery notification format: "percent,wallStatus,charging,doneCharging"
+# Example: "85,1,0,0"
+
+# ── Lichess Board API ─────────────────────────────────────────────────────────
+
+LICHESS_API_BASE    = "https://lichess.org/api"
+LICHESS_ACCOUNT_URL = f"{LICHESS_API_BASE}/account"
+LICHESS_CHALLENGE_AI_URL = f"{LICHESS_API_BASE}/challenge/ai"
+LICHESS_GAME_STREAM_URL  = f"{LICHESS_API_BASE}/board/game/stream/{{game_id}}"
+LICHESS_MOVE_URL         = f"{LICHESS_API_BASE}/board/game/{{game_id}}/move/{{move}}"
+LICHESS_RESIGN_URL       = f"{LICHESS_API_BASE}/board/game/{{game_id}}/resign"
+LICHESS_ABORT_URL        = f"{LICHESS_API_BASE}/board/game/{{game_id}}/abort"
+# Used by async_reconcile_lichess_state to query a single game's status as
+# a one-shot REST call — workaround when the streaming endpoint has
+# missed the terminal event (Task #14, 2026-05-16).
+LICHESS_GAME_EXPORT_URL  = f"{LICHESS_API_BASE}/game/export/{{game_id}}"
+
+# AI levels 1-8 correspond to Lichess stockfish levels
+LICHESS_AI_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8]
+
+# ── Config entry keys ─────────────────────────────────────────────────────────
+
+CONF_BLE_ADDRESS   = "ble_address"
+CONF_DEVICE_NAME   = "device_name"
+CONF_LICHESS_TOKEN = "lichess_token"
+CONF_LICHESS_USER  = "lichess_username"
+
+# ── Default values ────────────────────────────────────────────────────────────
+
+DEFAULT_AI_LEVEL      = 3
+DEFAULT_MECHANISM_SPEED = 50
+DEFAULT_SOUND_LEVEL     = 70
+DEFAULT_PLAYER_COLOR    = "random"
+
+# ── Entity unique ID prefixes ─────────────────────────────────────────────────
+
+ENTITY_BATTERY       = "battery"
+ENTITY_LICHESS_ID    = "lichess_game_id"
+ENTITY_CONNECTED     = "connected"
+ENTITY_AI_LEVEL      = "ai_level"
+ENTITY_PLAYER_COLOR  = "player_color"
+ENTITY_MECH_SPEED    = "mechanism_speed"
+ENTITY_SOUND_LEVEL   = "sound_level"
+ENTITY_PAUSE         = "pause"
+# Live matrix-state sensor (firmware 0.3.0 — derived from UUID_SEND_MATRIX notifications)
+ENTITY_LIVE_POSITION       = "live_position"
+ENTITY_PIECE_COUNT         = "piece_count"
+ENTITY_FIRMWARE_MODE       = "firmware_mode"
+ENTITY_MATRIX_STATUS       = "matrix_status"
+ENTITY_FIRMWARE_LAST_MOVE  = "firmware_last_move"
+
+# ── In-game learning dashboard (added 2026-05-14) ────────────────────────────
+# All exposed as sensors/binary_sensors driven by self._state on the coordinator.
+# Backed by Lichess cloud-eval + python-chess analysis. See
+# phantom_chess_research/IN_GAME_DASHBOARD_SPEC_2026-05-14.md for data model.
+
+ENTITY_LICHESS_ACTIVE          = "lichess_active"           # binary
+ENTITY_LICHESS_REVIEW_READY    = "lichess_review_ready"     # binary
+# True when EITHER a Lichess game OR a local-Stockfish game is in progress.
+# Drives the rich learning-dashboard view so it renders for both modes.
+# Added 2026-05-16 (Task #9).
+ENTITY_LEARNING_VIEW_ACTIVE    = "learning_view_active"     # binary
+ENTITY_LICHESS_WHITE_NAME      = "lichess_white_name"
+ENTITY_LICHESS_BLACK_NAME      = "lichess_black_name"
+ENTITY_LICHESS_WHITE_CLOCK     = "lichess_white_clock"         # raw seconds
+ENTITY_LICHESS_BLACK_CLOCK     = "lichess_black_clock"
+ENTITY_LICHESS_WHITE_CLOCK_DISP = "lichess_white_clock_display"  # mm:ss string
+ENTITY_LICHESS_BLACK_CLOCK_DISP = "lichess_black_clock_display"
+
+ENTITY_OPENING_NAME            = "opening_name"
+
+ENTITY_EVAL_CP                 = "eval_cp"
+ENTITY_EVAL_MATE               = "eval_mate"
+ENTITY_EVAL_SOURCE             = "eval_source"
+ENTITY_EVAL_DEPTH              = "eval_depth"
+ENTITY_BEST_MOVE_SAN           = "best_move_san"
+
+ENTITY_LAST_MOVE_CLASSIFICATION = "last_move_classification"
+ENTITY_LAST_MOVE_CPL            = "last_move_cpl"
+ENTITY_LAST_MOVE_MOTIF          = "last_move_motif"
+
+ENTITY_THREAT_SAN              = "threat_san"
+
+ENTITY_MOVE_HISTORY            = "move_history"   # state = ply count; attribute "moves" = list
+
+ENTITY_LAST_GAME_RESULT        = "last_game_result"
+ENTITY_LAST_GAME_ACCURACY_W    = "last_game_accuracy_white"
+ENTITY_LAST_GAME_ACCURACY_B    = "last_game_accuracy_black"
+ENTITY_LAST_GAME_REVIEW        = "last_game_review"  # state = mistake count; attribute "top_mistakes" = list
+
+# Classification labels (kept in sync with the spec)
+CLASSIFICATION_BRILLIANT  = "brilliant"
+CLASSIFICATION_BEST       = "best"
+CLASSIFICATION_GOOD       = "good"
+CLASSIFICATION_BOOK       = "book"
+CLASSIFICATION_INACCURACY = "inaccuracy"
+CLASSIFICATION_MISTAKE    = "mistake"
+CLASSIFICATION_BLUNDER    = "blunder"
+CLASSIFICATION_UNKNOWN    = "unknown"
+
+# CPL thresholds (centipawns lost) — per the spec
+CPL_GOOD_MAX        = 20    # < 20 = best/good
+CPL_INACCURACY_MAX  = 100   # < 100 = inaccuracy
+CPL_MISTAKE_MAX     = 300   # < 300 = mistake; ≥ 300 = blunder
+
+# Cloud-eval / opening explorer URLs
+LICHESS_CLOUD_EVAL_URL = "https://lichess.org/api/cloud-eval"
+LICHESS_OPENING_URL    = "https://explorer.lichess.ovh/masters"
+
+# UUID for the firmware's mode-state notification channel (Running/Paused/etc.)
+# Same as UUID_SET_STATE (acb6543c). Reading returns current mode as ASCII string.
+UUID_FIRMWARE_STATE = "acb6543c-92ca-11ee-b9d1-0242ac120002"
+
+# ── Game status values ────────────────────────────────────────────────────────
+
+STATUS_IDLE       = "idle"
+STATUS_PLAYING    = "playing"
+STATUS_CHECK      = "check"
+STATUS_CHECKMATE  = "checkmate"
+STATUS_STALEMATE  = "stalemate"
+STATUS_DRAW       = "draw"
+STATUS_PAUSED     = "paused"
+STATUS_RESIGNED   = "resigned"
+
+# ── Reconnection ──────────────────────────────────────────────────────────────
+
+BLE_RETRY_SECONDS      = 10
+BLE_MAX_RETRY_SECONDS  = 60
+LICHESS_RETRY_SECONDS  = 5

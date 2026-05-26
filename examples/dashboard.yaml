@@ -1,0 +1,258 @@
+# ────────────────────────────────────────────────────────────────────────
+# Phantom Chess Board — example Lovelace dashboard
+# ────────────────────────────────────────────────────────────────────────
+#
+# A starter dashboard showing the integration's main entities and how
+# they fit together. Drop into a panel-mode view for the cleanest layout.
+#
+# Replace every occurrence of XX:XX:XX:XX:XX:XX with your board's MAC
+# (with colons → underscores in entity_ids, lowercase). Find your specific
+# entity_ids in Settings → Devices & Services → Phantom Chess Board.
+#
+# Required HACS cards (none mandatory — every card here is HA core or
+# optional; replace with vanilla equivalents if you don't have HACS):
+#   - none required
+# Optional HACS cards used:
+#   - bar-card  (for the lichess.org-style vertical eval bar)
+#   - mushroom-template-card (for the transient-state info banner)
+# All other cards (picture-entity, markdown, tile, grid, conditional) are
+# Home Assistant core cards.
+#
+# License: same as the integration (MIT).
+# ────────────────────────────────────────────────────────────────────────
+
+title: Chess
+views:
+  - title: Phantom Chess Board
+    path: phantom-chess
+    type: panel
+    cards:
+      - type: vertical-stack
+        cards:
+
+          # ────────────────────────────────────────────────────────────
+          # CONDITIONAL 1 — Mode picker (when no game in progress)
+          # ────────────────────────────────────────────────────────────
+          - type: conditional
+            conditions:
+              - entity: binary_sensor.phantom_xxxxxxxxxxxx_learning_view_active
+                state: "off"
+              - entity: binary_sensor.phantom_xxxxxxxxxxxx_lichess_review_ready
+                state: "off"
+              - entity: sensor.phantom_xxxxxxxxxxxx_firmware_mode
+                state: HOME
+            card:
+              type: vertical-stack
+              cards:
+                - type: markdown
+                  content: |
+                    ## Phantom Chess Board
+                    Pick a mode below to get started.
+
+                - type: grid
+                  columns: 2
+                  square: false
+                  cards:
+                    # AI level + color selectors
+                    - type: tile
+                      entity: select.phantom_xxxxxxxxxxxx_ai_level
+                      name: AI Level (1-8)
+                      icon: mdi:robot
+                    - type: tile
+                      entity: select.phantom_xxxxxxxxxxxx_player_color
+                      name: Your Color
+                      icon: mdi:account-circle
+
+                # Quick-start buttons
+                - type: grid
+                  columns: 2
+                  square: false
+                  cards:
+                    - type: tile
+                      entity: script.phantom_chess_play
+                      name: Start Lichess Game
+                      icon: mdi:chess-king
+                      tap_action:
+                        action: call-service
+                        service: phantom_chess.start_game
+                        data:
+                          mode: lichess
+                    - type: tile
+                      entity: script.phantom_chess_play
+                      name: Start Local Stockfish
+                      icon: mdi:chip
+                      tap_action:
+                        action: call-service
+                        service: phantom_chess.start_local_game
+
+          # ────────────────────────────────────────────────────────────
+          # CONDITIONAL 2 — Transient firmware states (Snapping Pieces,
+          # Calibrating, Setting Up, etc.). Tells the user what's going
+          # on so they don't think the board is stuck.
+          # ────────────────────────────────────────────────────────────
+          - type: conditional
+            conditions:
+              - entity: sensor.phantom_xxxxxxxxxxxx_firmware_mode
+                state: Snapping Pieces
+              - entity: binary_sensor.phantom_xxxxxxxxxxxx_learning_view_active
+                state: "off"
+            card:
+              type: markdown
+              content: |
+                ## Centering pieces
+                The board is snapping pieces to their squares (~30-60s).
+                Please don't move pieces while this runs.
+
+          - type: conditional
+            conditions:
+              - entity: sensor.phantom_xxxxxxxxxxxx_firmware_mode
+                state: Calibrating
+              - entity: binary_sensor.phantom_xxxxxxxxxxxx_learning_view_active
+                state: "off"
+            card:
+              type: markdown
+              content: |
+                ## Calibrating
+                Calibrating the magnet mechanism. Please don't move pieces.
+
+          - type: conditional
+            conditions:
+              - entity: sensor.phantom_xxxxxxxxxxxx_firmware_mode
+                state: Setting Up
+              - entity: binary_sensor.phantom_xxxxxxxxxxxx_learning_view_active
+                state: "off"
+            card:
+              type: markdown
+              content: |
+                ## Setting up
+                The board is arranging pieces for a new game.
+
+          # ────────────────────────────────────────────────────────────
+          # CONDITIONAL 3 — In-game rich learning view
+          # ────────────────────────────────────────────────────────────
+          - type: conditional
+            conditions:
+              - entity: binary_sensor.phantom_xxxxxxxxxxxx_learning_view_active
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                # Header with opening name + result placeholder
+                - type: markdown
+                  content: |
+                    ### {{ states('sensor.phantom_xxxxxxxxxxxx_opening_name') | default('Game in progress') }}
+
+                # Eval bar + live board side-by-side
+                # bar-card is from HACS; replace with a vanilla `gauge`
+                # if you don't want a HACS dependency.
+                - type: horizontal-stack
+                  cards:
+                    - type: custom:bar-card
+                      entity: sensor.phantom_xxxxxxxxxxxx_eval_cp
+                      direction: up
+                      height: 400px
+                      min: -1000
+                      max: 1000
+                      severity:
+                        - {from: -1000, to: -100, color: "#3a3a3a"}
+                        - {from: -100,  to: 100,  color: "#888888"}
+                        - {from: 100,   to: 1000, color: "#e8e8e8"}
+                      positions:
+                        value: inside
+                        indicator: "off"
+                        name: "off"
+                    - type: picture-entity
+                      entity: image.phantom_xxxxxxxxxxxx_board
+                      show_name: false
+                      show_state: false
+                      camera_view: auto
+                      tap_action:
+                        action: none
+
+                # Last move detail strip
+                - type: markdown
+                  content: |
+                    **Last move:** {{ states('sensor.phantom_xxxxxxxxxxxx_firmware_last_move') }} ·
+                    Class: {{ states('sensor.phantom_xxxxxxxxxxxx_last_move_classification') | default('—') }} ·
+                    CPL: {{ states('sensor.phantom_xxxxxxxxxxxx_last_move_cpl') | default('0') }} ·
+                    Eval: {{ (states('sensor.phantom_xxxxxxxxxxxx_eval_cp') | int(0) / 100) | round(1) }}
+
+                # Controls
+                - type: grid
+                  columns: 4
+                  square: false
+                  cards:
+                    - type: tile
+                      entity: sensor.phantom_xxxxxxxxxxxx_best_move_san
+                      name: Hint
+                      icon: mdi:lightbulb-outline
+                      tap_action:
+                        action: call-service
+                        service: phantom_chess.request_hint
+                    - type: tile
+                      entity: script.phantom_takeback
+                      name: Takeback
+                      icon: mdi:undo-variant
+                      hide_state: true
+                      tap_action:
+                        action: call-service
+                        service: phantom_chess.takeback
+                    - type: tile
+                      entity: script.phantom_resign
+                      name: Resign
+                      icon: mdi:flag-outline
+                      hide_state: true
+                      tap_action:
+                        action: call-service
+                        service: phantom_chess.resign
+                        confirmation:
+                          text: "Resign this game?"
+                    - type: tile
+                      entity: input_boolean.phantom_chess_training_wheels
+                      name: Training Wheels
+                      icon: mdi:school
+
+          # ────────────────────────────────────────────────────────────
+          # CONDITIONAL 4 — Post-game review
+          # ────────────────────────────────────────────────────────────
+          - type: conditional
+            conditions:
+              - entity: binary_sensor.phantom_xxxxxxxxxxxx_lichess_review_ready
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                - type: markdown
+                  content: |
+                    ## Game Review
+
+                    **Result:** {{ states('sensor.phantom_xxxxxxxxxxxx_last_game_result') }}
+
+                    **Accuracy:** White {{ states('sensor.phantom_xxxxxxxxxxxx_last_game_accuracy_white') }}% — Black {{ states('sensor.phantom_xxxxxxxxxxxx_last_game_accuracy_black') }}%
+
+                - type: tile
+                  entity: script.phantom_back_to_modes
+                  name: Back to modes
+                  icon: mdi:arrow-left-circle
+                  tap_action:
+                    action: call-service
+                    service: phantom_chess.dismiss_review
+
+          # ────────────────────────────────────────────────────────────
+          # INTERACTIVE BOARD (Task #27) — drag-drop pieces from the
+          # dashboard, magnet physically moves them on the board.
+          #
+          # Embeds the integration's bundled /phantom_chess_static/board.html
+          # page in a Lovelace iframe card. First-load setup prompts for a
+          # Long-Lived Access Token (Profile → Security → Long-Lived Access
+          # Tokens → Create Token); stored per-browser in localStorage,
+          # revocable from the same HA profile page.
+          #
+          # The static board image (above) still shows the same FEN but is
+          # read-only; this card adds drag-drop input. They are complementary.
+          # ────────────────────────────────────────────────────────────
+          - type: iframe
+            url: /phantom_chess_static/board.html
+            title: Interactive Board
+            # 100% aspect ratio keeps the board square plus a small status row.
+            aspect_ratio: "100%"

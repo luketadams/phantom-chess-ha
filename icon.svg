@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!--
+    Phantom Chess Board — integration icon
+    A stylized chess king atop a Bluetooth-marked board.
+
+    256×256 viewBox. Designed to render cleanly at 128×128 (HACS card)
+    and 48×48 (sidebar/notification) sizes. Two-color palette so it
+    works on both light and dark HA themes via currentColor.
+
+    For the HA brands repo this will need to be exported to:
+      - icon.png        (256x256)
+      - icon@2x.png     (512x512)
+      - dark_icon.png   (256x256, light variant)
+      - dark_icon@2x.png (512x512)
+      - logo.png        (≥256 tall)
+      - logo@2x.png
+  -->
+
+  <!-- Board base -->
+  <rect x="32" y="180" width="192" height="36" rx="6" fill="currentColor" opacity="0.15"/>
+  <rect x="40" y="184" width="176" height="28" rx="4" fill="currentColor" opacity="0.25"/>
+
+  <!-- Checkerboard pattern on the base (3 visible squares) -->
+  <rect x="44" y="188" width="20" height="20" fill="currentColor" opacity="0.35"/>
+  <rect x="84" y="188" width="20" height="20" fill="currentColor" opacity="0.35"/>
+  <rect x="124" y="188" width="20" height="20" fill="currentColor" opacity="0.35"/>
+  <rect x="164" y="188" width="20" height="20" fill="currentColor" opacity="0.35"/>
+
+  <!-- King silhouette, centered above the board -->
+  <!-- Crown -->
+  <path d="M128 32 L128 56 M116 44 L140 44"
+        stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+  <!-- Head/orb -->
+  <circle cx="128" cy="68" r="14" fill="currentColor"/>
+  <!-- Neck -->
+  <rect x="120" y="78" width="16" height="14" rx="3" fill="currentColor"/>
+  <!-- Body — broader trapezoid -->
+  <path d="M104 92 L152 92 L160 140 L96 140 Z" fill="currentColor"/>
+  <!-- Base flare -->
+  <path d="M88 140 L168 140 L172 168 L84 168 Z" fill="currentColor"/>
+
+  <!-- Bluetooth radio indicator (small dot to the upper-right of the king) -->
+  <circle cx="184" cy="60" r="8" fill="currentColor" opacity="0.85"/>
+  <path d="M178 56 L188 64 M178 64 L188 56"
+        stroke="white" stroke-width="2" stroke-linecap="round"/>
+
+</svg>

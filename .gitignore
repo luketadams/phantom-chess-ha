@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Backup files this project uses (timestamped local-edit snapshots)
+*.bak.*
+
+# Local-only research / dev artifacts that shouldn't ship to HACS users
+phantom_chess_research/
+btsnoop*.bts
+*.txt.bak

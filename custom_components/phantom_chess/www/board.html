@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<!--
+  Phantom Chess Board — interactive dashboard board (Task #27, 2026-05-17).
+
+  Self-contained HTML page served at /phantom_chess_static/board.html.
+  Renders the live FEN as an interactive SVG chessboard. Drag-drop user
+  input → calls phantom_chess.execute_move service → integration drives
+  the magnet to physically move the piece on the board.
+
+  Auth model: the page authenticates to HA's WebSocket API with a
+  long-lived access token stored in browser localStorage. Embedded as an
+  iframe card in Lovelace, the user provides the token once on first
+  load. Token is per-browser, revocable from HA's profile page.
+
+  Designed to be embedded via Lovelace's iframe card — sized so the
+  default 400×500 iframe gives a comfortable view of the board plus a
+  status row.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Phantom Chess Board</title>
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/cm-chessboard@8/assets/chessboard.css">
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/cm-chessboard@8/assets/extensions/promotion-dialog/promotion-dialog.css">
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/cm-chessboard@8/assets/extensions/markers/markers.css">
+<style>
+  :root {
+    color-scheme: light dark;
+    --pc-fg: #eaeaea;
+    --pc-fg-dim: #9aa0a6;
+    --pc-bg: #111418;
+    --pc-bg-card: #1b1f24;
+    --pc-accent: #4f9eff;
+    --pc-bad: #ec5b5b;
+    --pc-ok: #4caf50;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --pc-fg: #1a1a1a;
+      --pc-fg-dim: #555;
+      --pc-bg: #f6f7f9;
+      --pc-bg-card: #ffffff;
+    }
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--pc-bg);
+    color: var(--pc-fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+  }
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 6px 6px 4px;
+    box-sizing: border-box;
+  }
+  #status {
+    flex: 0 0 auto;
+    font-size: 13px;
+    line-height: 1.4;
+    padding: 4px 8px 6px;
+    color: var(--pc-fg-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    min-height: 18px;
+  }
+  #status .left { flex: 1 1 auto; }
+  #status .right { flex: 0 0 auto; }
+  #status .err { color: var(--pc-bad); }
+  #status .ok { color: var(--pc-ok); }
+  #status .pulse { animation: pulse 1.6s infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 1; }
+  }
+  #board-wrap {
+    flex: 1 1 auto;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+  #board {
+    width: 100%;
+    max-width: min(100%, 600px);
+    aspect-ratio: 1 / 1;
+  }
+  /* Disabled overlay — shown when no game active OR not our turn. */
+  #lock-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.18);
+    backdrop-filter: blur(0.5px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    pointer-events: none;
+    font-size: 14px;
+    color: #fff;
+    text-shadow: 0 1px 3px #000;
+  }
+  #lock-overlay.visible { display: flex; }
+  /* Setup overlay for first-time token entry. */
+  #setup {
+    position: fixed;
+    inset: 0;
+    background: var(--pc-bg);
+    z-index: 1000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+  }
+  #setup.visible { display: flex; }
+  #setup .card {
+    background: var(--pc-bg-card);
+    padding: 18px 20px;
+    border-radius: 10px;
+    max-width: 460px;
+    width: 100%;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  }
+  #setup h2 {
+    margin: 0 0 8px;
+    font-size: 17px;
+  }
+  #setup p {
+    margin: 6px 0;
+    font-size: 13px;
+    color: var(--pc-fg-dim);
+    line-height: 1.45;
+  }
+  #setup textarea {
+    width: 100%;
+    min-height: 70px;
+    margin-top: 8px;
+    padding: 8px;
+    box-sizing: border-box;
+    background: var(--pc-bg);
+    border: 1px solid #444;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: var(--pc-fg);
+    resize: vertical;
+  }
+  #setup button {
+    margin-top: 10px;
+    padding: 7px 14px;
+    background: var(--pc-accent);
+    color: #fff;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  #setup button:hover { filter: brightness(1.1); }
+  #setup .err {
+    color: var(--pc-bad);
+    font-size: 12px;
+    margin-top: 6px;
+    min-height: 14px;
+  }
+  /* Multi-board picker */
+  #board-picker {
+    background: var(--pc-bg-card);
+    color: var(--pc-fg);
+    border: 1px solid #444;
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 2px 4px;
+  }
+  /* Pretty up cm-chessboard's default colors. */
+  cm-chessboard {
+    --color-light-square: #eed7b5;
+    --color-dark-square: #b88762;
+  }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <div class="card">
+    <h2>Connect to Home Assistant</h2>
+    <p>
+      To control the Phantom Chess Board from this page, paste a
+      <strong>Long-Lived Access Token</strong> from your Home Assistant profile
+      (Profile → Security → Long-Lived Access Tokens → "Create Token").
+    </p>
+    <p>
+      Stored in this browser's <code>localStorage</code> — revoke from your HA
+      profile if you ever need to.
+    </p>
+    <textarea id="token-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…" autocomplete="off" spellcheck="false"></textarea>
+    <div class="err" id="setup-err"></div>
+    <button id="token-save">Connect</button>
+  </div>
+</div>
+
+<div id="app">
+  <div id="status">
+    <span class="left" id="status-text">Connecting…</span>
+    <span class="right">
+      <select id="board-picker" hidden></select>
+    </span>
+  </div>
+  <div id="board-wrap">
+    <div id="board"></div>
+    <div id="lock-overlay"><span id="lock-text">No active game</span></div>
+  </div>
+</div>
+
+<script type="module">
+import {
+  Chessboard, FEN, COLOR, INPUT_EVENT_TYPE,
+  BORDER_TYPE, PIECE
+} from "https://cdn.jsdelivr.net/npm/cm-chessboard@8/src/Chessboard.js"
+import { Markers, MARKER_TYPE } from "https://cdn.jsdelivr.net/npm/cm-chessboard@8/src/extensions/markers/Markers.js"
+import { PromotionDialog } from "https://cdn.jsdelivr.net/npm/cm-chessboard@8/src/extensions/promotion-dialog/PromotionDialog.js"
+
+const TOKEN_KEY = "phantom_chess_ha_token"
+const BOARD_KEY = "phantom_chess_selected_board"
+const STATUS_EL = document.getElementById("status-text")
+const LOCK_EL = document.getElementById("lock-overlay")
+const LOCK_TEXT = document.getElementById("lock-text")
+const PICKER = document.getElementById("board-picker")
+const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
+
+function setStatus(text, cls = "") {
+  STATUS_EL.textContent = text
+  STATUS_EL.className = cls
+}
+function lock(text) {
+  LOCK_TEXT.textContent = text
+  LOCK_EL.classList.add("visible")
+}
+function unlock() {
+  LOCK_EL.classList.remove("visible")
+}
+
+// ── Minimal HA WebSocket client ──────────────────────────────────────────────
+// Doesn't use home-assistant-js-websocket — we only need a few calls and we
+// want zero npm dependencies in the bundled page.
+
+class Hass {
+  constructor(token) {
+    this.token = token
+    this.ws = null
+    this.nextId = 1
+    this.pending = new Map()
+    this.eventHandlers = []
+    this.onClose = null
+  }
+  async connect() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:"
+    const url = `${proto}//${location.host}/api/websocket`
+    return new Promise((resolve, reject) => {
+      this.ws = new WebSocket(url)
+      let authed = false
+      this.ws.onmessage = (msg) => {
+        const data = JSON.parse(msg.data)
+        if (data.type === "auth_required") {
+          this.ws.send(JSON.stringify({ type: "auth", access_token: this.token }))
+        } else if (data.type === "auth_ok") {
+          authed = true
+          this.ws.onmessage = (m) => this._onMessage(m)
+          resolve()
+        } else if (data.type === "auth_invalid") {
+          this.ws.close()
+          reject(new Error(data.message || "Authentication failed"))
+        }
+      }
+      this.ws.onerror = (err) => {
+        if (!authed) reject(new Error("WebSocket connection failed"))
+      }
+      this.ws.onclose = () => {
+        if (this.onClose) this.onClose()
+      }
+    })
+  }
+  _onMessage(msg) {
+    const data = JSON.parse(msg.data)
+    if (data.type === "result" && this.pending.has(data.id)) {
+      const { resolve, reject } = this.pending.get(data.id)
+      this.pending.delete(data.id)
+      if (data.success) resolve(data.result)
+      else reject(new Error(data.error?.message || "HA call failed"))
+    } else if (data.type === "event") {
+      for (const h of this.eventHandlers) h(data.event)
+    }
+  }
+  _send(payload) {
+    const id = this.nextId++
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject })
+      this.ws.send(JSON.stringify({ id, ...payload }))
+    })
+  }
+  getStates() {
+    return this._send({ type: "get_states" })
+  }
+  callService(domain, service, serviceData) {
+    return this._send({
+      type: "call_service",
+      domain, service, service_data: serviceData,
+    })
+  }
+  onStateChanged(handler) {
+    this.eventHandlers.push((event) => {
+      if (event.event_type === "state_changed") handler(event)
+    })
+    return this._send({ type: "subscribe_events", event_type: "state_changed" })
+  }
+}
+
+// ── Setup overlay (one-time token entry) ─────────────────────────────────────
+
+function showSetup(msg = "") {
+  document.getElementById("setup").classList.add("visible")
+  document.getElementById("setup-err").textContent = msg
+}
+document.getElementById("token-save").addEventListener("click", () => {
+  const v = document.getElementById("token-input").value.trim()
+  if (!v.startsWith("ey")) {
+    document.getElementById("setup-err").textContent =
+      "That doesn't look like a long-lived access token (should start with 'ey…')."
+    return
+  }
+  localStorage.setItem(TOKEN_KEY, v)
+  location.reload()
+})
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
+const token = localStorage.getItem(TOKEN_KEY)
+if (!token) {
+  showSetup()
+} else {
+  startApp(token).catch((err) => {
+    console.error("[phantom-chess]", err)
+    setStatus("Disconnected — " + err.message, "err")
+    // Auth failure: wipe token, prompt for a new one.
+    if (/auth/i.test(err.message)) {
+      localStorage.removeItem(TOKEN_KEY)
+      showSetup("Authentication failed — please paste a fresh token.")
+    }
+  })
+}
+
+async function startApp(token) {
+  setStatus("Connecting to Home Assistant…", "pulse")
+  const hass = new Hass(token)
+  await hass.connect()
+  setStatus("Loading board state…", "pulse")
+
+  const states = await hass.getStates()
+  // Find all phantom_chess live_position sensors (one per board).
+  const sensors = states.filter(
+    (s) => s.entity_id.startsWith("sensor.phantom_") &&
+           s.entity_id.endsWith("_live_position")
+  )
+  if (sensors.length === 0) {
+    setStatus("No Phantom Chess Board found", "err")
+    lock("No board configured")
+    return
+  }
+
+  // Multi-board picker.
+  let activeSensorId = sensors[0].entity_id
+  const remembered = localStorage.getItem(BOARD_KEY)
+  if (remembered && sensors.find((s) => s.entity_id === remembered)) {
+    activeSensorId = remembered
+  }
+  if (sensors.length > 1) {
+    PICKER.hidden = false
+    PICKER.innerHTML = ""
+    for (const s of sensors) {
+      const opt = document.createElement("option")
+      opt.value = s.entity_id
+      opt.textContent = s.attributes.friendly_name || s.entity_id
+      if (s.entity_id === activeSensorId) opt.selected = true
+      PICKER.appendChild(opt)
+    }
+    PICKER.addEventListener("change", () => {
+      localStorage.setItem(BOARD_KEY, PICKER.value)
+      location.reload()
+    })
+  }
+
+  // entry_id derivation: the live_position sensor's device's entry. We can
+  // approximate by stripping the suffix to get the unique-id prefix, then
+  // looking through config entries. Easier: derive from entity name.
+  // The integration's _get_coordinator routing handles single-board cases
+  // without entry_id, so omit it for now and rely on the picker. For
+  // multi-board, we'd need to pass entry_id — punt to a follow-up; if a
+  // user with two boards opens this page they get the "must specify
+  // entry_id" voluptuous error from the service. Acceptable for MVP since
+  // the vast majority of users will have one board.
+
+  const initialSensor = states.find((s) => s.entity_id === activeSensorId)
+  const board = makeBoard(activeSensorId, hass)
+  applyState(board, initialSensor)
+
+  await hass.onStateChanged((event) => {
+    if (event.data.entity_id !== activeSensorId) return
+    applyState(board, event.data.new_state)
+  })
+
+  hass.onClose = () => {
+    setStatus("Disconnected from HA — refresh to reconnect", "err")
+    lock("Disconnected")
+  }
+}
+
+// ── Board wiring ─────────────────────────────────────────────────────────────
+
+function makeBoard(sensorId, hass) {
+  const el = document.getElementById("board")
+  const board = new Chessboard(el, {
+    position: FEN.empty,
+    assetsUrl: "https://cdn.jsdelivr.net/npm/cm-chessboard@8/assets/",
+    style: {
+      cssClass: "default",
+      borderType: BORDER_TYPE.thin,
+      showCoordinates: true,
+      pieces: { file: "pieces/staunty.svg" },
+      animationDuration: 250,
+    },
+    extensions: [
+      { class: Markers },
+      { class: PromotionDialog },
+    ],
+  })
+
+  // Track current state so the move-input handler can validate without
+  // re-reading the DOM. Mutated by applyState.
+  const ctx = {
+    fen: STARTING_FEN,
+    ourColor: "white",
+    sideToMove: "white",
+    gameActive: false,
+    lastMove: null,
+    inputEnabled: false,
+  }
+  board._ctx = ctx
+
+  // Validate-and-dispatch move input handler.
+  const handler = async (event) => {
+    if (event.type === INPUT_EVENT_TYPE.moveInputStarted) {
+      // Only allow picking up our own pieces.
+      const piece = board.getPiece(event.squareFrom)
+      if (!piece) return false
+      const pieceColor = piece.startsWith("w") ? "white" : "black"
+      return pieceColor === ctx.ourColor && ctx.sideToMove === ctx.ourColor
+    }
+    if (event.type === INPUT_EVENT_TYPE.validateMoveInput) {
+      const from = event.squareFrom
+      const to = event.squareTo
+      const piece = board.getPiece(from)
+      // Promotion detection: pawn reaching the back rank.
+      const isPawn = piece && piece[1] === "p"
+      const targetRank = to[1]
+      const promoting = isPawn && (
+        (ctx.ourColor === "white" && targetRank === "8") ||
+        (ctx.ourColor === "black" && targetRank === "1")
+      )
+      if (promoting) {
+        // Show promotion dialog; resolve to the chosen piece.
+        return new Promise((resolve) => {
+          board.showPromotionDialog(
+            to,
+            ctx.ourColor === "white" ? COLOR.white : COLOR.black,
+            (result) => {
+              if (!result || !result.piece) {
+                resolve(false)  // dialog dismissed
+                return
+              }
+              const promoChar = result.piece[1]  // e.g. "wq" -> "q"
+              const uci = from + to + promoChar
+              dispatch(uci, hass, board, ctx, resolve)
+            }
+          )
+        })
+      } else {
+        return new Promise((resolve) => {
+          const uci = from + to
+          dispatch(uci, hass, board, ctx, resolve)
+        })
+      }
+    }
+    return true
+  }
+
+  // Don't call enableMoveInput here — applyState toggles it based on whose
+  // turn it is and whether a game is active.
+  board._inputHandler = handler
+  return board
+}
+
+async function dispatch(uci, hass, board, ctx, resolve) {
+  // Optimistic UI: animate the move locally; if the service call fails,
+  // snap back to the prior position.
+  const previousFen = ctx.fen
+  try {
+    await hass.callService("phantom_chess", "execute_move", { move: uci })
+    setStatus(`Sent ${uci}`, "ok")
+    resolve(true)
+  } catch (err) {
+    console.error("[phantom-chess] execute_move failed:", err)
+    setStatus("Move rejected: " + err.message, "err")
+    // cm-chessboard already animated the piece; pull it back.
+    board.setPosition(previousFen, false)
+    resolve(false)
+  }
+}
+
+function applyState(board, sensor) {
+  if (!sensor) return
+  const attrs = sensor.attributes || {}
+  const ctx = board._ctx
+
+  const fen = sensor.state && /^[1-8rnbqkpRNBQKP/]+$/.test(sensor.state)
+    ? sensor.state
+    : STARTING_FEN
+  const ourColor = attrs.our_color || "white"
+  const sideToMove = attrs.side_to_move || "white"
+  const lastMove = attrs.last_move || null
+  const lichessActive = !!attrs.lichess_active
+  const localActive = !!attrs.local_game_active
+  const gameStatus = attrs.game_status || ""
+  const gameActive = (lichessActive || localActive) &&
+    !["checkmate", "stalemate", "draw", "resigned"].includes(gameStatus)
+
+  ctx.fen = fen
+  ctx.ourColor = ourColor
+  ctx.sideToMove = sideToMove
+  ctx.gameActive = gameActive
+  ctx.lastMove = lastMove
+
+  // Orientation: white at bottom when playing white; flip for black.
+  const desiredOrientation = ourColor === "black" ? COLOR.black : COLOR.white
+  if (board.getOrientation() !== desiredOrientation) {
+    board.setOrientation(desiredOrientation, true)
+  }
+
+  // Position update — animated if the FEN changed.
+  if (board.getPosition().split(" ")[0] !== fen) {
+    board.setPosition(fen, true)
+  }
+
+  // Last-move marker highlights.
+  board.removeMarkers()
+  if (lastMove && lastMove.length >= 4) {
+    try {
+      board.addMarker(MARKER_TYPE.frame, lastMove.slice(0, 2))
+      board.addMarker(MARKER_TYPE.frame, lastMove.slice(2, 4))
+    } catch (err) {
+      console.debug("marker add failed", err)
+    }
+  }
+
+  // Input gating.
+  const ourTurn = gameActive && sideToMove === ourColor
+  if (ourTurn && !ctx.inputEnabled) {
+    board.enableMoveInput(board._inputHandler, desiredOrientation)
+    ctx.inputEnabled = true
+  } else if (!ourTurn && ctx.inputEnabled) {
+    board.disableMoveInput()
+    ctx.inputEnabled = false
+  }
+
+  // Status row & overlay.
+  if (!gameActive) {
+    setStatus(gameStatus
+      ? `Game over — ${gameStatus.replace(/_/g, " ")}`
+      : "No active game — start one from the dashboard")
+    lock(gameStatus
+      ? gameStatus.charAt(0).toUpperCase() + gameStatus.slice(1).replace(/_/g, " ")
+      : "No active game"
+    )
+  } else if (ourTurn) {
+    setStatus(`Your move (${ourColor}). Drag a piece to play.`, "ok")
+    unlock()
+  } else {
+    setStatus(`Waiting for opponent (${sideToMove === "white" ? "White" : "Black"} to move)…`, "pulse")
+    lock("Opponent thinking…")
+  }
+}
+</script>
+</body>
+</html>

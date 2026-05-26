@@ -1,0 +1,139 @@
+# Changelog
+
+All notable changes to the Phantom Chess Board Home Assistant integration are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.3.0-beta1] — 2026-05-25
+
+First public beta. Focus areas: protocol correctness against firmware 0.3.0, multi-game stability, release infrastructure (HACS-compatible repo layout, CI). Builds on the internal v0.2.0 release-readiness pass with several round-of-fixes after Efraín's 2026-05-24 protocol clarifications.
+
+### Added
+
+- **AI-vs-AI play mode (`phantom_chess.start_ai_vs_ai_game` service).** Stockfish plays both sides on the physical board, with the magnet driving every move. Useful as a "watch the AI play itself" demo (the dashboard's learning view, eval bar, classifications, and post-game review all render in real time as the game progresses) and as an autonomous-testing harness — runs a full game without anyone at the board, exercising castling, captures, promotions, and BLE timing edges that single-game testing misses. Per-side `white_ai_level` / `black_ai_level` (default to the integration's current ai_level select) and `move_delay_seconds` (default 1.5s; lower runs faster but stresses the magnet harder) are settable. Game runs until checkmate / stalemate / draw or `phantom_chess.stop_local_game` is called.
+- **Training-wheels move-quality glyph overlay.** When `input_boolean.phantom_chess_training_wheels` is ON, the board image overlays the most-recent move's classification glyph (`!!`, `!`, `?!`, `?`, `??`) on the destination square. Color matches the move-history panel (e.g. red for blunders, green for brilliants). Glyph is suppressed for `best`, `book`, and `unknown` classes to avoid clutter. Cached image invalidates on classification change or toggle flip.
+- **Interactive dashboard board (Task #27).** Bundled self-contained HTML page at `/phantom_chess_static/board.html` — drag-drop pieces from any HA dashboard to physically move them on the board (the magnet executes the move just like a Lichess AI move). Embed via Lovelace `iframe` card; example added to `examples/dashboard.yaml`. Uses cm-chessboard ES module from jsDelivr CDN. Auth via HA long-lived access token (one-time setup, stored per-browser in localStorage). Promotion-piece selector built in. Locks input while opponent is thinking or no game is active. Backed by new `phantom_chess.execute_move` service (UCI + optional promotion + optional entry_id) that validates legality and side-to-move before driving the magnet.
+- **Dashboard-input metadata on the Live Position sensor.** New attributes `our_color`, `side_to_move`, `last_move`, `lichess_active`, `local_game_active`, `game_status`. Used by the interactive board to gate input and orientation; useful for other dashboard cards too.
+
+### Changed
+
+- **Diagnostic buttons in `button.py` are now disabled-by-default in the entity registry.** `PhantomStartGameButton` ("Start Game") drives just the firmware-side BLE snapshot protocol — it does NOT wire up a Lichess or local-Stockfish game, so pressing it during normal use leaves the firmware in "BLE Playing" with no game backend and the dashboard goes blank because the in-game cards have nothing to render. Marked as `EntityCategory.DIAGNOSTIC` and `_attr_entity_registry_enabled_default = False`. `PhantomMovementVerifyButton` already had the disable flag; added the diagnostic category to match. Existing installs that enabled the button via the device page will continue to see it; new installs won't. The user-facing gameplay surface is the `phantom_chess.start_local_game` and `phantom_chess.start_game` services (surfaced as tiles in `examples/dashboard.yaml`). Press-handler log lines also demoted from WARNING to INFO for the same reason — these buttons are no longer part of normal operation.
+- **Renamed `UUID_GAME_CONFIG` → `UUID_SCULPTURE` (7eeaef37) per protocol clarification from Efraín 2026-05-24.** That characteristic is named `UUID_SCULPTURE` in firmware source; the integration's previous name reflected a reverse-engineering guess from app blutter output, not firmware reality. The firmware does NOT interpret the byte the integration historically wrote here as `(ai_level<<1)|color_bit` — that encoding was app-side only. The Lichess-game-start write of that byte was therefore a no-op and has been removed; AI level + color are signaled authoritatively via the GAME_START opcode 0 snapshot matrix+side flag and (for Lichess) the POST /api/challenge/ai payload. The DISCOVERY probe-read of the characteristic is retained because it still surfaces GATT staleness via the shared `_handle_gatt_staleness` helper, but the byte value is no longer interpreted. `UUID_GAME_CONFIG` remains as a deprecated backward-compat alias for one release cycle.
+- **Added `UUID_SLIDE_DELAY` (b5a650ea-…-0004; NEW in firmware 0.3.2 per Efraín 2026-05-24).** Distinct from `UUID_BOARD_ROTATION` (`…-0002`) by a single octet. Integer-as-string ms, range 0–1500, default 250.
+- **Documented `UUID_BOARD_ROTATION` payload as integer-string degrees `"0"/"90"/"180"/"270"`** (correcting earlier note that called it a 0/1 boolean). Writing triggers a board restart.
+- **Documented sculpture-mode chunked transfer protocol** (per Efraín 2026-05-24, in `phantom-chess-protocol.md`). Chunking is used only on `UUID_SCULPTURE` for opcode 9 (PLAYLIST) and opcode 11 (DATABASE); `UUID_GAME` never chunks. The integration's current game-channel payloads always fit in a single packet so chunking isn't implemented yet, but the format is recorded for future sculpture-mode work.
+
+### Fixed
+
+- **"Board stops responding after a castle" (Luke's diagnosis, 2026-05-25).** Castling drives the magnet through TWO piece movements (king e1→g1 + rook h1→f1 for white kingside). The firmware fires one `\x03M` sensor notification for each piece. The previous AI-echo suppression only registered the primary UCI (`e1g1`), so the rook's `\x03M 1 h1-f1` notification was treated as a phantom human move. The legality check correctly rejected it (rook from white isn't legal for black to move) so `self._board` wasn't corrupted, BUT the discovery callback's unconditional `movementVerify` ack still fired, telling the firmware "I accept the rook move" — which the firmware had already counted as part of the castle. That phantom ack confused the firmware's internal state machine and it ignored the next legitimate human move. Fix: `_set_last_ai_move` now accepts the pre-move board and the `chess.Move` object; for castling moves it expands the echo set to include the rook's UCI (and 180°-rotated form) in addition to the king's. `_is_ai_echo` now checks set membership instead of comparing against a single UCI. Both castling directions covered. (En passant and promotion may need similar treatment if user reports analogous symptoms; deferred until confirmed.)
+- **Spurious human-move detection during the post-GAME_START activation window.** The discovery callback's `_is_move` branch could fire on a `\x03M ...` notification that arrived AFTER the firmware transitioned to "Board Playing" but BEFORE the magnet had finished settling — typically a sensor recalibration event during the brief gap before firmware enters "Setting Up". The existing `_reset_modes` filter only catches "Managing Mismatch / Setting Up / Snapping Pieces", so this earlier window was unprotected. Result: the integration interpreted the spurious notification as a human move, pushed it to `self._board`, and the next AI turn responded to a fabricated position. Reproduced 2026-05-25 with `M 1 e8-g8` (phantom black kingside castle) right after a `start_local_game`. Added a `_activation_settle_until` timestamp set to `loop.time() + 45s` by every `_phantom_execute_position` snapshot write, checked in the move-detection branch ahead of the firmware_mode filter. CLEAN: Match notification clears the window early so legitimate post-activation human moves resume immediately once the firmware confirms the target position.
+- **Cross-thread state-write races in BLE notify callbacks (audit §1.5).** `_handle_matrix_bytes`, `_handle_firmware_mode_bytes`, and `_on_battery` ran on a non-loop thread (notify callback context) but mutated `self._state` directly before scheduling a loop-thread update. The dict mutation raced against loop-thread readers (entity property gets, analysis-pipeline tasks, dashboard JSON serialization), and the `dict(self._state)` snapshot taken on the calling thread could interleave with a concurrent loop-thread write. Refactored so each handler parses on whatever thread invoked it, then marshals the state mutation into a `call_soon_threadsafe` closure that runs the new `_apply_*` helpers on the loop. All `self._state` reads and writes for these payloads now happen on the same thread.
+- **`_local_ai_turn` swallow-and-continue when both apply and fallback failed (audit §1.3).** When `async_phantom_apply_ai_move` raised AND the fallback `self._board.push(move)` couldn't run (move not legal in current `_board` — typically a race with the discovery callback that already advanced past the AI's expected turn), the function still ran the analysis pipeline and derived `game_status` from a board state that didn't contain the AI move. Garbage classifications + wrong game-end detection followed. Added a `move_landed` flag tracking whether the move actually got onto `self._board`; if neither path landed it, the post-push bookkeeping is skipped and the function bails after pushing a state refresh so the UI doesn't go stale.
+- **`_local_game_task` cancellation race (audit §1.4).** Five sites previously assigned `self._local_game_task = create_task(_local_ai_turn(), ...)` without cancelling+awaiting any in-flight task first. If a human move arrived mid-AI-think (discovery callback or dashboard move), the new task overwrote the reference but the old task kept running → two AI turns computed and dispatched concurrently. Funneled all replacement through a new `_replace_local_game_task(name=…)` helper that holds `self._local_game_task_lock`, cancels-and-awaits any prior task, then creates the new one. Only one AI turn can be in flight at a time regardless of how many paths request one.
+- **Rewrote `async_takeback` for the firmware-0.3.0 wire format.** Pre-rewrite the integration wrote `b"1"` to `UUID_TAKEBACK` (`89185e7a-…`), a characteristic that does not exist on firmware 0.3.0 — the write silently failed and, for Lichess games, the local board state drifted from Lichess. Per Efraín's 2026-05-24 reply, opcode 5 on `UUID_GAME` takes `"count,FEN,side"` where `side` is who-plays-next (`"1"` = board side, `"0"` = BLE side) and FEN is the position AFTER the takeback. The new `async_takeback(count=1)` rolls back `count` plies on `self._board`, derives `side` from `self._our_color` and the post-pop `board.turn`, and writes opcode 5 with the correct payload. For Lichess games it requests takeback through the Board API first (`POST /api/board/game/{id}/takeback/yes`) and aborts the BLE write on Lichess refusal so the physical board stays in sync with the active online game. The `count` is exposed as an optional service field (default 1) so users can undo a full move pair with one call.
+- **Bulk-demoted 48 of 81 `_LOGGER.warning` calls in `coordinator.py`** to `debug` (per-event protocol traces, DISCOVERY-block leftovers, success-path traces) or `info` (lifecycle events like sculpture-mode entry, local game start, recovery completion). The remaining 33 stay at WARNING and are genuinely user-actionable: BLE connection lost, subscribe failures, GATT staleness recovery, BLE_MOVE_DONE timeouts, takeback ack failures, Lichess auth and stream errors, board-error notifications, AI-move-not-legal desync indicators. Pre-fix, a typical Lichess game generated hundreds of WARNING log lines per minute, dominating the HA system log; post-fix the integration is silent during normal operation and noisy only when something actually requires attention. Triage rationale captured per-line in `outputs/log_demotion.py`.
+- **Board kept showing up as "Discovered" even when already configured.** Pre-v0.3.0 installs that set the board up via the manual-MAC path stored the unique_id in whatever case the user typed (e.g. `c8:C9:A3:F2:7C:0A`). HA's Bluetooth integration always delivers uppercase addresses, so `_abort_if_unique_id_configured()` did a string-equality comparison against the mixed-case stored value, the abort never fired, and the board was perpetually re-offered as a new discovery in Settings → Devices & Services. Config-flow schema bumped to v3; the bluetooth and manual-entry paths both now canonicalize to uppercase colon-separated, and `async_migrate_entry` rewrites pre-existing entries (unique_id, `CONF_BLE_ADDRESS`, `CONF_DEVICE_NAME`, entry title) on first load. Manual entry now also validates the input as a 6-octet MAC and surfaces an inline error instead of accepting arbitrary strings.
+- **Duplicate device + `_2`-suffixed entities after v1→v2 upgrade.** The first cut of the v2 migration normalized only the config entry; the entity registry (whose `unique_id` is `{ble_address}_{suffix}`) and device registry (whose identifier is `(DOMAIN, ble_address)`) carry their own ID spaces, and HA's get-or-create logic does case-sensitive string equality. Result on first post-migration boot: the integration's platform setup couldn't find the existing entities by their now-uppercase expected unique_ids, created a parallel set of entities (auto-suffixed `_2`), attached them to a new uppercase-identifier device, and the original entities went `unavailable`. v3 migration consolidates: rewrites lowercase entity `unique_id`s to uppercase (preserving entity_id, name, area, customizations), prefers the original (non-canonical) entry when both forms exist for the same suffix, deletes the duplicate canonical-form entries, updates the original device's identifier to uppercase, and removes the orphaned uppercase device. v4 follow-up renames any `_2`-suffix entity_ids back to their base form for users who already passed through the initial broken v3 (the first cut had the priority inverted and kept the auto-suffixed entries). Dashboards and automations referencing the original entity_ids are preserved end-to-end.
+- **Static-path registration polluted the entry-id map.** A marker key written to `hass.data[DOMAIN]` was being counted by `_get_coordinator` as a second board, breaking every service call on single-board installs with a phantom "2 Phantom Chess Boards configured" error. Fixed by storing the marker under a separate `hass.data` slot.
+- **GATT staleness recovery now covers discovery-phase reads (Task #28).** The Task #12 fix (2026-05-16) for "Characteristic not found" on writes is now also applied to the discovery-phase `UUID_GAME_CONFIG` read. Previously, a stale GATT handle surfaced during discovery silently logged a warning and the integration sat in a half-open state — `connected = on` but no notifications, requiring manual reload. Symptom observed 2026-05-19 after board power-cycle. Refactored the staleness detection into a shared `_handle_gatt_staleness` helper used by both `_ble_write` and the discovery read.
+
+### Planned
+
+- Coordinator god-object split into `ble_client.py`, `lichess_client.py`, `board_state.py`, `analysis_pipeline.py` modules. Reduces coordinator.py from ~4000 lines to <1000 and unblocks HA Bronze quality scale.
+- Unit + integration tests under `tests/`.
+- HA `diagnostics.py` for one-click debug-bundle download.
+- Brand assets (logo/icon) PR to `home-assistant/brands`.
+
+---
+
+## [0.2.0] — 2026-05-16
+
+First release-readiness pass. Reworks the integration to run on any user's Home Assistant install, not just the developer's. Also closes several reliability gaps surfaced during multi-game stress testing.
+
+### Added
+
+- **Voice play via Assist.** New `script.phantom_chess_play` exposed to the Conversation assistant. Triggered by phrases like "Okay Nabu, let's play chess"; agent elicits color, difficulty, and mode (Lichess / local) before starting.
+- **Mode-agnostic learning view.** New `binary_sensor.phantom_*_learning_view_active` returns true for either Lichess OR local-Stockfish games. Dashboard rich view (eval bar, move history, classifications, post-game review) now renders for both modes. Local-game move events fire the analysis pipeline.
+- **Sensor-mismatch notifications.** Persistent notifications walk the user through which pieces to adjust when the firmware's matrix and sensors disagree ("Missing: a white pawn on e4"). Notification updates only when the disagreement set changes; auto-dismisses on CLEAN: Match.
+- **Continue-on-phone recovery.** New `phantom_chess.resume_from_phone` service. When the integration's apply-AI-move retry exhausts (BLE write failures, ATT 0x0e errors, GATT staleness), fires a persistent notification with instructions to continue the game on phone, then resync the board on tap. Game state is preserved; no resignation.
+- **Lichess stream supervisor.** New `phantom_chess.reconcile_lichess_state` service + auto-trigger callback. When the stream task dies during a BLE storm and misses the terminal gameState event, the reconcile queries Lichess directly and syncs local state. Prevents `lichess_active` from getting stuck on.
+- **GATT-cache-staleness recovery.** `_ble_write` now detects "Characteristic not found" errors that surface after firmware power-cycles or post-reload subscription reuse, and forces a BLE disconnect to trigger fresh service discovery via the existing reconnect loop.
+- **AI-move BLE retry.** `apply_ai_move` retries once with 250ms backoff on transient transport errors (TypeError, BleakError ATT 0x0e, mid-write disconnect). Snapshot mechanism is idempotent — retry is safe.
+- **Transient firmware-state dashboard cards.** Six new dashboard conditionals show state-specific info banners for Snapping Pieces, Snap to Center, Calibrating, Setting Up, Ending Game, Initializing — replacing the bare-board fallback.
+- **`phantom_chess_announce` event.** Integration now fires this event for all announcements (game start, AI moves, classifications, check/mate). Users wire their TTS stack via a simple automation. Integration is no longer coupled to a specific TTS service.
+- **Options flow.** Settings → Devices & Services → Phantom Chess → ⋮ → Configure exposes `tts_service`, `tts_media_player_entity_id`, `debug_dump`. Users can rotate the Lichess token without delete-and-recreate.
+- **Reauth flow.** Lichess HTTP 401/403 from the stream now triggers a token-entry dialog automatically (`async_step_reauth_confirm` in config_flow). Preserves entity history.
+- **ARM Stockfish support.** `STOCKFISH_ASSET_MAP` now includes aarch64/arm64 entries for both musl (Alpine apk) and glibc (official ARM release). HA on Raspberry Pi 4/5, HA Yellow, HA Green — all aarch64 — now get local AI.
+- **Public method `LichessAnalysisClient.best_move_for_ai_level()`.** Replaces the duplicate `_find_stockfish` / `_stockfish_best_move` pair previously in coordinator.py. Routes local-game AI moves through the shared `StockfishFallback` engine.
+
+### Changed
+
+- **Multi-board service routing.** `_get_coordinator(call)` now properly handles multi-board installs: requires `entry_id` in service data when more than one board is configured. Error message lists known entry IDs.
+- **Manifest cleanup.** `codeowners` populated, `issue_tracker` set, `integration_type` set to "device", `documentation` now points at the integration's intended GitHub repo (not the firmware repo). Bluetooth matcher tightened from greedy `local_name: "Phantom*"` to specific `service_uuid: "fd31a840-22e7-11eb-adc1-0242ac120002"`. `chess` dependency loosened from `==1.10.0` to `>=1.10.0,<2.0`.
+- **Debug-log paths portable.** All `/config/phantom_chess_*.txt` writes now use `hass.config.path("phantom_chess", "debug", ...)`. Writes are gated behind the new `debug_dump` option (default off).
+- **Stockfish discovery unified.** Removed the duplicate `_find_stockfish` (hardcoded `/config` paths, silent auto-chmod 0755) and `_stockfish_best_move` (raw subprocess). Both go through `StockfishFallback` now.
+- **Strings cleanup.** Removed dead `firmware_too_old` issue translation; added `reauth_confirm` step and `options.step.init` section.
+
+### Fixed
+
+- **NoneType-not-awaitable bug in AI-move application.** Added `_LOGGER.exception()` for full traceback diagnostics, plus one-shot retry that mitigates the symptom. Root cause still unidentified — next reproduction will surface the exact await site.
+- **Stale `firmware_too_old` repair issue.** Cleanup removes the orphan issue on the next BLE connect. The originating check was a false-positive on all firmware-0.3.0 boards.
+- **Dashboard stale entity references.** Replaced `button.phantom_*_resign` / `_takeback` with `script.phantom_resign` / `script.phantom_takeback` in `lovelace.chess_board` — clears the Spook unknown-entity-references repair.
+- **Lichess game stuck `lichess_active` after game ends elsewhere.** Reconcile mechanism (above) closes this.
+
+### Removed
+
+- **Hardcoded TTS entity IDs** (`tts.google_ai_tts`, `media_player.home_assistant_voice_0a8b1d_media_player`) from coordinator. Replaced with event-based announcements + optional configured TTS.
+- **Hardcoded `/config/phantom_chess_*.txt` paths** in coordinator. Replaced with portable `hass.config.path()` calls.
+- **`_find_stockfish` self-chmod-0755 behavior.** Security smell; removed entirely.
+- **Direct `subprocess` and `shutil` imports** in coordinator — no longer used after Stockfish unification.
+- **Seven deprecated / redundant entities** that had been disabled-by-default for so long they were just dead code. Existing orphans in users' entity registries can be cleaned via the device page in HA's UI:
+  - `sensor.phantom_*_fen` — deprecated; never updated on 0.3.0 firmware. Use `sensor.phantom_*_live_position` (Diagnostic).
+  - `sensor.phantom_*_last_move` — duplicate of `sensor.phantom_*_firmware_last_move` (which is firmware-authoritative).
+  - `sensor.phantom_*_game_status` — internal state-machine field; services use it directly.
+  - `sensor.phantom_*_turn` — derivable from the board image and the FEN.
+  - `sensor.phantom_*_best_move_uci` — duplicate of `sensor.phantom_*_best_move_san` (the human-readable form).
+  - `binary_sensor.phantom_*_game_active` — superseded by `lichess_active` and `learning_view_active`.
+  - `binary_sensor.phantom_*_position_consistent` — the bitmap interpretation turned out to be unreliable.
+
+### Recategorized
+
+- **`Lichess Game ID` and `Eval Source` sensors** moved from disabled-by-default to `EntityCategory.DIAGNOSTIC`. They're legitimately useful for debugging — Lichess Game ID for cross-referencing with the user's Lichess account, Eval Source for diagnosing "why isn't the eval bar updating". Now visible by default in the Diagnostic sub-section of the device page rather than fully hidden.
+- **`Live Position` sensor** moved to `EntityCategory.DIAGNOSTIC` because its 43-character FEN state was overflowing HA's More Info column layout. Still useful for advanced dashboards; no longer cluttering the main entity list.
+
+### Dead-code prune (independent audit follow-up)
+
+After the entity removals an independent audit agent surfaced 12 categories of orphaned code. All removed in the same release window:
+
+- **Duplicate `_phantom_send_ai_move` method definition** — Python kept the second (line 1606); the first (line 1296) was unreachable. Real correctness risk if someone "fixed" the wrong copy.
+- **`_send_move_to_board` method** (~40 lines) — only referenced in two historical comments; the actual call sites had all migrated to `_phantom_execute_position` / `async_phantom_apply_ai_move` long ago.
+- **`_uci_to_phantom` helper** — only consumer was `_send_move_to_board`; orphaned by its deletion.
+- **7 unused entity constants** in const.py: `ENTITY_FEN`, `ENTITY_LAST_MOVE`, `ENTITY_TURN`, `ENTITY_GAME_STATUS`, `ENTITY_BEST_MOVE_UCI`, `ENTITY_GAME_ACTIVE`, `ENTITY_POSITION_CONSISTENT` — left behind when the corresponding entities were removed.
+- **18 orphaned state-dict writes** across coordinator.py (12 `_state["fen"]`, 5 `_state["best_move_uci"]`, 5 `_state["turn"]` + 1 in button.py) — sensors that read them were removed earlier in this same release.
+- **3 stale seed entries** in `_blank_state` (fen, best_move_uci, turn).
+- **5 stale strings.json entity entries** (fen, last_move, game_status, turn, game_active).
+- **1 stale reference in diagnostics.py** to `turn` in `keys_of_interest` tuple.
+- **3 stale comments + docstrings** referencing removed methods/state fields.
+
+coordinator.py shrunk from ~190 KB to ~175 KB (8% smaller) after this prune. No behavior change.
+
+### Internal
+
+- coordinator.py: now 190KB / ~4000 lines. Marked for split in Task #21.
+- New file `examples/dashboard.yaml` — published reference dashboard.
+- New files `LICENSE` (MIT), `README.md` (full user-facing docs), `hacs.json`.
+
+---
+
+## [0.1.0] — 2026-05-08
+
+Initial integration scaffolding (developer pre-release; never publicly distributed).
+
+- BLE config flow with auto-discovery.
+- Lichess Board API integration (challenge AI, stream gameState, send moves, resign, takeback).
+- Local Stockfish fallback for cloud-eval misses.
+- In-game learning dashboard for Lichess games (eval bar, move classification, threat warnings, opening name, post-game review).
+- Sculpture mode for displaying historical games.
+- Entities: connection state, firmware mode, last move, piece count, eval cp/mate/depth/source, best move UCI/SAN, move history, last-game accuracy/result/review, threat SAN, opening name/ECO.

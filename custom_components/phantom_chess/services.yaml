@@ -1,0 +1,282 @@
+start_game:
+  name: Start Game
+  description: >
+    Start a new chess game against the Lichess AI. The board switches to chess-play
+    mode and a Lichess AI challenge is created. Physical moves are relayed from the
+    board to Lichess; AI moves are relayed back and executed mechanically.
+  fields:
+    ai_level:
+      name: AI Level
+      description: Lichess Stockfish level (1 = easiest, 8 = hardest). Defaults to the current selector value.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 8
+          step: 1
+          mode: slider
+    color:
+      name: Color
+      description: Which side to play as. Defaults to the current selector value.
+      required: false
+      selector:
+        select:
+          options:
+            - white
+            - black
+            - random
+
+send_move:
+  name: Send Move
+  description: >
+    Manually inject a move in UCI notation (e.g. "e2e4"). Useful for testing or for
+    external services pushing moves to the board.
+  fields:
+    move:
+      name: Move
+      description: UCI move string, e.g. "e2e4", "g8f6", "e1g1" (kingside castle).
+      required: true
+      selector:
+        text:
+
+start_local_game:
+  name: Start Local Game
+  description: >
+    Start a game against the built-in AI — no Lichess account or internet required.
+    Tries stockfish (if installed), then Lichess cloud eval, then random legal moves.
+  fields:
+    color:
+      name: Color
+      description: Which side to play as. Defaults to the current selector value.
+      required: false
+      selector:
+        select:
+          options:
+            - white
+            - black
+            - random
+
+stop_local_game:
+  name: Stop Local Game
+  description: End the local AI game and return the board to idle mode.
+
+resign:
+  name: Resign
+  description: Resign the current game on Lichess.
+
+start_ai_vs_ai_game:
+  name: Start AI-vs-AI Game
+  description: >
+    Run a Stockfish-vs-Stockfish game on the physical board. Both sides
+    are played by the local Stockfish engine via the same snapshot
+    protocol used for normal AI moves; the magnet physically moves
+    pieces for both colors. Useful for autonomous protocol testing (e.g.,
+    castle handling, BLE timing) and as a "watch the AI play itself"
+    demo. Stops on checkmate/stalemate/draw or when the
+    stop_local_game service is called.
+  fields:
+    white_ai_level:
+      name: White AI Level
+      description: >
+        Stockfish skill for white (1 = easiest, 8 = strongest). Defaults
+        to the integration's current ai_level select.
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 8
+          mode: box
+    black_ai_level:
+      name: Black AI Level
+      description: >
+        Stockfish skill for black (1 = easiest, 8 = strongest). Defaults
+        to the same as white_ai_level.
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 8
+          mode: box
+    move_delay_seconds:
+      name: Move delay (seconds)
+      description: >
+        Seconds to wait between move completions. Lower values run
+        games faster but stress the magnet and BLE link harder. Defaults
+        to 1.5s.
+      example: 1.5
+      default: 1.5
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 0.5
+          mode: box
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
+
+takeback:
+  name: Request Takeback
+  description: >
+    Undo the last N plies on the physical board and in integration state.
+    For Lichess games, requests the takeback through the Lichess Board API
+    first; if Lichess refuses (game state not eligible), no BLE write fires
+    so the board stays in sync with the active Lichess game. For local
+    Stockfish games and no-game-active sessions, rolls back the internal
+    board unconditionally and repositions physical pieces via opcode 5 on
+    UUID_GAME. Wire format and semantics confirmed by Phantom team
+    (Efraín, 2026-05-24).
+  fields:
+    count:
+      name: Plies to undo
+      description: >
+        Number of half-moves to roll back. Default 1. Use 2 to undo a full
+        move pair (your move plus the opponent's).
+      example: 1
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 20
+          mode: box
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
+
+debug_ble_write:
+  name: Debug BLE Write
+  description: >
+    Diagnostic — write an arbitrary payload to an arbitrary BLE characteristic
+    on the connected board. Use to probe firmware 0.3.0 behavior. The data
+    string is UTF-8 encoded by default; prefix with "hex:" for raw bytes
+    (e.g. "hex:0102FF").
+  fields:
+    uuid:
+      name: Characteristic UUID
+      description: Full 128-bit UUID with dashes, e.g. "5e316147-4550-4cf3-8e2b-edc098312a43".
+      required: true
+      selector:
+        text:
+    data:
+      name: Payload
+      description: ASCII payload (e.g. "M e2-e4", "1") or "hex:..." for raw bytes.
+      required: true
+      selector:
+        text:
+
+phantom_start_game:
+  name: Phantom Start Game (confirmed protocol)
+  description: >
+    Start a chess game using the activation sequence captured from the official
+    Phantom Android app. After this is invoked, you MUST physically lift any
+    piece on the board and place it back to break the firmware's
+    Setting Up ↔ Managing Mismatch oscillation. Once the firmware enters
+    Running mode, the integration sends the side opcode and tracking begins.
+  fields:
+    fen:
+      name: FEN
+      description: Position FEN to set up. Defaults to the standard starting position.
+      required: false
+      selector:
+        text:
+    side:
+      name: Side to move first
+      description: W = white moves first, B = black moves first.
+      required: false
+      selector:
+        select:
+          options: [W, B]
+    timeout:
+      name: Wait timeout (seconds)
+      description: How long to wait for firmware Running mode after gameStart. Default 60.
+      required: false
+      selector:
+        number:
+          min: 5
+          max: 300
+          step: 5
+          mode: box
+
+phantom_apply_ai_move:
+  name: Phantom Apply AI Move
+  description: >
+    Apply an engine/AI move to the board after a human move has been detected.
+    Issues movementVerify + side flip + movement using the confirmed protocol.
+    The firmware physically moves the piece via the magnet head.
+  fields:
+    move:
+      name: UCI move
+      description: UCI notation of the AI's move, e.g. 'e7e5', 'g8f6'.
+      required: true
+      selector:
+        text:
+
+reconcile_lichess_state:
+  name: Reconcile Lichess State
+  description: >
+    Query Lichess directly for the current state of the in-progress game and
+    sync local sensors if the game has actually ended. Use when the dashboard
+    shows lichess_active=on but you've finished the game on your phone or
+    web. Safe to call at any time — no-op if Lichess still says the game is
+    active. Also auto-triggers when the stream task dies unexpectedly.
+
+resume_from_phone:
+  name: Resume from Phone
+  description: >
+    Push the integration's current board state to the physical board so it
+    catches up with moves you played on Lichess.org or your phone while the
+    physical drive was failing. Use after the "AI move not delivered"
+    notification appears: continue the game on your phone, then call this
+    service when the board is ready to resume physical play. The integration
+    sends a RESET_DETECTION (opcode 14) snapshot to firmware so it knows the
+    current position without driving the magnet.
+
+execute_move:
+  name: Execute Move (Dashboard)
+  description: >
+    Execute a UCI move on behalf of the user, driving the magnet to physically
+    move the piece on the board. Distinct from send_move (which assumes the
+    user already moved the piece physically). Used by the bundled interactive
+    web board at /phantom_chess_static/board.html — embed it in a Lovelace
+    iframe card to drag-drop pieces from the dashboard.
+
+    Validates that a game is active, that it's the user's turn, and that the
+    move is legal in the current position. For Lichess games, the move is
+    POSTed to the Lichess Board API after the magnet drives the piece. For
+    local Stockfish games, the AI response is triggered automatically.
+  fields:
+    move:
+      name: UCI move
+      description: >
+        UCI notation of the move, e.g. "e2e4", "g1f3", "e1g1" (kingside
+        castle), "e7e8q" (pawn promotion). The promotion suffix may be
+        embedded in the move string, or passed separately via the promotion
+        field.
+      required: true
+      selector:
+        text:
+    promotion:
+      name: Promotion piece
+      description: Piece to promote to when a pawn reaches the back rank. Optional; required if the move is a pawn promotion and the UCI string is only 4 characters.
+      required: false
+      selector:
+        select:
+          options:
+            - q
+            - r
+            - b
+            - n
+    entry_id:
+      name: Entry ID
+      description: ConfigEntry ID of the target board (required if more than one Phantom board is configured).
+      required: false
+      selector:
+        text:
