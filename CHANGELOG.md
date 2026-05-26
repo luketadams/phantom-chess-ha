@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha1] — 2026-05-25
+
+First step of the Option C work (auto-provisioning everything the rich dashboard needs). Drops 2 of the 5 hand-rolled helpers `examples/helpers.yaml` previously required: the mode picker and the sculpture-game picker are now integration-owned `select` entities, created automatically when the integration sets up a config entry.
+
+### Added
+
+- **`select.<device>_setup_mode`** — replaces the hand-rolled `input_select.phantom_chess_setup_mode` helper. Options: "Choose a mode", "Play with Lichess", "Play with Stockfish", "Sculpture Library", "2-Player Game". State persists across HA restarts via `RestoreEntity`.
+- **`select.<device>_sculpture_game`** — replaces the hand-rolled `input_select.phantom_chess_sculpture_game` helper. 18 famous historical games as options (catalog in `const.py:SCULPTURE_GAMES`; future games can be added there without a breaking change). State persists across HA restarts.
+
+### Changed
+
+- **README — "The Chess Dashboard" section reframed.** Previously called the rich dashboard "optional"; that framing was wrong. The Phantom Chess Board is a single-purpose device with one sensible UI; the dashboard is the user-facing surface of the integration, not a bonus. Updated wording. Auto-provisioning roadmap noted explicitly: v0.4 will reduce the setup to "install Mushroom + layout-card, done."
+
+### Migration notes for v0.3 users
+
+Both v0.3's `input_select` helpers and v0.4's `select` entities will coexist on existing installs. The dashboard still references `input_select.phantom_chess_setup_mode` and will keep working. To migrate to the integration-owned versions:
+
+1. Update `examples/dashboard-rich.yaml` (or your dashboard YAML) to reference `select.<your_device>_setup_mode` instead of `input_select.phantom_chess_setup_mode`.
+2. Same for `input_select.phantom_chess_sculpture_game` → `select.<your_device>_sculpture_game`.
+3. Delete the two old `input_select` helpers from `configuration.yaml` (or from Settings → Helpers if you created them via UI).
+4. Restart HA.
+
+A future alpha will ship an updated dashboard YAML that uses the new entity names by default.
+
 ## [0.3.0-beta3] — 2026-05-25
 
 ### Added

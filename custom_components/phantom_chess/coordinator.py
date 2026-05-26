@@ -199,6 +199,15 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Game settings (mutated by HA services / select entities)
         self.ai_level: int = 3
         self.player_color: str = "random"  # "white" | "black" | "random"
+        # Integration-owned mode + sculpture pickers (v0.4-alpha1, Option C
+        # step 1). Replaces the input_select.phantom_chess_setup_mode /
+        # input_select.phantom_chess_sculpture_game helpers that v0.3
+        # required users to create by hand. The select-platform entities in
+        # select.py read/write these fields. Defaults match v0.3's helpers
+        # so v0.3→v0.4 dashboards see the same initial state.
+        from .const import DEFAULT_SETUP_MODE, DEFAULT_SCULPTURE_GAME
+        self.setup_mode: str = DEFAULT_SETUP_MODE
+        self.selected_sculpture: str = DEFAULT_SCULPTURE_GAME
         # Mechanism speed on the firmware-native 1..5 scale (3 = NORMAL).
         # Was 50 when the entity exposed 0..100; corrected to the actual
         # firmware range 2026-05-13. See XOUXOU_PROTOCOL.md.

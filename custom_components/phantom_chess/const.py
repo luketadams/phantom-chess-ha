@@ -127,6 +127,12 @@ ENTITY_LICHESS_ID    = "lichess_game_id"
 ENTITY_CONNECTED     = "connected"
 ENTITY_AI_LEVEL      = "ai_level"
 ENTITY_PLAYER_COLOR  = "player_color"
+# Integration-owned mode picker + sculpture-game picker (replaces the
+# `input_select.phantom_chess_setup_mode` / `input_select.phantom_chess_sculpture_game`
+# helpers that v0.3 required users to create by hand). Added 2026-05-25
+# as v0.4-alpha1: first step of folding Option C work into the integration.
+ENTITY_SETUP_MODE      = "setup_mode"
+ENTITY_SCULPTURE_GAME  = "sculpture_game"
 ENTITY_MECH_SPEED    = "mechanism_speed"
 ENTITY_SOUND_LEVEL   = "sound_level"
 ENTITY_PAUSE         = "pause"
@@ -215,3 +221,43 @@ STATUS_RESIGNED   = "resigned"
 BLE_RETRY_SECONDS      = 10
 BLE_MAX_RETRY_SECONDS  = 60
 LICHESS_RETRY_SECONDS  = 5
+
+
+# ── Mode picker + sculpture catalog (v0.4-alpha1, Option C step 1) ───────────
+
+# Mode-picker options. Match what v0.3's `examples/helpers.yaml` defines so
+# dashboards built against either version see the same option strings.
+SETUP_MODE_OPTIONS = [
+    "Choose a mode",
+    "Play with Lichess",
+    "Play with Stockfish",
+    "Sculpture Library",
+    "2-Player Game",
+]
+DEFAULT_SETUP_MODE = "Choose a mode"
+
+# Sculpture-game catalog. Selecting one in the sculpture-library dropdown
+# sets `coordinator.selected_sculpture`. The catalog matches v0.3's
+# `examples/helpers.yaml`. New games can be added here without a breaking
+# change since the picker's options are derived from this constant.
+SCULPTURE_GAMES = [
+    "1851 — Anderssen vs Kieseritzky (Immortal Game)",
+    "1858 — Morphy's Opera Game",
+    "1907 — Rotlewi vs Rubinstein (Immortal)",
+    "1924 — Réti vs Capablanca (NY)",
+    "1933 — Einstein vs Oppenheimer",
+    "1938 — Botvinnik vs Capablanca (AVRO)",
+    "1956 — Byrne vs Fischer (Game of the Century)",
+    "1958 — Polugaevsky vs Nezhmetdinov (Immortal)",
+    "1967 — Fischer vs Myagmarsuren",
+    "1972 — Fischer vs Spassky (WCC Game 6)",
+    "1985 — Karpov vs Kasparov (WCC)",
+    "1997 — Deep Blue vs Kasparov (Game 6)",
+    "1999 — Kasparov vs Topalov (Immortal)",
+    "2013 — Aronian vs Anand (Anand's Immortal)",
+    "2015 — Wei Yi vs Bruzon (King Hunt)",
+    "2016 — Carlsen vs Karjakin (WCC Tiebreak)",
+    "2021 — Carlsen vs Nepomniachtchi (WCC G6, 136 moves)",
+    "2023 — Nepomniachtchi vs Ding (WCC TB G4)",
+]
+DEFAULT_SCULPTURE_GAME = SCULPTURE_GAMES[0]
