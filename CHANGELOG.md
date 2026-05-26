@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha7] — 2026-05-26
+
+Visual polish for the auto-provisioned dashboard.
+
+### Fixed
+
+- **Removed the red "Configuration error" badge** that appeared at the top of `/phantom-chess`. Caused by a single empty-content markdown card the original v0.3 template used as a layout spacer in a 2-column grid. Changed `content: ''` to `content: ' '` so HA's card-validation passes.
+- **Tile-as-button icon clicks now trigger the action**, not the entity-history popup. The dashboard's tile cards (Back to modes, Resign, Takeback, Request Hint, etc.) were rewritten from v0.3 `script.phantom_X` entities to `binary_sensor.X_connected` (purely for icon display), and the rewritten tap_action correctly invoked the native `phantom_chess.X` service — but clicks on the **icon** still defaulted to HA's "show more info" popup. Renderer now mirrors the tap_action into `icon_tap_action`, so icon and body clicks behave the same.
+- **Tiles that lacked an explicit tap_action** (a few "Back to modes" buttons in the original template relied on the script-entity to be the action) now get a proper tap_action injected during render, instead of becoming silent no-op buttons.
+
+### Changed (internal)
+
+- **Renderer split into text-level + dict-level passes.** Helper rewrites, service-domain rewrites, and entity-id resolution remain text-level. Script-tile entity rewriting moved to dict-level (`_fixup_script_tiles`), which walks the parsed config and rewrites every `entity: script.phantom_X` tile in one pass — injecting `entity`, `hide_state`, `tap_action`, AND `icon_tap_action` atomically. This made it possible to distinguish button-tiles from informational tiles (e.g. the legitimate "Bluetooth connection" tile that should still open the entity popup on icon click).
+
 ## [0.4.0-alpha6] — 2026-05-26
 
 Second blank-dashboard fix. The alpha5 substitution covered the v0.3 `board_idle` template helper but didn't address a deeper issue: **HA assigns entity_ids differently depending on when each entity was first registered**. Old entities (v0.3) ended up with the MAC slug (`binary_sensor.phantom_c8_c9_a3_f2_7c_0a_connected`) while the alpha1–3 entities got the device-name slug (`select.phantom_6552_setup_mode`). The dashboard renderer was predicting all entity_ids from the MAC, so the alpha entities (mode picker, sculpture picker, training-wheels toggle, clock numbers, board-idle sensor) all came out as broken references — every conditional that gated them stayed false, and the dashboard rendered blank.

@@ -268,46 +268,111 @@ def _render_template(
 
     text = _TEMPLATE_ENTITY_REF.sub(_resolve, text)
 
-    # 4. Script tile references → connected sensor (icon-only button).
-    connected_entity = _resolve_or_fallback(
-        "binary_sensor", "connected", entity_map, mac_slug
-    )
-    for script_name in _SCRIPT_TO_SERVICE:
-        text = text.replace(
-            f"entity: script.{script_name}",
-            f"entity: {connected_entity}",
-        )
-
-    # 5. tap_action service calls that target script.phantom_X. The rich
-    #    dashboard mixes four shapes:
-    #      a) action: call-service / service: script.turn_on / target: entity_id: ...
-    #      b) action: perform-action / perform_action: script.turn_on / target: entity_id: ...
-    #      c) action: perform-action / perform_action: script.turn_on / data: entity_id: ...
-    #      d) action: call-service / service: script.turn_on / data: entity_id: ...
-    #    All four rewrite to `action: perform-action / perform_action: <domain>.<service>`.
-    pattern_target = re.compile(
-        r"action: (?:call-service|perform-action)\n"
-        r"(?P<indent>\s+)(?:service|perform_action): script\.turn_on\n"
-        r"\s+target:\n\s+entity_id: script\.(?P<name>phantom_[a-z_]+)",
-    )
-    pattern_data = re.compile(
-        r"action: (?:call-service|perform-action)\n"
-        r"(?P<indent>\s+)(?:service|perform_action): script\.turn_on\n"
-        r"\s+data:\n\s+entity_id: script\.(?P<name>phantom_[a-z_]+)",
-    )
-
-    def _rewrite_script(match: re.Match[str]) -> str:
-        script_name = match.group("name")
-        service = _SCRIPT_TO_SERVICE.get(script_name)
-        if service is None:
-            return match.group(0)
-        indent = match.group("indent")
-        return f"action: perform-action\n{indent}perform_action: {DOMAIN}.{service}"
-
-    text = pattern_target.sub(_rewrite_script, text)
-    text = pattern_data.sub(_rewrite_script, text)
+    # Script-tile and script.turn_on tap_action rewrites are intentionally
+    # deferred to :func:`_fixup_script_tiles` (post-parse, dict-level) so we
+    # can both rewrite the entity AND inject the matching ``tap_action`` /
+    # ``icon_tap_action`` for tiles that lacked an explicit tap_action.
 
     return text
+
+
+def _walk_cards(node: Any):
+    """Yield every dict that has a ``type`` field, depth-first.
+
+    Used to find Lovelace cards anywhere in the config tree, including
+    nested inside ``vertical-stack``, ``grid``, ``conditional`` cards,
+    etc. Operates in-place; consumers mutate yielded dicts directly.
+    """
+    if isinstance(node, dict):
+        if "type" in node:
+            yield node
+        for value in node.values():
+            yield from _walk_cards(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk_cards(item)
+
+
+def _fixup_script_tiles(
+    config: dict[str, Any],
+    connected_entity: str,
+) -> None:
+    """Convert v0.3 script-based tiles into native-service buttons.
+
+    The v0.3 dashboard used ``script.phantom_X`` entities as clickable
+    buttons — clicking the script entity launched the action. After
+    helper migration there are no scripts, so we replace each such tile
+    with a visual icon-button:
+
+    1. ``entity:`` repointed at the always-present ``connected`` sensor
+       (so the icon still renders); ``hide_state: true`` so the connected
+       state doesn't leak into the button label.
+    2. ``tap_action:`` set to invoke ``phantom_chess.<service>`` directly.
+    3. ``icon_tap_action:`` mirrors ``tap_action`` so clicks on the icon
+       portion don't fall through to HA's default "show more info" popup
+       (which opens the connected-sensor history dialog — see alpha7).
+
+    Also handles the case where a tile already had an explicit
+    ``tap_action`` pointing at ``phantom_chess.<service>`` (rewritten by
+    the text-level pass earlier): the existing tap_action stays, and
+    ``icon_tap_action`` is added to match.
+    """
+    for card in _walk_cards(config):
+        if card.get("type") != "tile":
+            continue
+
+        entity_ref = card.get("entity", "")
+        is_script_tile = isinstance(entity_ref, str) and entity_ref.startswith(
+            "script.phantom_"
+        )
+
+        if is_script_tile:
+            # Case A: v0.3 script-as-entity tile. Replace entity, inject
+            # both tap_action and icon_tap_action.
+            script_name = entity_ref.split(".", 1)[1]
+            service = _SCRIPT_TO_SERVICE.get(script_name)
+            if service is None:
+                # Unknown script — leave it as-is so the broken reference
+                # is visible to the user rather than silently swapped.
+                continue
+            action = {
+                "action": "perform-action",
+                "perform_action": f"{DOMAIN}.{service}",
+            }
+            card["entity"] = connected_entity
+            card.setdefault("hide_state", True)
+            # Preserve any existing confirmation prompt on tap_action.
+            existing_tap = card.get("tap_action")
+            if isinstance(existing_tap, dict) and "confirmation" in existing_tap:
+                action_with_conf = {**action, "confirmation": existing_tap["confirmation"]}
+                card["tap_action"] = action_with_conf
+                card["icon_tap_action"] = action_with_conf
+            else:
+                card["tap_action"] = action
+                card["icon_tap_action"] = action
+            continue
+
+        # Case B: tile that already had tap_action rewritten by the
+        # text-level pass to phantom_chess.X. Mirror to icon_tap_action
+        # so the icon doesn't open the entity popup.
+        tap = card.get("tap_action")
+        if not isinstance(tap, dict):
+            continue
+        # Recognise both "perform_action: phantom_chess.X" and the
+        # legacy "service: phantom_chess.X" shapes.
+        target_call = tap.get("perform_action") or tap.get("service")
+        if not isinstance(target_call, str):
+            continue
+        if not target_call.startswith(f"{DOMAIN}."):
+            continue
+        # Mirror — but ONLY for tiles likely to be buttons (hide_state set,
+        # or the entity is the connected sensor we repurposed). Leave
+        # informational tiles like `binary_sensor.X_connected` "Bluetooth
+        # connection" alone — they should still show entity history on
+        # icon click.
+        if card.get("hide_state") is not True and card.get("entity") != connected_entity:
+            continue
+        card.setdefault("icon_tap_action", tap)
 
 
 async def build_dashboard_config(
@@ -317,18 +382,80 @@ async def build_dashboard_config(
 
     Async because the template file is read off the event loop
     (``asyncio.to_thread``) to avoid the HA "blocking call" warning.
+
+    Two-phase rendering:
+
+    1. **Text-level pass** in :func:`_render_template`: helper-id and
+       service-domain rewrites, plus entity-id resolution via the registry.
+       Leaves ``entity: script.phantom_X`` references and
+       ``service: script.turn_on`` tap_actions intact.
+
+    2. **Dict-level pass** in :func:`_fixup_script_tiles` (post-parse):
+       rewrites every script-based tile to use the native service and
+       mirrors ``tap_action`` into ``icon_tap_action`` so icon clicks
+       don't open HA's default entity-history popup.
     """
     entity_map = _resolve_entity_ids(hass, ble_address)
     yaml_text: str = await asyncio.to_thread(
         _TEMPLATE_PATH.read_text, encoding="utf-8"
     )
+
+    # text-level pass needs `script.turn_on` tap_action rewrites collapsed
+    # into perform_action before dict walk, so do them here as a quick
+    # regex pass on the rendered text. They're shape-only (no need for
+    # dict-level context).
     rendered = _render_template(yaml_text, ble_address, entity_map)
+    rendered = _rewrite_script_turn_on_in_text(rendered)
+
     config = yaml.safe_load(rendered)
     if not isinstance(config, dict):
         raise ValueError(
             "Rendered dashboard template did not parse as a YAML mapping"
         )
+
+    connected_entity = _resolve_or_fallback(
+        "binary_sensor", "connected", entity_map, _mac_to_slug(ble_address)
+    )
+    _fixup_script_tiles(config, connected_entity)
+
     return config
+
+
+# script.turn_on tap_action shapes (call-service/perform-action × target/data).
+_SCRIPT_TURNON_PATTERNS: Final = (
+    re.compile(
+        r"action: (?:call-service|perform-action)\n"
+        r"(?P<indent>\s+)(?:service|perform_action): script\.turn_on\n"
+        r"\s+target:\n\s+entity_id: script\.(?P<name>phantom_[a-z_]+)"
+    ),
+    re.compile(
+        r"action: (?:call-service|perform-action)\n"
+        r"(?P<indent>\s+)(?:service|perform_action): script\.turn_on\n"
+        r"\s+data:\n\s+entity_id: script\.(?P<name>phantom_[a-z_]+)"
+    ),
+)
+
+
+def _rewrite_script_turn_on_in_text(text: str) -> str:
+    """Collapse every ``script.turn_on`` tap_action targeting a v0.3 phantom
+    script into ``perform-action`` with the native service name.
+
+    Same effect as the previous text-level step 5, kept text-level so the
+    parsed dict already has ``perform_action: phantom_chess.X`` to be
+    mirrored into ``icon_tap_action`` by :func:`_fixup_script_tiles`.
+    """
+    def _rewrite(match: re.Match[str]) -> str:
+        service = _SCRIPT_TO_SERVICE.get(match.group("name"))
+        if service is None:
+            return match.group(0)
+        return (
+            f"action: perform-action\n"
+            f"{match.group('indent')}perform_action: {DOMAIN}.{service}"
+        )
+
+    for pattern in _SCRIPT_TURNON_PATTERNS:
+        text = pattern.sub(_rewrite, text)
+    return text
 
 
 # --------------------------------------------------------------------------- #

@@ -88,7 +88,7 @@ views:
           square: false
           cards:
           - type: markdown
-            content: ''
+            content: ' '
           - type: markdown
             content: "{% set conn = is_state('binary_sensor.phantom_YOUR_BOARD_MAC_connected', 'on') %}{% set mode = states('sensor.phantom_YOUR_BOARD_MAC_firmware_mode') %}{% set batt = states('sensor.phantom_YOUR_BOARD_MAC_battery')\
               \ %}{% set last = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{{ '\U0001F7E2' if conn else '\U0001F534' }} &nbsp; Battery: **{{ batt }}%** &nbsp;\u2022&nbsp; Mode: **{{\
