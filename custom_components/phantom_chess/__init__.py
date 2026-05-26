@@ -17,6 +17,17 @@ from homeassistant.helpers import (
 from .config_flow import _normalize_ble_address
 from .const import CONF_BLE_ADDRESS, CONF_DEVICE_NAME, DOMAIN
 from .coordinator import PhantomChessCoordinator
+from .dashboard_provision import (
+    async_provision_dashboard,
+    async_unprovision_dashboard,
+)
+
+# Options-flow key. v0.4-alpha4 default: True (auto-provision the rich
+# Chess dashboard at /phantom-chess on first setup). Power users who want
+# to author their own dashboard can flip this off in Settings →
+# Devices & Services → Phantom Chess → Configure.
+OPT_AUTO_PROVISION_DASHBOARD = "auto_provision_dashboard"
+DEFAULT_AUTO_PROVISION_DASHBOARD = True
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -555,7 +566,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _register_static_paths(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # v0.4-alpha4: provision (or remove) the /phantom-chess dashboard based
+    # on the per-entry toggle. Runs after platform setup so the entities the
+    # dashboard references exist by the time the user opens the page.
+    # Both branches are idempotent — safe to call on every reload, and a
+    # user flipping the toggle in options gets an immediate effect via the
+    # reload listener below.
+    if entry.options.get(OPT_AUTO_PROVISION_DASHBOARD, DEFAULT_AUTO_PROVISION_DASHBOARD):
+        try:
+            await async_provision_dashboard(hass, entry)
+        except Exception:
+            # Provisioning is non-critical — never fail integration setup
+            # because the dashboard couldn't be written.
+            _LOGGER.exception(
+                "Failed to provision Phantom Chess dashboard for entry %s",
+                entry.entry_id,
+            )
+    else:
+        try:
+            await async_unprovision_dashboard(hass)
+        except Exception:
+            _LOGGER.exception(
+                "Failed to unprovision Phantom Chess dashboard for entry %s",
+                entry.entry_id,
+            )
+
+    # Reload when options change so the auto_provision_dashboard toggle takes
+    # effect without a HA restart. Stored once per entry.
+    if not hasattr(entry, "_phantom_options_unsub"):
+        entry._phantom_options_unsub = entry.add_update_listener(_async_options_updated)
+
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Re-load the config entry when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 # Marker key for static-path registration. Stored under a SEPARATE
@@ -627,10 +674,37 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SERVICE_RESET_POSITION, SERVICE_PLAY_SOUND, SERVICE_REQUEST_HINT,
             SERVICE_DISMISS_REVIEW, SERVICE_RECONCILE_LICHESS_STATE,
             SERVICE_RESUME_FROM_PHONE, SERVICE_EXECUTE_MOVE,
+            SERVICE_BACK_TO_MODES, SERVICE_START_LICHESS_CONFIGURED,
+            SERVICE_PLAY_SELECTED_SCULPTURE,
         ):
             hass.services.async_remove(DOMAIN, svc)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Tear down per-entry artifacts the user shouldn't keep after uninstall.
+
+    Called by HA when the user actively deletes the integration (not on
+    unload/reload). v0.4-alpha4: removes the auto-provisioned
+    /phantom-chess dashboard so a clean reinstall starts fresh.
+
+    The dashboard is shared across all configured boards (single
+    /phantom-chess url_path), so we only remove it when the last entry is
+    going away.
+    """
+    remaining = hass.data.get(DOMAIN, {})
+    # remaining still contains entry.entry_id when async_remove_entry runs;
+    # for v1 the dashboard is shared so a single board's removal clears it.
+    # If multi-board users complain, we can switch to per-board urls later.
+    if entry.options.get(OPT_AUTO_PROVISION_DASHBOARD, DEFAULT_AUTO_PROVISION_DASHBOARD):
+        try:
+            await async_unprovision_dashboard(hass)
+        except Exception:
+            _LOGGER.exception(
+                "Failed to unprovision Phantom Chess dashboard for entry %s",
+                entry.entry_id,
+            )
 
 
 def _register_services(hass: HomeAssistant) -> None:

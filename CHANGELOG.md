@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha4] — 2026-05-25
+
+The dashboard auto-installs.
+
+After this alpha, a fresh HACS install of the integration drops a fully-themed **Chess** dashboard at `/phantom-chess` in the sidebar — no copy-paste, no find-and-replace on `YOUR_BOARD_MAC`, no `examples/helpers.yaml`, no companion scripts. Just install the integration, pair your board, and the dashboard appears immediately (no HA restart required).
+
+### Added
+
+- **Auto-provisioned `/phantom-chess` dashboard.** The 1083-line "rich" dashboard from v0.3's `examples/dashboard-rich.yaml` is now bundled inside the integration package (`custom_components/phantom_chess/dashboard_template.yaml`) and rendered on every config-entry setup against your board's MAC slug. The rendered config is written to Lovelace storage (`.storage/lovelace.phantom_chess`) and registered in `.storage/lovelace_dashboards`, so it persists across HA restarts and integration reloads. Idempotent — second setups update the existing dashboard rather than duplicating it.
+- **Options-flow toggle `auto_provision_dashboard`** (default: on). Power users who want to hand-author their own dashboard can flip this off in Settings → Devices & Services → Phantom Chess → Configure; on the next reload, the integration removes the auto-provisioned `/phantom-chess` so you're working from a clean slate.
+
+### Changed
+
+- **`async_remove_entry`** now cleans up the auto-provisioned dashboard so a clean reinstall starts fresh. Unloading (e.g. for a HACS update) keeps the dashboard intact — only the explicit "Delete integration" action triggers removal.
+
+### Migration notes for v0.3 users
+
+If you have the v0.3 `examples/dashboard-rich.yaml` already pasted into a manual dashboard, the alpha4 auto-provisioned dashboard installs **alongside** it at the new `/phantom-chess` URL — your existing dashboard isn't touched. To switch over, delete your manual dashboard from Settings → Dashboards.
+
+If you have the v0.3 setup pack scripts installed (`examples/scripts.yaml`), they continue to work but the auto-provisioned dashboard no longer references them — every tap calls a native `phantom_chess.*` service instead. The scripts are safe to leave installed or to delete.
+
+### Internal notes
+
+- The integration writes directly to `.storage/lovelace_dashboards` rather than calling `DashboardsCollection.async_create_item()` because the collection object is held only inside a closure in `homeassistant.components.lovelace.async_setup` with no public accessor. Direct storage writes match what the collection persists.
+- Template substitutions are text-level rather than YAML-level, so the bundled template stays human-readable and diff-friendly. Substitutions cover the MAC slug, the v0.3 `input_*` helper entities → v0.4 native entities, helper service domains (`input_select.select_option` → `select.select_option`), and four shapes of script tile/tap-action that the rich dashboard uses interchangeably.
+- The dashboard depends on three HACS frontend resources for full visual fidelity: `custom:mushroom-template-card`, `custom:layout-card`, and `card-mod`. Without them the dashboard renders functional cards with broken styling. A future alpha will surface this via the HA repair issue system.
+
 ## [0.4.0-alpha3] — 2026-05-26
 
 Drops the last remaining hand-rolled helper (the template binary sensor) AND the 6 of 7 companion scripts the v0.3 dashboard depended on. The dashboard YAML still needs to ship in `examples/` and be pasted by the user, but it no longer requires ANY companion helpers/scripts — every entity it references is created by the integration.

@@ -342,6 +342,14 @@ class PhantomChessOptionsFlow(OptionsFlow):
                     "debug_dump",
                     default=bool(current.get("debug_dump", False)),
                 ): bool,
+                # v0.4-alpha4. Default True (per DEFAULT_AUTO_PROVISION_DASHBOARD
+                # in __init__.py). Flip off if the user prefers to write their
+                # own dashboard — the existing /phantom-chess dashboard will
+                # be removed on the next reload.
+                vol.Optional(
+                    "auto_provision_dashboard",
+                    default=bool(current.get("auto_provision_dashboard", True)),
+                ): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
