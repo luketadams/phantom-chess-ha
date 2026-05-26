@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha3] — 2026-05-26
+
+Drops the last remaining hand-rolled helper (the template binary sensor) AND the 6 of 7 companion scripts the v0.3 dashboard depended on. The dashboard YAML still needs to ship in `examples/` and be pasted by the user, but it no longer requires ANY companion helpers/scripts — every entity it references is created by the integration.
+
+The next alpha (alpha4) lands the auto-provisioning of the dashboard itself.
+
+### Added
+
+- **`binary_sensor.<device>_board_idle`** — replaces the template `binary_sensor.phantom_chess_board_idle` from v0.3's `examples/helpers.yaml`. Returns `on` only when the firmware has been stable for ≥60 seconds (drives the dashboard's mode-picker-vs-live-game gating; without it, the dashboard flickers during sculpture playback). Implementation tracks `firmware_last_move_updated` and re-evaluates every 5 seconds via `async_track_time_interval` so the True transition fires within 5s of the threshold, even without coordinator events.
+- **Service `phantom_chess.back_to_modes`** — resets the mode picker to "Choose a mode" and clears the post-game review flag. Replaces `script.phantom_back_to_modes`.
+- **Service `phantom_chess.start_lichess_configured`** — starts a Lichess game using the integration's currently-set `select` + `number` entities for color, AI level, and clock controls. Replaces `script.phantom_start_lichess_configured`.
+- **Service `phantom_chess.play_selected_sculpture`** — v0.4-alpha3 STUB. Enters sculpture mode and fires a persistent notification naming the selected game. Per-game move sequences will land in a later alpha; for now, users with v0.3's per-game `script.phantom_sculpture_*` scripts can call them directly.
+
+### Migration notes for v0.3 users
+
+After updating to alpha3, the bundled dashboard YAML can call services instead of routing through scripts. The mapping:
+
+- `script.turn_on script.phantom_back_to_modes` → `phantom_chess.back_to_modes`
+- `script.turn_on script.phantom_start_lichess_configured` → `phantom_chess.start_lichess_configured`
+- `script.turn_on script.phantom_play_selected_sculpture` → `phantom_chess.play_selected_sculpture` (stub for now)
+- `script.turn_on script.phantom_takeback` → `phantom_chess.takeback`
+- `script.turn_on script.phantom_resign` → `phantom_chess.resign`
+- `script.turn_on script.phantom_request_hint` → `phantom_chess.request_hint`
+
+The voice-Assist script (`script.phantom_chess_play`) stays — it's a script for Assist integration, not a dashboard control.
+
+For the `binary_sensor` migration, update dashboard references from `binary_sensor.phantom_chess_board_idle` (template helper) → `binary_sensor.<your_device>_board_idle` (integration entity). Then delete the template helper.
+
 ## [0.4.0-alpha2] — 2026-05-26
 
 Drops 3 more hand-rolled helpers from the v0.3 setup pack. After this alpha, only one helper (the template binary sensor for the 60s-idle gate) and the 7 companion scripts remain manual. v0.4-alpha3 will land the binary sensor; alpha4 onward will start retiring the scripts.

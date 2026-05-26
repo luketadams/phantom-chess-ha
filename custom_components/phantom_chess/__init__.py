@@ -61,6 +61,12 @@ SERVICE_RESUME_FROM_PHONE       = "resume_from_phone"
 # already moved the piece physically; execute_move drives the firmware to
 # do it. Used by the bundled interactive web board at /phantom_chess_static/board.html.
 SERVICE_EXECUTE_MOVE            = "execute_move"
+# v0.4-alpha3 services — replace the script wrappers in v0.3's
+# examples/scripts.yaml so the dashboard can call services directly
+# without users having to install those scripts.
+SERVICE_BACK_TO_MODES           = "back_to_modes"
+SERVICE_START_LICHESS_CONFIGURED = "start_lichess_configured"
+SERVICE_PLAY_SELECTED_SCULPTURE  = "play_selected_sculpture"
 
 START_GAME_SCHEMA = vol.Schema(
     {
@@ -713,6 +719,18 @@ def _register_services(hass: HomeAssistant) -> None:
             move_delay_seconds=call.data.get("move_delay_seconds", 1.5),
         )
 
+    async def handle_back_to_modes(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(call)
+        await coordinator.async_back_to_modes()
+
+    async def handle_start_lichess_configured(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(call)
+        await coordinator.async_start_lichess_configured()
+
+    async def handle_play_selected_sculpture(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(call)
+        await coordinator.async_play_selected_sculpture()
+
     async def handle_debug_ble_write(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
         await coordinator.async_debug_ble_write(call.data["uuid"], call.data["data"])
@@ -784,6 +802,14 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_START_AI_VS_AI_GAME, handle_start_ai_vs_ai_game,
         schema=START_AI_VS_AI_GAME_SCHEMA,
+    )
+    # v0.4-alpha3 service wrappers — replace user-side scripts.
+    hass.services.async_register(DOMAIN, SERVICE_BACK_TO_MODES, handle_back_to_modes)
+    hass.services.async_register(
+        DOMAIN, SERVICE_START_LICHESS_CONFIGURED, handle_start_lichess_configured,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_PLAY_SELECTED_SCULPTURE, handle_play_selected_sculpture,
     )
     hass.services.async_register(
         DOMAIN, SERVICE_SEND_MOVE, handle_send_move, schema=SEND_MOVE_SCHEMA

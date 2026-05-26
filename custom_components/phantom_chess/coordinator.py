@@ -2414,6 +2414,67 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         _LOGGER.info("resume_from_phone: sync complete")
 
+    async def async_back_to_modes(self) -> None:
+        """Reset the dashboard to its mode-picker state.
+
+        Replaces the v0.3 script `phantom_back_to_modes`. Two effects:
+        clear the post-game review flag (so the "review" conditional
+        card hides), and reset `setup_mode` to "Choose a mode" (so the
+        mode picker re-renders). Added 2026-05-26 (v0.4-alpha3).
+        """
+        from .const import DEFAULT_SETUP_MODE
+        self.setup_mode = DEFAULT_SETUP_MODE
+        self._state["lichess_review_ready"] = False
+        self.async_set_updated_data(dict(self._state))
+
+    async def async_start_lichess_configured(self) -> None:
+        """Start a Lichess game using the clock controls + ai_level +
+        player_color that the integration's select/number entities
+        currently hold. Replaces the v0.3 script
+        `phantom_start_lichess_configured`. Added 2026-05-26 (v0.4-alpha3).
+        """
+        await self.async_start_game(
+            clock_limit_seconds=self.lichess_clock_minutes * 60,
+            clock_increment_seconds=self.lichess_clock_increment,
+        )
+
+    async def async_play_selected_sculpture(self) -> None:
+        """Play back the sculpture game currently selected in
+        `select.<device>_sculpture_game`.
+
+        v0.4-alpha3 ships a STUB: enters sculpture mode (firmware
+        SELECT_MODE=1) and fires a persistent notification telling the
+        user that per-game move sequences will land in a later alpha.
+        Replaces the v0.3 script `phantom_play_selected_sculpture` which
+        dispatched to one of 18 per-game scripts containing hardcoded
+        move data — bundling those move sequences in the integration is
+        future work (v0.4-alpha5 or v0.5).
+        """
+        await self.async_start_sculpture()
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification", "create",
+                {
+                    "title": "Phantom Chess: Sculpture playback",
+                    "message": (
+                        f"Selected: **{self.selected_sculpture}**\n\n"
+                        f"Entered sculpture mode on the firmware. "
+                        f"Per-game move-sequence playback inside the "
+                        f"integration is queued for a later v0.4 alpha; "
+                        f"for now, the game data lives in the user-side "
+                        f"`script.phantom_sculpture_*` scripts from v0.3's "
+                        f"`examples/scripts.yaml`. If you have those scripts "
+                        f"installed, you can call them directly to play "
+                        f"a specific game."
+                    ),
+                    "notification_id": "phantom_chess_sculpture_stub",
+                },
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "play_selected_sculpture: notification create failed: %s", err,
+            )
+
     async def async_resign(self) -> None:
         """Resign the current game."""
         if not self._game_id:

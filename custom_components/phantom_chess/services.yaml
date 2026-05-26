@@ -64,6 +64,33 @@ resign:
   name: Resign
   description: Resign the current game on Lichess.
 
+back_to_modes:
+  name: Back to Modes
+  description: >
+    Reset the dashboard to its mode-picker state: dismisses the post-game
+    review and resets `select.<device>_setup_mode` to "Choose a mode".
+    Replaces the v0.3 `script.phantom_back_to_modes` so the bundled
+    dashboard can call this service directly.
+
+start_lichess_configured:
+  name: Start Lichess Game (Configured)
+  description: >
+    Start a Lichess Board API game using the integration's currently-set
+    select / number entities (`select.<device>_player_color`,
+    `select.<device>_ai_level`, `number.<device>_lichess_clock_minutes`,
+    `number.<device>_lichess_clock_increment`). The minute value is
+    multiplied by 60 to form Lichess's seconds-based `clock.limit`.
+    Replaces the v0.3 `script.phantom_start_lichess_configured`.
+
+play_selected_sculpture:
+  name: Play Selected Sculpture (Stub)
+  description: >
+    v0.4-alpha3 STUB. Enters sculpture mode on the firmware and fires a
+    persistent notification telling the user which game is selected.
+    Per-game move-sequence playback will land in a later alpha; users
+    with v0.3's `examples/scripts.yaml` installed can call the specific
+    `script.phantom_sculpture_*` script directly in the meantime.
+
 start_ai_vs_ai_game:
   name: Start AI-vs-AI Game
   description: >

@@ -140,6 +140,13 @@ ENTITY_SCULPTURE_GAME  = "sculpture_game"
 ENTITY_TRAINING_WHEELS         = "training_wheels"
 ENTITY_LICHESS_CLOCK_MINUTES   = "lichess_clock_minutes"
 ENTITY_LICHESS_CLOCK_INCREMENT = "lichess_clock_increment"
+# v0.4-alpha3: integration-owned 60s-idle gate. Replaces the template
+# binary_sensor.phantom_chess_board_idle that v0.3 required users to
+# create via the template integration's helper UI. Used by the dashboard
+# to know when to render the mode picker (firmware has been idle long
+# enough) vs the live-game cards (firmware is mid-move).
+ENTITY_BOARD_IDLE   = "board_idle"
+BOARD_IDLE_THRESHOLD_SECONDS = 60.0  # match v0.3's template behavior
 DEFAULT_TRAINING_WHEELS        = False
 DEFAULT_LICHESS_CLOCK_MINUTES  = 30   # default rapid pace (matches Lichess's typical 30+0)
 DEFAULT_LICHESS_CLOCK_INCREMENT = 0  # seconds per move; 0 = no increment
