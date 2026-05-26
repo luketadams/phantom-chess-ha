@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha6] — 2026-05-26
+
+Second blank-dashboard fix. The alpha5 substitution covered the v0.3 `board_idle` template helper but didn't address a deeper issue: **HA assigns entity_ids differently depending on when each entity was first registered**. Old entities (v0.3) ended up with the MAC slug (`binary_sensor.phantom_c8_c9_a3_f2_7c_0a_connected`) while the alpha1–3 entities got the device-name slug (`select.phantom_6552_setup_mode`). The dashboard renderer was predicting all entity_ids from the MAC, so the alpha entities (mode picker, sculpture picker, training-wheels toggle, clock numbers, board-idle sensor) all came out as broken references — every conditional that gated them stayed false, and the dashboard rendered blank.
+
+### Fixed
+
+- **Dashboard renderer now resolves entity_ids from the entity registry** rather than predicting them from the MAC slug. At provision time, the renderer walks `entity_registry.async_get(hass).entities`, builds a `(domain, unique_id_suffix) → entity_id` map for the board's phantom_chess entities, and substitutes real entity_ids into every templated reference. Works regardless of which slug pattern HA picked for each entity, and survives device renames.
+- **`board_idle` binary_sensor's periodic refresh callback now `@callback`-decorated.** In HA 2026+, plain lambdas passed to `async_track_time_interval` are scheduled as executor jobs (worker-thread) and calling `async_write_ha_state` from there raises a thread-safety RuntimeError. v0.4-alpha5 hit this 66 times in a single restart. Fix: replace the lambda with a `@callback`-decorated method.
+- **Template file load no longer blocks the event loop.** `Path.read_text()` moved into `asyncio.to_thread`, removing the HA "blocking call" warning that alpha5 spammed at every config-entry setup.
+
+### Internal notes
+
+- The entity-id-divergence problem surfaced after Luke's board was renamed from "Phantom <MAC>" to "Phantom 6552" mid-development. HA preserves an entity's original entity_id even after the device name changes, so the v0.3 entities stayed on `phantom_<MAC>_*` slugs while the alpha1-3 entities were registered fresh against the new device name. Predicting slugs from a single source string is therefore unreliable — registry lookup is the only correct approach.
+- The renderer test in `outputs/test_template.py` (development-time check) still validates the YOUR_BOARD_MAC slug fallback; a future addition will mock the registry to validate end-to-end resolution.
+
 ## [0.4.0-alpha5] — 2026-05-26
 
 Fixes the alpha4 blank-dashboard bug.

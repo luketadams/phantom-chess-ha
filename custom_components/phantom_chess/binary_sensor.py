@@ -8,7 +8,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -176,11 +176,24 @@ class PhantomBoardIdleSensor(PhantomBaseBinary):
         # the coordinator isn't pushing updates. 5s interval = 5s
         # worst-case delay on the threshold crossing, well under the 60s
         # threshold itself so it doesn't matter visually.
+        #
+        # NOTE: callback MUST be @callback-decorated. In HA 2026+, plain
+        # lambdas passed to `async_track_time_interval` are scheduled as
+        # executor jobs (worker thread), and calling `async_write_ha_state`
+        # from there raises a RuntimeError (thread-safety violation). The
+        # decorator marks the function as event-loop-safe so HA invokes
+        # it inline on the loop. v0.4-alpha6 fix.
         self._unsub_interval = async_track_time_interval(
             self.hass,
-            lambda _now: self.async_write_ha_state(),
+            self._async_periodic_update,
             timedelta(seconds=5),
         )
+
+    @callback
+    def _async_periodic_update(self, _now) -> None:
+        """Push the freshly-evaluated is_on state to HA. @callback-decorated
+        so HA schedules it on the event loop, not the executor."""
+        self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub_interval is not None:

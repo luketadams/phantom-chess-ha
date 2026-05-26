@@ -52,6 +52,7 @@ remove the integration entirely.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -72,6 +73,7 @@ from homeassistant.components.lovelace.const import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
 from .const import CONF_BLE_ADDRESS, DOMAIN
@@ -103,25 +105,43 @@ _SCRIPT_TO_SERVICE: Final[dict[str, str]] = {
     "phantom_takeback": "takeback",
 }
 
-# Per-instance helper entity_ids that the dashboard template references and
-# their native v0.4 equivalents. The leading "phantom_chess" namespace was a
-# global helper convention from v0.3; v0.4 has per-board entities under
-# "phantom_<mac>_*".
-_HELPER_ENTITY_REWRITES: Final[dict[str, str]] = {
-    "input_select.phantom_chess_setup_mode": "select.phantom_{mac}_setup_mode",
-    "input_select.phantom_chess_sculpture_game": "select.phantom_{mac}_sculpture_game",
-    "input_number.phantom_chess_lichess_clock_minutes": "number.phantom_{mac}_lichess_clock_minutes",
-    "input_number.phantom_chess_lichess_clock_increment": "number.phantom_{mac}_lichess_clock_increment",
-    "input_boolean.phantom_chess_training_wheels": "switch.phantom_{mac}_training_wheels",
-    # v0.4-alpha5 fix: alpha3 replaced the v0.3 template binary sensor
-    # `binary_sensor.phantom_chess_board_idle` with a per-device native
-    # entity, but the dashboard template still referenced the v0.3 name
-    # under `condition: state` clauses. Without this rewrite, every
-    # conditional in the template stays false (the v0.3 entity doesn't
-    # exist on a v0.4 install) and the auto-provisioned dashboard
-    # renders blank.
-    "binary_sensor.phantom_chess_board_idle": "binary_sensor.phantom_{mac}_board_idle",
+# v0.3 helper entities → unique_id suffixes of their v0.4 native replacements.
+# The renderer rewrites every `input_select.phantom_chess_X` (and similar) to
+# the corresponding native entity, looked up at provision time from the
+# entity registry by (target_domain, unique_id_suffix).
+_HELPER_TO_NATIVE: Final[dict[str, tuple[str, str]]] = {
+    "input_select.phantom_chess_setup_mode": ("select", "setup_mode"),
+    "input_select.phantom_chess_sculpture_game": ("select", "sculpture_game"),
+    "input_number.phantom_chess_lichess_clock_minutes": ("number", "lichess_clock_minutes"),
+    "input_number.phantom_chess_lichess_clock_increment": ("number", "lichess_clock_increment"),
+    "input_boolean.phantom_chess_training_wheels": ("switch", "training_wheels"),
+    # v0.3 template helper replaced by alpha3's native board_idle binary_sensor.
+    "binary_sensor.phantom_chess_board_idle": ("binary_sensor", "board_idle"),
 }
+
+# Entity-id resolution: the template references entities as
+# `<domain>.phantom_YOUR_BOARD_MAC_<suffix>`, but HA can pick different
+# entity_id slugs depending on when each entity was first registered (v0.3
+# entities were created with the MAC slug, v0.4 alpha entities use the
+# device-name slug like "Phantom 6552"). Predicting the slug from the MAC
+# is therefore unreliable — the renderer must look up real entity_ids from
+# the entity registry at provision time.
+#
+# Most (domain, template_suffix) pairs map directly to a unique_id suffix.
+# A few entities use a different suffix in their unique_id than in their
+# entity_id slug (e.g. the image entity's unique_id is "<MAC>_board_image"
+# but its entity_id ends in "_board"). Those go in this alias map; the
+# rest resolve identically.
+_TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES: Final[dict[str, str]] = {
+    "board": "board_image",  # image platform; template uses "board", registry has "board_image"
+}
+
+# Regex matching a templated entity reference. Captures the domain and the
+# template suffix; produces an entity_id when resolved against the registry.
+_TEMPLATE_ENTITY_REF = re.compile(
+    r"\b(?P<domain>binary_sensor|select|switch|number|sensor|image|button)"
+    r"\.phantom_YOUR_BOARD_MAC_(?P<suffix>[a-z][a-z0-9_]*)"
+)
 
 # Helper service-domain rewrites: helper domains and native-entity domains
 # expose the same actions under different names.
@@ -144,38 +164,114 @@ _TEMPLATE_PATH: Final = Path(__file__).parent / "dashboard_template.yaml"
 def _mac_to_slug(ble_address: str) -> str:
     """Convert ``AA:BB:CC:DD:EE:FF`` (any case) to ``aa_bb_cc_dd_ee_ff``.
 
-    The integration's entity-id slug pattern. Matches what the platforms
-    build via ``device_info`` + slugify.
+    Fallback only — used to construct a guessed entity_id when the
+    entity registry doesn't have a matching entity yet. The registry lookup
+    in :func:`_resolve_entity_ids` is the authoritative source.
     """
     return ble_address.replace(":", "_").lower()
 
 
-def _render_template(yaml_text: str, mac_slug: str) -> str:
+def _resolve_entity_ids(
+    hass: HomeAssistant, ble_address: str
+) -> dict[tuple[str, str], str]:
+    """Build a ``(domain, unique_id_suffix) → entity_id`` map for this board.
+
+    Walks the entity registry, picks out the phantom_chess entities whose
+    unique_id starts with the upper-case MAC, and indexes them by their
+    domain + suffix. The renderer uses this map to substitute the right
+    entity_id for every template reference, regardless of whether the
+    entity was registered with the legacy MAC slug
+    (``phantom_c8_c9_a3_f2_7c_0a_*``) or the modern device-name slug
+    (``phantom_6552_*``).
+    """
+    registry = er.async_get(hass)
+    address_upper = ble_address.upper()
+    prefix = f"{address_upper}_"
+    result: dict[tuple[str, str], str] = {}
+    for entity in registry.entities.values():
+        if entity.platform != DOMAIN:
+            continue
+        if not entity.unique_id.startswith(prefix):
+            continue
+        suffix = entity.unique_id[len(prefix):]
+        domain = entity.entity_id.split(".", 1)[0]
+        result[(domain, suffix)] = entity.entity_id
+    return result
+
+
+def _resolve_or_fallback(
+    domain: str,
+    template_suffix: str,
+    entity_map: dict[tuple[str, str], str],
+    mac_slug: str,
+) -> str:
+    """Resolve a templated entity reference to a real entity_id.
+
+    Looks up ``(domain, suffix)`` in the registry-derived map, applying the
+    template-to-unique alias for the special-cased image entity. Falls back
+    to a MAC-slug-based guess if the entity isn't yet registered (the first
+    setup_entry call may run before the platform forward completes).
+    """
+    unique_suffix = _TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES.get(template_suffix, template_suffix)
+    if (entity_id := entity_map.get((domain, unique_suffix))) is not None:
+        return entity_id
+    return f"{domain}.phantom_{mac_slug}_{template_suffix}"
+
+
+def _render_template(
+    yaml_text: str,
+    ble_address: str,
+    entity_map: dict[tuple[str, str], str],
+) -> str:
     """Apply the v0.3→v0.4 text substitutions to the rich dashboard template.
 
     Performed at the text layer (not via yaml.dump) so the bundled template
     stays human-diffable and the substitutions don't reorder keys or rewrap
-    long multiline strings.
+    long multiline strings. Order matters:
+
+    1. Helper rewrites first — turn ``input_select.phantom_chess_X`` into
+       a ``<native_domain>.phantom_YOUR_BOARD_MAC_X`` placeholder, which is
+       then resolved in step 3.
+    2. Service-domain rewrites — ``input_select.select_option`` →
+       ``select.select_option`` etc.
+    3. Entity-id resolution — every ``<domain>.phantom_YOUR_BOARD_MAC_<X>``
+       reference is looked up in the registry and replaced with the real
+       entity_id.
+    4. Script tile/tap_action rewrites — point the tile's ``entity:`` at
+       the connected sensor and rewrite tap_actions to invoke native
+       services. Runs after entity resolution so the connected-sensor
+       substitution uses the resolved entity_id.
     """
+    mac_slug = _mac_to_slug(ble_address)
     text = yaml_text
 
-    # 1. MAC slug — replaces the literal placeholder used throughout.
-    text = text.replace("YOUR_BOARD_MAC", mac_slug)
+    # 1. v0.3 helper entities → templated native entity ids (resolved in step 3).
+    for helper_id, (native_domain, suffix) in _HELPER_TO_NATIVE.items():
+        text = text.replace(
+            helper_id,
+            f"{native_domain}.phantom_YOUR_BOARD_MAC_{suffix}",
+        )
 
-    # 2. Helper entity ids → native entity ids.
-    for old, new_tpl in _HELPER_ENTITY_REWRITES.items():
-        text = text.replace(old, new_tpl.format(mac=mac_slug))
-
-    # 3. Service-domain rewrites (input_select.select_option → select.select_option).
+    # 2. Service-domain rewrites (input_select.select_option → select.select_option).
     for old, new in _SERVICE_DOMAIN_REWRITES.items():
         text = text.replace(old, new)
 
-    # 4. Script tile references. Each "entity: script.phantom_X" is in a tile
-    #    that uses the script as a clickable button. v0.4 has no script — we
-    #    point the tile's `entity:` at the always-present "connected" sensor
-    #    purely for display, hide its state, and rewrite the tap_action to
-    #    invoke the native service.
-    connected_entity = f"binary_sensor.phantom_{mac_slug}_connected"
+    # 3. Entity-id resolution — turn every templated reference into a real
+    #    entity_id by consulting the entity registry.
+    def _resolve(m: re.Match[str]) -> str:
+        return _resolve_or_fallback(
+            m.group("domain"),
+            m.group("suffix"),
+            entity_map,
+            mac_slug,
+        )
+
+    text = _TEMPLATE_ENTITY_REF.sub(_resolve, text)
+
+    # 4. Script tile references → connected sensor (icon-only button).
+    connected_entity = _resolve_or_fallback(
+        "binary_sensor", "connected", entity_map, mac_slug
+    )
     for script_name in _SCRIPT_TO_SERVICE:
         text = text.replace(
             f"entity: script.{script_name}",
@@ -189,7 +285,6 @@ def _render_template(yaml_text: str, mac_slug: str) -> str:
     #      c) action: perform-action / perform_action: script.turn_on / data: entity_id: ...
     #      d) action: call-service / service: script.turn_on / data: entity_id: ...
     #    All four rewrite to `action: perform-action / perform_action: <domain>.<service>`.
-    #    The indentation capture group preserves the surrounding YAML structure.
     pattern_target = re.compile(
         r"action: (?:call-service|perform-action)\n"
         r"(?P<indent>\s+)(?:service|perform_action): script\.turn_on\n"
@@ -201,31 +296,33 @@ def _render_template(yaml_text: str, mac_slug: str) -> str:
         r"\s+data:\n\s+entity_id: script\.(?P<name>phantom_[a-z_]+)",
     )
 
-    def _rewrite(match: re.Match[str]) -> str:
+    def _rewrite_script(match: re.Match[str]) -> str:
         script_name = match.group("name")
         service = _SCRIPT_TO_SERVICE.get(script_name)
         if service is None:
-            # Unknown script — leave the original action intact so it surfaces
-            # as a broken reference rather than silently changing behavior.
             return match.group(0)
         indent = match.group("indent")
         return f"action: perform-action\n{indent}perform_action: {DOMAIN}.{service}"
 
-    text = pattern_target.sub(_rewrite, text)
-    text = pattern_data.sub(_rewrite, text)
+    text = pattern_target.sub(_rewrite_script, text)
+    text = pattern_data.sub(_rewrite_script, text)
 
     return text
 
 
-def build_dashboard_config(ble_address: str) -> dict[str, Any]:
-    """Render the bundled template against ``ble_address`` and parse to dict.
+async def build_dashboard_config(
+    hass: HomeAssistant, ble_address: str
+) -> dict[str, Any]:
+    """Render the bundled template and parse to dict.
 
-    Returns the Lovelace config dict that ``LovelaceStorage.async_save``
-    expects (``title``, ``views``, etc.).
+    Async because the template file is read off the event loop
+    (``asyncio.to_thread``) to avoid the HA "blocking call" warning.
     """
-    mac_slug = _mac_to_slug(ble_address)
-    yaml_text = _TEMPLATE_PATH.read_text(encoding="utf-8")
-    rendered = _render_template(yaml_text, mac_slug)
+    entity_map = _resolve_entity_ids(hass, ble_address)
+    yaml_text: str = await asyncio.to_thread(
+        _TEMPLATE_PATH.read_text, encoding="utf-8"
+    )
+    rendered = _render_template(yaml_text, ble_address, entity_map)
     config = yaml.safe_load(rendered)
     if not isinstance(config, dict):
         raise ValueError(
@@ -272,7 +369,7 @@ async def async_provision_dashboard(
         return
 
     try:
-        config = build_dashboard_config(ble_address)
+        config = await build_dashboard_config(hass, ble_address)
     except Exception:  # noqa: BLE001 — surface template errors loudly
         _LOGGER.exception("Failed to render Phantom Chess dashboard template")
         return
