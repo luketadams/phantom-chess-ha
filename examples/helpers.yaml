@@ -1,0 +1,77 @@
+# Phantom Chess Board — companion helpers for the rich dashboard.
+#
+# Paste each block into your `configuration.yaml`, then restart Home
+# Assistant. (Helpers defined in YAML appear as read-only entities in the
+# UI; if you want to edit them via Settings → Helpers later, you can
+# re-create them via UI and remove the YAML — no functional difference.)
+
+input_select:
+  phantom_chess_sculpture_game:
+    name: "Phantom Chess Sculpture Game"
+    options:
+      - "1851 \u2014 Anderssen vs Kieseritzky (Immortal Game)"
+      - "1858 \u2014 Morphy's Opera Game"
+      - "1907 \u2014 Rotlewi vs Rubinstein (Immortal)"
+      - "1924 \u2014 R\u00e9ti vs Capablanca (NY)"
+      - "1933 \u2014 Einstein vs Oppenheimer"
+      - "1938 \u2014 Botvinnik vs Capablanca (AVRO)"
+      - "1956 \u2014 Byrne vs Fischer (Game of the Century)"
+      - "1958 \u2014 Polugaevsky vs Nezhmetdinov (Immortal)"
+      - "1967 \u2014 Fischer vs Myagmarsuren"
+      - "1972 \u2014 Fischer vs Spassky (WCC Game 6)"
+      - "1985 \u2014 Karpov vs Kasparov (WCC)"
+      - "1997 \u2014 Deep Blue vs Kasparov (Game 6)"
+      - "1999 \u2014 Kasparov vs Topalov (Immortal)"
+      - "2013 \u2014 Aronian vs Anand (Anand's Immortal)"
+      - "2015 \u2014 Wei Yi vs Bruzon (King Hunt)"
+      - "2016 \u2014 Carlsen vs Karjakin (WCC Tiebreak)"
+      - "2021 \u2014 Carlsen vs Nepomniachtchi (WCC G6, 136 moves)"
+      - "2023 \u2014 Nepomniachtchi vs Ding (WCC TB G4)"
+  phantom_chess_setup_mode:
+    name: "Phantom Chess Setup Mode"
+    icon: mdi:chess-king
+    options:
+      - "Choose a mode"
+      - "Play with Lichess"
+      - "Play with Stockfish"
+      - "Sculpture Library"
+      - "2-Player Game"
+    initial: "Choose a mode"
+
+input_boolean:
+  phantom_chess_training_wheels:
+    name: "Phantom Chess Training Wheels"
+    icon: mdi:school-outline
+
+input_number:
+  phantom_chess_lichess_clock_minutes:
+    name: "Phantom Chess Lichess Clock Minutes"
+    min: 1.0
+    max: 60.0
+    step: 1.0
+    unit_of_measurement: "min"
+    mode: slider
+  phantom_chess_lichess_clock_increment:
+    name: "Phantom Chess Lichess Clock Increment"
+    min: 0.0
+    max: 60.0
+    step: 1.0
+    unit_of_measurement: "s"
+    mode: slider
+
+# Template binary sensor that reports 'on' only when the firmware has been
+# stable for 60+ seconds. Used by the dashboard to know when to show the
+# mode-picker vs. the live-game cards — prevents flicker during sculpture
+# playback when firmware emits per-piece-move state notifications.
+template:
+  - binary_sensor:
+      - name: "Phantom Chess Board Idle"
+        unique_id: phantom_chess_board_idle
+        device_class: running
+        state: >-
+          {% set s = states.sensor.phantom_YOUR_BOARD_MAC_firmware_last_move %}
+          {% if s is none or s.last_changed is none %}
+            true
+          {% else %}
+            {{ (now() - s.last_changed).total_seconds() > 60 }}
+          {% endif %}

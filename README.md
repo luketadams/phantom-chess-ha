@@ -96,6 +96,28 @@ The Conversation assistant will ask you for color and difficulty if you haven't 
 
 ---
 
+## Rich Dashboard Setup (optional)
+
+The integration's entity surface is enough to build any chess dashboard you want, but the maintainer's daily-driver dashboard — with a mode-picker that walks you through Lichess / Stockfish / Sculpture / 2-Player → contextual cards for each, transient firmware-state info, post-game review, an embedded drag-drop interactive board — is bundled in `examples/` and ready to copy.
+
+**What you get:** the same dashboard shown in the integration's screenshots: mode-picker → 5 sub-modes → live-game cards with eval bar and move classifications → post-game review with top mistakes.
+
+**What it requires:**
+1. **Two HACS frontend plugins.** In HACS → Frontend, install:
+   - **Mushroom** (provides `custom:mushroom-template-card`)
+   - **layout-card** (provides `custom:layout-card`)
+2. **Companion helpers** (input_selects, input_boolean, input_number, template binary sensor). Paste `examples/helpers.yaml` into your `configuration.yaml` (or split it into the matching sections if you already have those keys).
+3. **Companion scripts** (back-to-modes, takeback, resign, etc.). Paste `examples/scripts.yaml` into your `scripts.yaml` or `configuration.yaml`'s `script:` block.
+4. **The dashboard itself.** In Settings → Dashboards → **+ Add Dashboard** → "New dashboard from scratch" → name it "Chess" → open it → Edit Dashboard → **⋮ → Raw configuration editor** → paste `examples/dashboard-rich.yaml`.
+
+**Find/replace required.** All three example files reference `YOUR_BOARD_MAC` as a placeholder for your board's MAC slug. After pasting each one, find/replace `YOUR_BOARD_MAC` with your actual MAC slug — find it by looking at any phantom_chess entity_id (e.g. `sensor.phantom_c8_c9_a3_f2_7c_0a_battery` → your slug is `c8_c9_a3_f2_7c_0a`).
+
+**Restart Home Assistant after step 2** so the helpers register. Reload Scripts from Developer Tools → YAML → Scripts after step 3 (or restart again). Step 4 is live as soon as you save.
+
+**Roadmap:** a future release will auto-create all of this when you install the integration (no copy/paste, no find/replace), reducing this whole section to "install the two HACS frontend plugins." Tracking in [issue #N/A — file one if you want to vote it up].
+
+---
+
 ## Services
 
 All services accept an optional `entry_id` field. **Required if you have more than one Phantom Chess Board configured**; optional if you have exactly one.

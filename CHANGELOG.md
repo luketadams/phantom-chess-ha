@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0-beta3] — 2026-05-25
+
+### Added
+
+- **Rich-dashboard setup pack (Option B+).** Three new files in `examples/` plus a "Rich Dashboard Setup" section in the README walk users through ~5 minutes of copy/paste to get the maintainer's full daily-driver dashboard: mode-picker → contextual sub-mode cards (Lichess / Stockfish / Sculpture / 2-Player) → live-game cards with eval bar and move classifications → post-game review with top mistakes → embedded drag-drop interactive board.
+  - `examples/helpers.yaml` — input_selects (mode-picker, sculpture-game chooser), input_boolean (training-wheels toggle), input_numbers (Lichess clock controls), template binary sensor (60s-idle gate). Paste into `configuration.yaml`.
+  - `examples/scripts.yaml` — 7 companion scripts (back_to_modes, takeback, resign, request_hint, play_selected_sculpture, start_lichess_configured, chess_play). Paste into `scripts.yaml`.
+  - `examples/dashboard-rich.yaml` — full ~1000-line Lovelace YAML. Paste into the dashboard's raw-config editor.
+  - All three files use `YOUR_BOARD_MAC` as a placeholder; users find/replace with their own MAC slug (visible in any phantom_chess entity_id).
+  - **External requirements:** Mushroom + layout-card HACS frontend plugins. Documented in README.
+  - **Roadmap:** v0.4 will auto-provision all of this via the integration's setup flow (no copy/paste, no find/replace) — see Option C in the project's task tracker.
+
 ## [0.3.0-beta2] — 2026-05-25
 
 ### Fixed

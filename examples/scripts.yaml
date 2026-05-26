@@ -1,0 +1,299 @@
+# Phantom Chess Board — companion scripts for the rich dashboard.
+
+#
+
+# Paste this into your `scripts.yaml` (or under a top-level `script:` key in
+
+# `configuration.yaml`). Reload Scripts (Developer Tools → YAML →
+
+# Scripts), or restart Home Assistant.
+
+#
+
+# Find/replace: `c8_c9_a3_f2_7c_0a` → your board's MAC-slug (lowercase, underscores).
+
+# Find your slug by looking at any phantom_chess sensor entity_id, e.g.
+
+# `sensor.phantom_xx_xx_xx_xx_xx_xx_battery` — the `xx_xx_xx_xx_xx_xx` part
+
+# is your slug.
+
+
+
+phantom_play_selected_sculpture:
+  alias: Phantom Sculpture — Play Selected Game
+  description: Reads input_select.phantom_chess_sculpture_game and dispatches to the
+    matching per-game script.
+  mode: single
+  sequence:
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1851 — Anderssen vs Kieseritzky (Immortal Game)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1851_adolf_anderssen_lionel_kieseritzky
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1858 — Morphy's Opera Game
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1858_paul_morphy_duke_karl_count_isouard
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1907 — Rotlewi vs Rubinstein (Immortal)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1907_gersz_rotlewi_akiba_rubinstein
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1924 — Réti vs Capablanca (NY)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1924_richard_reti_jose_raul_capablanca
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1933 — Einstein vs Oppenheimer
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1933_albert_einstein_robert_oppenheimer
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1938 — Botvinnik vs Capablanca (AVRO)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1938_mikhail_botvinnik_jose_raul_capablanca
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1956 — Byrne vs Fischer (Game of the Century)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1956_donald_byrne_robert_james_fischer
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1958 — Polugaevsky vs Nezhmetdinov (Immortal)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1958_lev_polugaevsky_rashid_nezhmetdinov
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1967 — Fischer vs Myagmarsuren
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1967_robert_james_fischer_lhamsuren_myagmarsu
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1972 — Fischer vs Spassky (WCC Game 6)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1972_robert_james_fischer_boris_spassky
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1985 — Karpov vs Kasparov (WCC)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1985_anatoly_karpov_garry_kasparov
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1997 — Deep Blue vs Kasparov (Game 6)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1997_deep_blue_computer_garry_kasparov
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 1999 — Kasparov vs Topalov (Immortal)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_1999_garry_kasparov_veselin_topalov
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 2013 — Aronian vs Anand (Anand's Immortal)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_2013_levon_aronian_viswanathan_anand
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 2015 — Wei Yi vs Bruzon (King Hunt)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_2015_wei_yi_lazaro_bruzon_batista
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 2016 — Carlsen vs Karjakin (WCC Tiebreak)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_2016_magnus_carlsen_sergey_karjakin
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 2021 — Carlsen vs Nepomniachtchi (WCC G6, 136 moves)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_2021_magnus_carlsen_ian_nepomniachtchi
+    - conditions:
+      - condition: state
+        entity_id: input_select.phantom_chess_sculpture_game
+        state: 2023 — Nepomniachtchi vs Ding (WCC TB G4)
+      sequence:
+      - service: script.turn_on
+        target:
+          entity_id: script.phantom_sculpture_2023_ian_nepomniachtchi_ding_liren
+    default:
+    - service: persistent_notification.create
+      data:
+        title: Phantom Sculpture
+        message: No script mapped for current sculpture selection.
+
+phantom_start_lichess_configured:
+  alias: Phantom — Start Lichess Game (with configured options)
+  description: Starts a Lichess Board API game using the AI level, color, and time
+    control settings from the chess dashboard helpers.
+  mode: single
+  sequence:
+  - service: phantom_chess.start_game
+    data:
+      ai_level: '{{ states(''select.phantom_c8_c9_a3_f2_7c_0a_ai_level'') | int }}'
+      color: '{{ states(''select.phantom_c8_c9_a3_f2_7c_0a_player_color'') }}'
+      clock_limit_seconds: '{{ states(''input_number.phantom_chess_lichess_clock_minutes'')
+        | int * 60 }}'
+      clock_increment_seconds: '{{ states(''input_number.phantom_chess_lichess_clock_increment'')
+        | int }}'
+
+phantom_back_to_modes:
+  alias: Phantom — Back to Mode Picker
+  description: Resets dashboard to mode picker. Clears the post-game review flag and
+    resets the setup-mode selector.
+  mode: single
+  sequence:
+  - action: phantom_chess.dismiss_review
+  - data:
+      entity_id: input_select.phantom_chess_setup_mode
+      option: Choose a mode
+    action: input_select.select_option
+
+phantom_resign:
+  alias: Phantom Chess - Resign
+  icon: mdi:flag-outline
+  mode: single
+  sequence:
+  - action: phantom_chess.resign
+
+phantom_takeback:
+  alias: Phantom Chess - Takeback
+  icon: mdi:undo-variant
+  mode: single
+  sequence:
+  - action: phantom_chess.takeback
+
+phantom_request_hint:
+  alias: Phantom Chess - Request Hint
+  icon: mdi:lightbulb-outline
+  mode: single
+  sequence:
+  - action: phantom_chess.request_hint
+
+phantom_chess_play:
+  alias: Phantom Chess - Voice Play
+  description: "Start a chess game on the Phantom Chess board. The user is a beginner
+    playing on a physical chessboard against the Stockfish AI — either via Lichess
+    (online, can be reviewed on their account) or via the local Stockfish engine (offline,
+    no rating impact). Invoke this script when the user wants to start a game, e.g.
+    \"let's play chess\", \"play a game of chess\", \"Jarvis, start chess\". Elicit
+    missing parameters before calling:\n  - color: white, black, or random (default:
+    random)\n  - ai_level: 1 to 8 (1 easiest, 8 hardest — beginner-friendly range\n
+    \   is 3 to 5; default: 5)\n  - mode: lichess (online) or local (offline) — if
+    the user doesn't\n    say, ask which they prefer; default to lichess if unclear.\nIf
+    a game is already in progress (learning_view_active is on), do NOT start a new
+    one — tell the user a game is running and offer to resign the current one if they
+    want a new game."
+  mode: single
+  fields:
+    color:
+      description: Side to play — white, black, or random
+      example: white
+      selector:
+        select:
+          options:
+          - white
+          - black
+          - random
+    ai_level:
+      description: Stockfish AI difficulty (1 easiest, 8 hardest)
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 8
+          step: 1
+    mode:
+      description: lichess (online, rated games on your account) or local (offline
+        Stockfish)
+      example: lichess
+      selector:
+        select:
+          options:
+          - lichess
+          - local
+  sequence:
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: binary_sensor.phantom_c8_c9_a3_f2_7c_0a_learning_view_active
+        state: 'on'
+      sequence:
+      - service: persistent_notification.create
+        data:
+          title: 'Phantom Chess: game already in progress'
+          message: 'A chess game is already running. Finish or resign the current
+            game before starting a new one. (Tip: ask Jarvis to "resign the current
+            chess game".)'
+          notification_id: phantom_chess_voice_blocked
+      - stop: A game is already in progress
+  - variables:
+      chosen_color: '{{ color | default(''random'') }}'
+      chosen_level: '{{ (ai_level | default(5)) | int }}'
+      chosen_mode: '{{ mode | default(''lichess'') }}'
+  - choose:
+    - conditions: '{{ chosen_mode == ''local'' }}'
+      sequence:
+      - service: phantom_chess.start_local_game
+        data:
+          color: '{{ chosen_color }}'
+    default:
+    - service: phantom_chess.start_game
+      data:
+        ai_level: '{{ chosen_level }}'
+        color: '{{ chosen_color }}'
