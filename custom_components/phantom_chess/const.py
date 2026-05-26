@@ -133,6 +133,16 @@ ENTITY_PLAYER_COLOR  = "player_color"
 # as v0.4-alpha1: first step of folding Option C work into the integration.
 ENTITY_SETUP_MODE      = "setup_mode"
 ENTITY_SCULPTURE_GAME  = "sculpture_game"
+# v0.4-alpha2: integration-owned training-wheels toggle + Lichess clock controls.
+# Replace the hand-rolled input_boolean.phantom_chess_training_wheels +
+# input_number.phantom_chess_lichess_clock_minutes / _increment helpers
+# that v0.3's examples/helpers.yaml required.
+ENTITY_TRAINING_WHEELS         = "training_wheels"
+ENTITY_LICHESS_CLOCK_MINUTES   = "lichess_clock_minutes"
+ENTITY_LICHESS_CLOCK_INCREMENT = "lichess_clock_increment"
+DEFAULT_TRAINING_WHEELS        = False
+DEFAULT_LICHESS_CLOCK_MINUTES  = 30   # default rapid pace (matches Lichess's typical 30+0)
+DEFAULT_LICHESS_CLOCK_INCREMENT = 0  # seconds per move; 0 = no increment
 ENTITY_MECH_SPEED    = "mechanism_speed"
 ENTITY_SOUND_LEVEL   = "sound_level"
 ENTITY_PAUSE         = "pause"

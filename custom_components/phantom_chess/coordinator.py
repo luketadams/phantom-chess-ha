@@ -205,9 +205,28 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # required users to create by hand. The select-platform entities in
         # select.py read/write these fields. Defaults match v0.3's helpers
         # so v0.3→v0.4 dashboards see the same initial state.
-        from .const import DEFAULT_SETUP_MODE, DEFAULT_SCULPTURE_GAME
+        from .const import (
+            DEFAULT_SETUP_MODE,
+            DEFAULT_SCULPTURE_GAME,
+            DEFAULT_TRAINING_WHEELS,
+            DEFAULT_LICHESS_CLOCK_MINUTES,
+            DEFAULT_LICHESS_CLOCK_INCREMENT,
+        )
         self.setup_mode: str = DEFAULT_SETUP_MODE
         self.selected_sculpture: str = DEFAULT_SCULPTURE_GAME
+        # v0.4-alpha2: training-wheels toggle + Lichess clock controls.
+        # Replace input_boolean.phantom_chess_training_wheels and the two
+        # input_number.phantom_chess_lichess_clock_* helpers from v0.3.
+        # The dashboard's `phantom_start_lichess_configured` script
+        # historically read the helpers and passed minutes*60 +
+        # increment_seconds to `phantom_chess.start_game`. With these
+        # fields owned by the integration, that script becomes a thin
+        # wrapper (or can be replaced by a service call that reads them
+        # directly — see start_game_configured in services.yaml once
+        # added).
+        self.training_wheels: bool = DEFAULT_TRAINING_WHEELS
+        self.lichess_clock_minutes: int = DEFAULT_LICHESS_CLOCK_MINUTES
+        self.lichess_clock_increment: int = DEFAULT_LICHESS_CLOCK_INCREMENT
         # Mechanism speed on the firmware-native 1..5 scale (3 = NORMAL).
         # Was 50 when the entity exposed 0..100; corrected to the actual
         # firmware range 2026-05-13. See XOUXOU_PROTOCOL.md.

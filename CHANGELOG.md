@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha2] — 2026-05-26
+
+Drops 3 more hand-rolled helpers from the v0.3 setup pack. After this alpha, only one helper (the template binary sensor for the 60s-idle gate) and the 7 companion scripts remain manual. v0.4-alpha3 will land the binary sensor; alpha4 onward will start retiring the scripts.
+
+### Added
+
+- **`switch.<device>_training_wheels`** — replaces `input_boolean.phantom_chess_training_wheels`. Persists across HA restarts.
+- **`number.<device>_lichess_clock_minutes`** — replaces `input_number.phantom_chess_lichess_clock_minutes`. Range 1–180 (covers everything from bullet-ish to classical), default 30, box-mode UI.
+- **`number.<device>_lichess_clock_increment`** — replaces `input_number.phantom_chess_lichess_clock_increment`. Range 0–180 seconds per move, default 0.
+
+### Migration notes for v0.3 users
+
+The old `input_boolean` / `input_number` helpers and the new `switch` / `number` entities coexist. To migrate the dashboard:
+
+- `input_boolean.phantom_chess_training_wheels` → `switch.<your_device>_training_wheels`
+- `input_number.phantom_chess_lichess_clock_minutes` → `number.<your_device>_lichess_clock_minutes`
+- `input_number.phantom_chess_lichess_clock_increment` → `number.<your_device>_lichess_clock_increment`
+
+Then delete the three old helpers and restart HA.
+
 ## [0.4.0-alpha1] — 2026-05-25
 
 First step of the Option C work (auto-provisioning everything the rich dashboard needs). Drops 2 of the 5 hand-rolled helpers `examples/helpers.yaml` previously required: the mode picker and the sculpture-game picker are now integration-owned `select` entities, created automatically when the integration sets up a config entry.
