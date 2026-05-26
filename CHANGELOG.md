@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha5] — 2026-05-26
+
+Fixes the alpha4 blank-dashboard bug.
+
+The auto-provisioned `/phantom-chess` dashboard in alpha4 rendered blank: every conditional card was hidden because every conditional had a clause requiring `binary_sensor.phantom_chess_board_idle == "on"`, the v0.3 template-helper entity name. alpha3 replaced that template helper with a per-device native `binary_sensor.phantom_<MAC>_board_idle`, but the dashboard template renderer's substitution map missed the rewrite.
+
+### Fixed
+
+- **Dashboard auto-provision now substitutes `binary_sensor.phantom_chess_board_idle` → `binary_sensor.phantom_<MAC>_board_idle`** during template rendering. Fresh installs and reloads will re-provision the dashboard with the correct entity reference; existing alpha4 dashboards will be overwritten on the next setup_entry.
+- Standalone renderer test now asserts there are zero residual references to the v0.3 entity name in the rendered output.
+
+### Internal notes
+
+- Caught while debugging Luke's HA — the alpha4 dashboard installed correctly (sidebar entry, 49KB config persisted) but rendered blank because every top-level conditional required the missing entity. Reminder for the test suite roadmap: add a "rendered dashboard parses + every condition references an entity that the integration creates" assertion next alpha.
+
 ## [0.4.0-alpha4] — 2026-05-25
 
 The dashboard auto-installs.

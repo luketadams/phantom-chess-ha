@@ -113,6 +113,14 @@ _HELPER_ENTITY_REWRITES: Final[dict[str, str]] = {
     "input_number.phantom_chess_lichess_clock_minutes": "number.phantom_{mac}_lichess_clock_minutes",
     "input_number.phantom_chess_lichess_clock_increment": "number.phantom_{mac}_lichess_clock_increment",
     "input_boolean.phantom_chess_training_wheels": "switch.phantom_{mac}_training_wheels",
+    # v0.4-alpha5 fix: alpha3 replaced the v0.3 template binary sensor
+    # `binary_sensor.phantom_chess_board_idle` with a per-device native
+    # entity, but the dashboard template still referenced the v0.3 name
+    # under `condition: state` clauses. Without this rewrite, every
+    # conditional in the template stays false (the v0.3 entity doesn't
+    # exist on a v0.4 install) and the auto-provisioned dashboard
+    # renders blank.
+    "binary_sensor.phantom_chess_board_idle": "binary_sensor.phantom_{mac}_board_idle",
 }
 
 # Helper service-domain rewrites: helper domains and native-entity domains
