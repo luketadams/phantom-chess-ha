@@ -36,13 +36,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest 'chess>=1.10.0,<2.0' pyyaml
       - name: Run pure-function tests
-        # The tests/conftest.py stub stages matrix.py (and other
-        # pure-function submodules) into sys.modules without running
-        # custom_components.phantom_chess.__init__.py, which imports
-        # voluptuous + the HA core. That's how this fast job can run on
-        # a minimal Python install.
+        # The tests/conftest.py stub stages matrix.py + dashboard_provision.py
+        # into sys.modules with stubbed homeassistant.* symbols, so these
+        # tests run on a minimal Python install. test_config_flow.py
+        # gracefully skips because it pytest.importorskip()s
+        # pytest-homeassistant-custom-component (only installed in the
+        # ha-tests job).
         run: |
-          PYTHONPATH=. pytest tests/test_matrix.py -v
+          PYTHONPATH=. pytest tests/test_matrix.py tests/test_dashboard_provision.py -v
 
   ha-tests:
     # The config_flow tests use pytest-homeassistant-custom-component

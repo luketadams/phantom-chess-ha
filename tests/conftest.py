@@ -55,6 +55,57 @@ except ImportError:
     # matrix.py is fully pure (only stdlib).
     _stage_pure_module("custom_components.phantom_chess.matrix", _PC_DIR / "matrix.py")
 
+    # dashboard_provision.py: pure-function rendering paths (text + dict
+    # passes) only, but it imports from `homeassistant.*` and from
+    # `.const`. Stub the HA modules with the exact symbols
+    # dashboard_provision references at module load time, then stage
+    # `.const` (pure-stdlib) and `dashboard_provision` itself. Anything
+    # that touches the storage / panel-registration side effects
+    # (`async_provision_dashboard`, etc.) won't work in this stub
+    # environment — only the offline render pipeline is exercisable.
+    for _ha_path in (
+        "homeassistant",
+        "homeassistant.components",
+        "homeassistant.components.frontend",
+        "homeassistant.components.lovelace",
+        "homeassistant.components.lovelace.dashboard",
+        "homeassistant.components.lovelace.const",
+        "homeassistant.config_entries",
+        "homeassistant.core",
+        "homeassistant.helpers",
+        "homeassistant.helpers.entity_registry",
+        "homeassistant.helpers.storage",
+    ):
+        sys.modules.setdefault(_ha_path, types.ModuleType(_ha_path))
+    _ll_const = sys.modules["homeassistant.components.lovelace.const"]
+    _ll_const.CONF_ICON = "icon"
+    _ll_const.CONF_REQUIRE_ADMIN = "require_admin"
+    _ll_const.CONF_SHOW_IN_SIDEBAR = "show_in_sidebar"
+    _ll_const.CONF_TITLE = "title"
+    _ll_const.CONF_URL_PATH = "url_path"
+    _ll_const.LOVELACE_DATA = "lovelace_data"
+    _ll_const.MODE_STORAGE = "storage"
+    sys.modules["homeassistant.config_entries"].ConfigEntry = type("ConfigEntry", (), {})
+    sys.modules["homeassistant.core"].HomeAssistant = type("HomeAssistant", (), {})
+    sys.modules["homeassistant.helpers.entity_registry"].async_get = lambda *a, **k: None
+    sys.modules["homeassistant.helpers.storage"].Store = type("Store", (), {})
+    sys.modules["homeassistant.components.lovelace.dashboard"].LovelaceStorage = type(
+        "LovelaceStorage", (), {}
+    )
+    sys.modules["homeassistant.components.frontend"].async_panel_exists = lambda *a, **k: False
+    sys.modules["homeassistant.components.frontend"].async_register_built_in_panel = (
+        lambda *a, **k: None
+    )
+    sys.modules["homeassistant.components.frontend"].async_remove_panel = lambda *a, **k: None
+    sys.modules["homeassistant.helpers"].entity_registry = sys.modules[
+        "homeassistant.helpers.entity_registry"
+    ]
+    _stage_pure_module("custom_components.phantom_chess.const", _PC_DIR / "const.py")
+    _stage_pure_module(
+        "custom_components.phantom_chess.dashboard_provision",
+        _PC_DIR / "dashboard_provision.py",
+    )
+
 
 # pytest-homeassistant-custom-component scopes integration discovery to
 # the built-in HA components by default — custom integrations in
