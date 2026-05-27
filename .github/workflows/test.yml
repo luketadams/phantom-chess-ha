@@ -59,15 +59,19 @@ jobs:
           python-version: "3.13"
       - name: Install HA test scaffolding
         # pytest-homeassistant-custom-component pulls HA core + pytest +
-        # most fixtures. It does NOT install optional integration deps
-        # though — phantom_chess.config_flow imports
-        # homeassistant.components.bluetooth which transitively requires
-        # aiousbwatcher. Add it explicitly so test collection doesn't
-        # crash on ModuleNotFoundError.
+        # most fixtures, but NOT optional integration deps.
+        # phantom_chess.config_flow imports homeassistant.components.bluetooth
+        # which transitively pulls in:
+        #   bluetooth → usb → aiousbwatcher (Linux inotify watcher)
+        #   bluetooth → usb → utils → pyserial (the `serial` module)
+        # Plus the integration's own runtime dep:
+        #   chess (python-chess, for AI move generation + board state)
+        # Add them explicitly so test collection doesn't crash on
+        # ModuleNotFoundError before reaching the actual test code.
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-homeassistant-custom-component \
-                      aiousbwatcher \
+                      aiousbwatcher pyserial \
                       'chess>=1.10.0,<2.0'
       - name: Run HA-integration tests
         run: |
