@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha16] — 2026-05-27
+
+Gold-tier documentation pass. README expanded with six new sections; `quality_scale.yaml` updated to reflect 8 additional Gold rules as `done`.
+
+### Added (README)
+
+- **Use Cases** — six real workflows the integration is designed around: solo training, voice-driven game start, AI-vs-AI demo, correspondence play with notifications, sculpture mode for guests, accuracy tracking over time.
+- **Supported Devices** — firmware 0.3.0+ supported, 0.3.2+ forward-compatible, pre-0.3.0 explicitly unsupported. Bluetooth surfaces compatibility matrix (Yellow / Green / Pi / proxy / USB dongle / Classic-only ✗).
+- **Supported Functions** — every entity enumerated with description (sensors, binary_sensors, image, switches, numbers, selects, buttons).
+- **Data Update Flow** — diagrams the two state-update paths: BLE notify on `UUID_SEND_MATRIX` → coordinator → entities, and Lichess Board API stream → coordinator. Explicitly notes the integration is `local_push`, with the 30s `update_interval` being a safety net.
+- **Automation Examples** — four ready-to-paste blueprints: TTS announcement forwarder, resume-after-AI-failure, sculpture-on-arrival, accuracy `statistics-graph` card.
+- **Known Limitations** — eight design / platform constraints documented up front (multi-board not heavily tested, `move_piece` bypasses validation, sculpture playback stub, AI-vs-AI hang at move ~45, cloud-eval rate limits, Stockfish download dependency, GATT cache staleness, no anonymous Lichess play).
+
+### Gold quality scale: 8 additional rules → `done`
+
+`devices`, `diagnostics`, `discovery`, `docs-data-update`, `docs-examples`, `docs-known-limitations`, `docs-supported-devices`, `docs-supported-functions`, `docs-troubleshooting`, `docs-use-cases`, `entity-disabled-by-default`. Plus `discovery-update-info`, `dynamic-devices`, `stale-devices` declared `exempt` with rationale.
+
+### Still todo on Gold
+
+`entity-category` (alpha17), `entity-device-class` (alpha17), `entity-translations`, `exception-translations`, `icon-translations`, `reconfiguration-flow` (alpha19).
+
 ## [0.4.0-alpha15] — 2026-05-27
 
 HA Repair issue for missing HACS frontend dependencies. Satisfies Gold quality scale rule `repair-issues`.

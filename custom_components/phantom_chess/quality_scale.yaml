@@ -293,3 +293,157 @@ rules:
         already user-actionable.
       - The AI-move-not-delivered persistent notification (managed by
         coordinator). Same pattern; could be a Repair issue.
+
+  # ── Gold (continued — alpha16 docs additions) ──────────────────────────
+  devices:
+    status: done
+    comment: |
+      Every entity is attached to a `(DOMAIN, ble_address)` device via
+      `_attr_device_info` (manufacturer="Phantom", model="Phantom Chess
+      Board"). One device per config entry / per physical board.
+
+  diagnostics:
+    status: done
+    comment: |
+      `diagnostics.py` implements `async_get_config_entry_diagnostics`.
+      Token fully redacted via TO_REDACT; BLE address and Lichess
+      username partially masked via `_mask_ble_address` / `_mask_username`
+      so multi-report correlation works without leaking identifiers.
+      Stockfish state + environment block included for download triage.
+
+  discovery:
+    status: done
+    comment: |
+      manifest.json `bluetooth` block advertises the service UUID
+      `fd31a840-22e7-11eb-adc1-0242ac120002`. config_flow's
+      `async_step_bluetooth` handles the discovery; the user gets a
+      pre-filled "found Phantom XXXX at AA:BB:..." card in
+      Settings → Devices & Services → Discovered.
+
+  discovery-update-info:
+    status: exempt
+    comment: |
+      The integration only uses the BLE address as identity. There's no
+      separate network info (IP, hostname) that subsequent discoveries
+      would update.
+
+  docs-data-update:
+    status: done
+    comment: |
+      README "Data Update Flow" section documents the two state-update
+      paths: BLE notify on UUID_SEND_MATRIX → coordinator state, and
+      Lichess Board API stream → coordinator state. Explicitly notes
+      the integration is local-push, with the 30s coordinator
+      update_interval being a safety net only.
+
+  docs-examples:
+    status: done
+    comment: |
+      README "Automation Examples" section: TTS announcements,
+      resume-after-AI-failure, sculpture-on-arrival, accuracy
+      statistics-graph card. Pasted ready-to-use.
+
+  docs-known-limitations:
+    status: done
+    comment: |
+      README "Known Limitations" section: multi-board partially-tested,
+      `move_piece` bypasses python-chess validation, sculpture playback
+      stub, AI-vs-AI hang around move 45, cloud-eval rate-limiting,
+      Stockfish download dependency, GATT cache staleness, Lichess
+      anonymous-play not supported.
+
+  docs-supported-devices:
+    status: done
+    comment: |
+      README "Supported Devices" section: firmware 0.3.0+ supported,
+      0.3.2+ forward-compatible, pre-0.3.0 NOT supported. Bluetooth
+      surfaces matrix (Yellow / Green / Pi / BT proxy / USB dongle /
+      Classic-only ✗).
+
+  docs-supported-functions:
+    status: done
+    comment: |
+      README "Supported Functions" section: every entity enumerated
+      (sensors, binary_sensors, image, switches, numbers, selects,
+      buttons) with descriptions. The Services section earlier in the
+      README covers the action surface.
+
+  docs-troubleshooting:
+    status: done
+    comment: |
+      README "Troubleshooting" section: 7 common-issue troubleshooting
+      entries covering BLE discovery, TTS, Lichess sync, AI-move
+      failures, Managing-Mismatch loops, ARM Stockfish, ATT errors.
+
+  docs-use-cases:
+    status: done
+    comment: |
+      README "Use Cases" section: solo training, voice-driven start,
+      AI-vs-AI demo, correspondence play with notifications, sculpture
+      mode for guests, accuracy tracking over time.
+
+  dynamic-devices:
+    status: exempt
+    comment: |
+      One device per config entry; users get a new board by adding a
+      second config entry, not by the integration discovering new
+      devices on an existing entry. No "device list" to keep in sync.
+
+  entity-category:
+    status: todo
+    comment: |
+      Diagnostic-grade entities should be `EntityCategory.DIAGNOSTIC`
+      (the two `button.*` entities already have this); pure-config
+      entities should be `EntityCategory.CONFIG`. Audit + add in
+      alpha17.
+
+  entity-device-class:
+    status: todo
+    comment: |
+      `binary_sensor.<id>_connected` already uses
+      `BinarySensorDeviceClass.CONNECTIVITY`; `sensor.<id>_battery`
+      should be `SensorDeviceClass.BATTERY` with `%` unit; clock
+      sensors should be `SensorDeviceClass.DURATION` with `s`. Audit
+      + add in alpha17.
+
+  entity-disabled-by-default:
+    status: done
+    comment: |
+      The two `button.*` entities are diagnostic-grade and marked
+      `_attr_entity_registry_enabled_default = False`. Most sensors
+      are useful to most users; case-by-case disabling is overkill.
+
+  entity-translations:
+    status: todo
+    comment: |
+      Entity names currently use English strings via `_attr_name`.
+      Migrating to `_attr_translation_key` + translations in
+      `strings.json` is straightforward but requires touching every
+      entity class. Tracked for a future alpha.
+
+  exception-translations:
+    status: todo
+    comment: |
+      Service handlers currently raise `ServiceValidationError` with
+      English literals. Migrating to translation keys is similar
+      scope to entity-translations and tracked together.
+
+  icon-translations:
+    status: todo
+    comment: |
+      Most entities have static `_attr_icon` values. Icon translations
+      (state-based icons via `strings.json`) would be a nice polish
+      but not required for any functional behaviour.
+
+  reconfiguration-flow:
+    status: todo
+    comment: |
+      `async_step_reconfigure` not yet implemented. Tracked for
+      alpha19; would let users change BLE address or Lichess token
+      without delete + recreate.
+
+  stale-devices:
+    status: exempt
+    comment: |
+      One device per config entry. The user removes the device by
+      removing the integration (`async_remove_entry` cleans up).

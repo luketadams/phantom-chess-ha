@@ -196,6 +196,244 @@ The Lichess Board API token is stored in the config entry's `data` (not in the o
 
 ---
 
+## Use Cases
+
+Real workflows the integration is designed around. These aren't just feature highlights — they're the reasons the integration exists, in priority order.
+
+### Solo training without the phone app
+
+Play against Lichess or local Stockfish using nothing but the physical board and a dashboard on your wall-mounted iPad. Eval bar, opening name, threat warnings, and move classifications all surface as you play; the post-game review pane shows your three biggest mistakes with the engine's preferred move alongside. The official Phantom app is never started.
+
+### Voice-driven game start
+
+Walk past the board, say "Okay Nabu, let's play chess." Assist asks for color and difficulty if you haven't pre-set them and starts the game. Useful for keeping your hands free while setting up pieces; also the only way to start a game without a screen.
+
+### Watch the AI play itself
+
+The `phantom_chess.start_ai_vs_ai_game` service runs a Stockfish-vs-Stockfish game on the physical board, with the magnet driving moves for both colors. Helpful as a demo (the eval bar swings in real time) and as a stress test (catches BLE timing issues that a human-paced game would mask).
+
+### Correspondence-style play with notifications
+
+Set up a Lichess correspondence game. The integration's `phantom_chess_announce` event fires when your opponent moves, even when you're not in the room — wire it to your TTS stack to get spoken alerts ("Your move — opponent played Nf6").
+
+### Sculpture mode for guests
+
+Trigger sculpture mode via voice or automation when guests arrive. The board plays out a famous historical game (Kasparov vs Deep Blue, the Immortal Game, the Game of the Century, etc.) as kinetic display. The integration ships an 18-game catalog; the dashboard's Sculpture Library tile picks which to play.
+
+### Post-game accuracy tracking
+
+Every Lichess game's accuracy scores get retained in the integration's `last_game_accuracy_white` / `last_game_accuracy_black` sensors. Pair with the HA history database to track your accuracy over time — a `statistics_graph` card showing a 30-day average gives you a calmer signal than the per-game number Lichess shows.
+
+---
+
+## Supported Devices
+
+| Hardware | Status | Notes |
+|---|---|---|
+| Phantom Chess Board (firmware **v0.3.0+**) | ✅ Supported | Primary target. The integration uses firmware-0.3.0 BLE protocol exclusively. |
+| Phantom Chess Board (firmware v0.2.x or earlier) | ❌ Not supported | Pre-0.3.0 firmware used a different BLE characteristic layout. Update via the official Phantom app. |
+| Phantom Chess Board (firmware **v0.3.2+**) | ✅ Supported (forward-compatible) | The integration tolerates the 0.3.2 protocol additions (slide-detection flag, slide-delay characteristic) but doesn't yet drive them as entities. Pure additions, never regressions. |
+
+Compatible Bluetooth surfaces:
+
+| Bluetooth setup | Works? |
+|---|---|
+| Home Assistant Yellow built-in BT | ✅ |
+| Home Assistant Green / Connect ZBT-1 | ✅ |
+| Raspberry Pi 4 / 5 onboard BT | ✅ |
+| ESPHome Bluetooth proxy (within radio range) | ✅ — useful for HA-in-VM and HA-in-container deployments |
+| USB BT 4.0+ dongle | ✅ (any HA-supported dongle) |
+| Classic Bluetooth-only adapter | ❌ — the Phantom Chess Board is BLE-only |
+
+---
+
+## Supported Functions
+
+The integration creates one device per board with the following entities (canonical names; the `<id>` placeholder is replaced with your board's slug at registration time).
+
+### Sensors (read-only state)
+
+| Entity | Description |
+|---|---|
+| `sensor.<id>_battery` | Battery percentage (0–100). |
+| `sensor.<id>_firmware_mode` | Firmware state machine label: HOME / Setting Up / Snap to Center / Running / Paused / Sculpture Playback / etc. |
+| `sensor.<id>_firmware_last_move` | Last move event the firmware emitted on the firmware-state channel (e.g. `K e1-e2`). Distinct from `last_move` which is normalised UCI. |
+| `sensor.<id>_live_position` | Current FEN-format position; attributes include `our_color`, `side_to_move`, `last_move`, `lichess_active`, `local_game_active`, `game_status`. |
+| `sensor.<id>_piece_count` | Number of pieces currently on the board (computed from the sensor matrix). |
+| `sensor.<id>_matrix_status` | Sensor-matrix consistency state: `Clean` or `Error`. |
+| `sensor.<id>_eval_cp` / `sensor.<id>_eval_mate` | Current position centipawn / mate evaluation. |
+| `sensor.<id>_eval_source` | Where the eval came from: `lichess-cloud` / `stockfish-local` / `stub`. |
+| `sensor.<id>_eval_depth` | Engine search depth for the current eval. |
+| `sensor.<id>_opening_name` | Lichess masters opening name (e.g. "Sicilian Defense: Najdorf, English Attack"). Goes to `unknown` after you leave book. |
+| `sensor.<id>_best_move_san` | Engine's preferred move in SAN notation. |
+| `sensor.<id>_last_move_classification` | Last move's classification: best / good / inaccuracy / mistake / blunder. |
+| `sensor.<id>_last_move_cpl` | Last move's centipawn loss. |
+| `sensor.<id>_threat_san` | If side-to-move has a capture or mate ready, the SAN form of that move. |
+| `sensor.<id>_move_history` | JSON list of moves with classifications + cpls; attributes include `top_mistakes` once review is ready. |
+| `sensor.<id>_last_game_result` / `_accuracy_white` / `_accuracy_black` | Post-game stats from the most-recent completed game. |
+| `sensor.<id>_lichess_white_clock` / `_black_clock` | Lichess clock readings in seconds. |
+| `sensor.<id>_lichess_white_name` / `_black_name` | Lichess player names. |
+
+### Binary sensors
+
+| Entity | Description |
+|---|---|
+| `binary_sensor.<id>_connected` | True while the integration has an active BLE session with the board. **Always available even when other entities go unavailable** — this is the connectivity indicator. |
+| `binary_sensor.<id>_lichess_active` | True while a Lichess Board API game is streaming. |
+| `binary_sensor.<id>_lichess_review_ready` | True when the post-game review pane has data to show. |
+| `binary_sensor.<id>_learning_view_active` | Composite "the learning view should render" gate used by the dashboard. |
+| `binary_sensor.<id>_board_idle` | True after 60 seconds of firmware inactivity — drives the dashboard's mode-picker-vs-live-game gate. |
+
+### Image, switches, numbers, selects, buttons
+
+| Entity | Description |
+|---|---|
+| `image.<id>_board` | SVG render of the current position with last-move highlight; in training-wheels mode also overlays the classification glyph on the destination square. |
+| `switch.<id>_paused` | Pause / resume the mechanism (drives UUID_PAUSE). |
+| `switch.<id>_training_wheels` | Toggle the dashboard's classification-glyph overlay. Pure-local, no BLE write. |
+| `number.<id>_mechanism_speed` | 1–5 firmware speed scale. |
+| `number.<id>_sound_level` | 0–32 firmware sound-volume scale. |
+| `number.<id>_lichess_clock_minutes` / `_increment` | Pre-game-start clock settings (minutes + seconds-per-move increment). Pure-local. |
+| `select.<id>_ai_level` | Lichess / Stockfish AI level 1–8. |
+| `select.<id>_player_color` | white / black / random. |
+| `select.<id>_setup_mode` | Dashboard mode picker (Choose a mode / Lichess / Stockfish / Sculpture / 2-Player). Pure-local. |
+| `select.<id>_sculpture_game` | Sculpture catalog picker (18 historical games). |
+| `button.<id>_start_game` / `_movement_verify` | Diagnostic-grade buttons. Disabled by default in the entity registry — use the `phantom_chess.*` services for normal gameplay. |
+
+See the **Services** section above for the action surface (`phantom_chess.start_game`, `phantom_chess.takeback`, `phantom_chess.execute_move`, etc.).
+
+---
+
+## Data Update Flow
+
+How state gets from the board into HA, and the moments when each piece of state changes.
+
+```
+   Physical hand moves a piece on the board
+   ↓
+   Hall-effect sensor matrix updates
+   ↓
+   Firmware emits BLE notification on UUID_SEND_MATRIX (1b034927)
+     "CLEAN: Match.,<piece-grid>,<sensor-bitmap>"
+   ↓
+   Coordinator._handle_matrix_bytes parses + marshals to event loop
+   ↓
+   Coordinator._apply_matrix_state mutates self._state:
+     piece_grid, sensor_bitmap, live_fen, piece_count,
+     matrix_status, position_consistent, matrix_mismatches
+   ↓
+   coordinator.async_set_updated_data fans the new state to all entities
+   ↓
+   Entities re-evaluate their state/property; HA pushes WebSocket updates
+   ↓
+   Dashboard re-renders; image entity regenerates SVG only if a render
+   input changed (FEN / last_move / orientation / classification glyph)
+```
+
+For Lichess games, a parallel stream runs:
+
+```
+   Lichess Board API /api/board/game/stream/{gameId}
+   ↓
+   Coordinator._lichess_task consumes events:
+     gameFull (initial state) → gameState (per-move updates)
+   ↓
+   For opponent moves: push to self._board, drive magnet via
+     phantom_chess.async_phantom_apply_ai_move
+   ↓
+   For game-end events: stop stream, populate last_game_* sensors
+```
+
+There's **no polling interval** — the integration is `iot_class: local_push`. The coordinator's `update_interval` is set to 30 seconds purely as a safety-net heartbeat; meaningful state changes always arrive via BLE notify or the Lichess stream, not the poll.
+
+---
+
+## Automation Examples
+
+Drop-in starter automations using the integration's events + services.
+
+### Announce moves over TTS
+
+```yaml
+alias: Phantom Chess — TTS announcements
+trigger:
+  - platform: event
+    event_type: phantom_chess_announce
+action:
+  - service: tts.cloud_say
+    data:
+      entity_id: media_player.living_room_speaker
+      message: "{{ trigger.event.data.message }}"
+mode: parallel
+```
+
+### Resume after "AI move not delivered" notification
+
+When the magnet fails to drive a move (BLE storm, piece-too-close-to-magnet, etc.), the integration fires a persistent notification and the game continues on Lichess's web/mobile UI. Once you're back at the board, this automation resumes physical play:
+
+```yaml
+alias: Phantom Chess — resume after AI failure
+trigger:
+  - platform: state
+    entity_id: input_boolean.phantom_chess_back_at_board
+    to: 'on'
+action:
+  - service: phantom_chess.resume_from_phone
+  - service: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.phantom_chess_back_at_board
+```
+
+### Sculpture-on-arrival routine
+
+Trigger the sculpture mode when guests are detected (via presence sensors, calendar event, etc.):
+
+```yaml
+alias: Phantom Chess — sculpture for guests
+trigger:
+  - platform: state
+    entity_id: binary_sensor.guests_present
+    to: 'on'
+action:
+  - service: select.select_option
+    target:
+      entity_id: select.phantom_c8_c9_a3_f2_7c_0a_sculpture_game
+    data:
+      option: "Kasparov vs Deep Blue, 1996"
+  - service: phantom_chess.play_selected_sculpture
+```
+
+### Statistics-graph card for accuracy over time
+
+```yaml
+type: statistics-graph
+title: Chess accuracy (30-day average)
+entities:
+  - sensor.phantom_c8_c9_a3_f2_7c_0a_last_game_accuracy_white
+  - sensor.phantom_c8_c9_a3_f2_7c_0a_last_game_accuracy_black
+stat_types:
+  - mean
+days_to_show: 30
+chart_type: line
+```
+
+---
+
+## Known Limitations
+
+Not bugs — design or platform constraints to set the right expectations.
+
+- **One physical board per HA install at a time** is the primary tested configuration. Multi-board is supported architecturally (`entry_id` parameter on every service, per-board coordinators) but Luke only owns one board so the multi-board paths haven't been stress-tested. File an issue if you hit problems.
+- **The `phantom_chess.move_piece` service bypasses chess.Board validation.** It drives the magnet directly without checking move legality. Useful for setting up arbitrary positions and recovering from state-mismatch — but you can put the physical board into states python-chess can't represent. Use `phantom_chess.execute_move` for normal gameplay.
+- **Sculpture playback isn't fully driven by the integration yet** (alpha10). The dashboard's Sculpture Library tile enters firmware sculpture mode and fires a notification naming the selected game, but per-game move-sequence playback currently relies on the v0.3 setup-pack scripts. Auto-driving the playback from the integration is tracked as a v0.4 follow-up.
+- **AI-vs-AI long games occasionally hang around move ~45** (Task #40, observed during an overnight stress test 2026-05-26). Root cause not yet diagnosed — reproduces only with sustained BLE traffic on the magnet. The integration retries on transient errors but a deeper hang requires a `phantom_chess.stop_local_game` + restart.
+- **The Lichess cloud-eval endpoint is unauthenticated and rate-limited.** During long games the eval can briefly become stale (the integration falls back to local Stockfish when available, otherwise to a `stub` source that just preserves the last reading).
+- **Stockfish download is one-shot, ~3 MB.** First evaluate() call after a fresh install pulls the appropriate binary from official Stockfish releases (glibc) or Alpine apk (musl). Subsequent restarts reuse the cached binary at `/config/phantom_chess/bin/`. If the download fails (e.g. firewall blocking GitHub), the integration falls back to Lichess cloud-eval only.
+- **The board's BLE GATT cache can go stale** after firmware-side power cycles. The integration detects this (writes fail with a specific bleak error pattern) and forces a fresh-discovery reconnect; you may briefly see entities go unavailable during the recovery window.
+- **The Lichess Board API doesn't support all game types.** Most notably, it can't be used as an anonymous (no-account) play target; you need a Lichess account with the Board API scope enabled. Local Stockfish is the offline fallback.
+
+---
+
 ## Troubleshooting
 
 **Board doesn't show up during integration setup.** Confirm the board is powered on and within BLE range of your HA host. Use HA's Bluetooth integration page to verify it sees the board's advertisements.
