@@ -63,11 +63,20 @@ This is an unofficial community integration — not produced by Phantom Technolo
 2. In Home Assistant, go to **Settings → Devices & Services → Add Integration**.
 3. Search for **Phantom Chess Board**. If your board is already advertising, HA's Bluetooth integration will have discovered it — you'll see it listed.
 4. Confirm the board to set up.
-5. **(Optional)** Provide a Lichess Board API token. Create one at [https://lichess.org/account/oauth/token](https://lichess.org/account/oauth/token) with the **Play games with the Board API** (`board:play`) scope enabled.
+5. **(Optional)** Provide a Lichess Board API token. Create one at <https://lichess.org/account/oauth/token> with the **Play games with the Board API** (`board:play`) scope enabled.
    - You can skip this step if you only want to play local Stockfish games.
-   - The token can be added or rotated later via the integration's options.
+   - The token can be added or rotated later via the integration's reauth flow.
 
 That's it. The integration creates a single device with all entities under it.
+
+### Setup parameters
+
+The setup flow asks for the following fields. Both are optional in the bluetooth-discovery path (the board's MAC is pre-filled from the discovery info); the manual path requires the BLE address.
+
+| Field | Required | Description |
+|---|---|---|
+| **Board Bluetooth Address** | yes (manual flow) | Six hex pairs separated by colons or dashes, e.g. `C8:C9:A3:F2:7C:0A`. You can find it on the board's serial sticker, the official Phantom app's settings screen, or any nearby BLE scanner. Case-insensitive — the integration canonicalises to upper-case. |
+| **Lichess Board API Token** | no | A personal-access token created at <https://lichess.org/account/oauth/token> with the **Play games with the Board API** (`board:play`) scope enabled. Used only for streaming your active board games and posting moves on your behalf — the integration never reads chat / preferences / friends data. Leave blank to use only local Stockfish for AI games. |
 
 ---
 
@@ -166,14 +175,23 @@ action:
 
 ## Configuration Options
 
-After setup, click the integration's **Configure** button to access options:
+After setup, click the integration's **Configure** button (Settings → Devices & Services → Phantom Chess Board → ⋮ → Configure) to access these options. Leave any field blank to use its default.
 
-| Option | Description |
-|---|---|
-| `lichess_token` | Rotate your Lichess Board API token. |
-| `tts_service` | Optional — e.g. `tts.google_ai_tts`. If set, the integration calls TTS directly in addition to firing the event. |
-| `tts_media_player_entity_id` | Required if `tts_service` is set — the media player to speak through. |
-| `debug_dump` | Write developer-debug artifacts (GATT layout, BLE matrix log, characteristic values) to `<config>/phantom_chess/debug/`. Default: off. Only enable when troubleshooting an issue with the maintainers. |
+| Option | Default | Description |
+|---|---|---|
+| `tts_service` | _empty_ | Optional. If set, the integration calls this TTS service for announcements (move classifications, check / checkmate, game outcomes) in addition to firing the `phantom_chess_announce` event. Format: `<domain>.<service>`, e.g. `tts.google_ai_tts`, `tts.cloud_say`. |
+| `tts_media_player_entity_id` | _empty_ | **Required** when `tts_service` is set — the media player to play TTS audio through. Format: an entity ID, e.g. `media_player.living_room_speaker`. |
+| `debug_dump` | off | Write developer-debug artifacts (GATT layout, BLE matrix log, characteristic values) to `<config>/phantom_chess/debug/` on every restart. **Off by default.** Only enable when troubleshooting an issue with the maintainers — the directory can grow quickly during long sessions. |
+| `auto_provision_dashboard` | on | Auto-install the rich **Chess** dashboard at `/phantom-chess` on every config-entry setup. Turn off if you want to author your own dashboard from scratch; the auto-provisioned one will be removed on the next reload. The shared `/phantom-chess` is recreated on next reload if you flip this back on. |
+
+### Rotating the Lichess token
+
+The Lichess Board API token is stored in the config entry's `data` (not in the options flow above), encrypted by HA's standard credential storage. If the token expires or you revoke it on Lichess:
+
+1. Home Assistant will auto-detect the rejection during the next API call and show a **Re-authentication required** notification.
+2. Click the notification (or go to the integration page) and choose **Reconfigure**.
+3. Generate a fresh token at <https://lichess.org/account/oauth/token> with the **Board API** (`board:play`) scope enabled, paste it in.
+4. The integration reloads and resumes Lichess play.
 
 ---
 

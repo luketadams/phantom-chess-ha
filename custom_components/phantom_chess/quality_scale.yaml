@@ -164,3 +164,106 @@ rules:
       (config_flow.py async_migrate_entry) canonicalises pre-existing
       entries to upper-case so the abort path works for any case the
       user originally entered.
+
+  # ── Silver ─────────────────────────────────────────────────────────────
+  action-exceptions:
+    status: done
+    comment: |
+      Service handlers raise ServiceValidationError when the user's
+      input references something that doesn't exist (no board
+      configured, wrong entry_id) — see _get_coordinator in
+      __init__.py. Lower-level BLE-write failures propagate from the
+      coordinator as the native exception type (bleak.BleakError etc.),
+      which HA surfaces verbatim. alpha11 replaced an earlier vol.Invalid
+      pattern which produced opaque "unknown" failures in the UI.
+
+  config-entry-unloading:
+    status: done
+    comment: |
+      async_unload_entry (in __init__.py) calls
+      coordinator.async_shutdown() to stop all BLE / Lichess / matrix-
+      poll tasks, then unloads every platform via
+      async_unload_platforms. HA garbage-collects entry.runtime_data
+      automatically.
+
+  docs-configuration-parameters:
+    status: done
+    comment: |
+      README "Configuration Options" section lists every options-flow
+      field (tts_service, tts_media_player_entity_id, debug_dump,
+      auto_provision_dashboard) with default + description. Includes a
+      separate "Rotating the Lichess token" subsection because the
+      token lives in entry data (not options) and is rotated via the
+      reauth flow, which would otherwise be non-obvious.
+
+  docs-installation-parameters:
+    status: done
+    comment: |
+      README "Setup parameters" subsection under Setup lists the two
+      config-flow fields (Board Bluetooth Address, Lichess Board API
+      Token) with whether required, format, and where to find each.
+
+  entity-unavailable:
+    status: done
+    comment: |
+      Each platform's base entity class (PhantomBaseBinary,
+      PhantomBaseSensor, PhantomChessBoardImage, _PhantomBaseButton,
+      PhantomBaseNumber, PhantomPauseSwitch) overrides `available` to
+      `super().available and self.coordinator.is_ble_connected`.
+      PhantomConnectedSensor overrides back to always-True so the
+      connectivity sensor itself stays visible. The select platform and
+      pure-local config storage entities (Lichess clock minutes /
+      increment, training_wheels switch) stay always-available because
+      their value doesn't depend on BLE — users can pre-configure them
+      while the board is off.
+
+  integration-owner:
+    status: done
+    comment: |
+      manifest.json codeowners lists @luketadams. No additional owners.
+
+  log-when-unavailable:
+    status: done
+    comment: |
+      coordinator.py:_ble_loop logs the "BLE connection lost" WARNING
+      only on the first retry of an outage cluster
+      (first_failure_of_cluster flag); subsequent retry attempts during
+      the same outage stay DEBUG-level. _on_ble_disconnect logs the
+      disconnect event itself once. _ble_connect_and_run's "Connected"
+      INFO line completes the rule's "back connected" half on
+      recovery. alpha11 added the cluster-tracking flag — pre-alpha11
+      every retry logged WARNING, which spammed the system log during
+      multi-hour outages.
+
+  parallel-updates:
+    status: done
+    comment: |
+      Every platform sets PARALLEL_UPDATES at module level:
+        binary_sensor.py = 0 (read-only, coordinator-centralised)
+        sensor.py        = 0 (read-only, coordinator-centralised)
+        image.py         = 0 (read-only, coordinator-centralised)
+        select.py        = 0 (pure-local config storage, no BLE writes)
+        button.py        = 1 (serialise BLE writes per platform)
+        number.py        = 1 (serialise BLE writes per platform)
+        switch.py        = 1 (serialise BLE writes per platform)
+      The shared GATT client doesn't support concurrent writes safely,
+      so 1 is the right ceiling for action-issuing platforms.
+
+  reauthentication-flow:
+    status: done
+    comment: |
+      config_flow.py's async_step_reauth + async_step_reauth_confirm
+      handle Lichess-token rejection. Reauth gets triggered from the
+      coordinator's Lichess stream task on a 401/expired-token
+      response. UI flow shows the existing user's name and prompts for
+      a fresh Board API token — tested in tests/test_config_flow.py
+      (test_reauth_flow_success).
+
+  test-coverage:
+    status: todo
+    comment: |
+      Current coverage is well below the 95% Silver threshold —
+      matrix.py and dashboard_provision.py are near-fully covered but
+      coordinator.py (4500+ LOC), lichess_analysis.py, and the entity
+      platforms are not. Test-coverage push tracked as the next
+      multi-alpha workstream.

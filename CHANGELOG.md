@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha11] — 2026-05-26
+
+Silver quality-scale compliance pass — code-side. 9 of 10 Silver rules now done; only `test-coverage` (95% threshold) remains.
+
+### Added / Changed
+
+- **`entity-unavailable`.** Each platform's base entity class overrides `available` to also check `self.coordinator.is_ble_connected` — entities go unavailable when the board drops off BLE. `PhantomConnectedSensor` overrides back to always-available so users keep a visible connectivity indicator. Pure-local config entities (Lichess clock minutes/increment, the entire select platform, training_wheels switch) also stay always-available so users can pre-configure while the board is off.
+- **`parallel-updates`** declared per platform. `0` for read-only platforms (binary_sensor, sensor, image) and pure-local select; `1` for action-issuing platforms (button, number, switch) so concurrent BLE writes on the single GATT client are serialised.
+- **`action-exceptions`.** `_get_coordinator` now raises `ServiceValidationError` (was: `vol.Invalid`) for "no board configured" / "wrong entry_id" / "ambiguous target" cases. ServiceValidationError is the documented type for input-validation failures and HA surfaces the message verbatim in the UI.
+- **`log-when-unavailable`.** `_ble_loop` only logs the "BLE connection lost" WARNING on the first retry of an outage cluster (`first_failure_of_cluster` flag). Subsequent retry attempts during the same outage stay DEBUG-level. Pre-alpha11 every retry logged WARNING, which spammed the system log during multi-hour board-off periods.
+- **`docs-configuration-parameters`** + **`docs-installation-parameters`.** README "Configuration Options" rewritten to enumerate every options-flow field (incl. the missing `auto_provision_dashboard` from alpha4). New "Setup parameters" subsection documents the two config-flow fields (BLE address, Lichess token) with format + where-to-find guidance. Also added a "Rotating the Lichess token" subsection because the token lives in entry data and is rotated via the reauth flow, not options.
+- **Six missing service descriptions** filled in (`services.yaml`): `move_piece`, `start_sculpture`, `reset_position`, `play_sound`, `request_hint`, `dismiss_review`. Pre-alpha11 these appeared with empty descriptions in HA's developer-tools/services UI.
+
+### Internal notes
+
+- `quality_scale.yaml` now declares 14 Bronze + 9 Silver rules `done`, 2 Bronze `exempt`, and 2 rules `todo` (`brands` for Bronze submission; `test-coverage` for Silver submission).
+- Test-coverage push toward Silver's 95% is the next multi-alpha workstream.
+
 ## [0.4.0-alpha10] — 2026-05-26
 
 Audit + close-out pass against HA's Bronze quality scale checklist. Code-side work is complete; only the brand-assets PR to home-assistant/brands remains before the integration can officially claim Bronze.

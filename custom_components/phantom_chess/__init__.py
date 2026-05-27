@@ -9,6 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
@@ -752,18 +753,24 @@ def _register_services(hass: HomeAssistant) -> None:
         # alpha10: enumerate loaded entries via the config-entries API and
         # read entry.runtime_data (the Bronze `runtime-data` pattern).
         # Pre-alpha10 this read from hass.data[DOMAIN][entry_id].
+        # alpha11: replaced vol.Invalid (a voluptuous validation error
+        # that HA surfaces as a generic "unknown" failure) with
+        # ServiceValidationError — Silver quality scale rule
+        # `action-exceptions`. ServiceValidationError is the documented
+        # type for "user-input is wrong" or "referenced thing doesn't
+        # exist". HA shows the message verbatim in the UI.
         coordinators: dict[str, PhantomChessCoordinator] = {
             e.entry_id: e.runtime_data
             for e in hass.config_entries.async_entries(DOMAIN)
             if getattr(e, "runtime_data", None) is not None
         }
         if not coordinators:
-            raise vol.Invalid("No Phantom Chess Board configured")
+            raise ServiceValidationError("No Phantom Chess Board configured")
 
         target_id = call.data.get("entry_id")
         if target_id:
             if target_id not in coordinators:
-                raise vol.Invalid(
+                raise ServiceValidationError(
                     f"entry_id {target_id!r} does not match any configured "
                     f"Phantom Chess Board (known: {list(coordinators)})"
                 )
@@ -772,7 +779,7 @@ def _register_services(hass: HomeAssistant) -> None:
         # No entry_id supplied — only safe if exactly one board exists.
         if len(coordinators) == 1:
             return next(iter(coordinators.values()))
-        raise vol.Invalid(
+        raise ServiceValidationError(
             f"{len(coordinators)} Phantom Chess Boards configured — service "
             f"call must include an entry_id field to target one specifically. "
             f"Known entry_ids: {list(coordinators)}"

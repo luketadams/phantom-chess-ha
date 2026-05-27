@@ -691,18 +691,47 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ── BLE loop ──────────────────────────────────────────────────────────────
 
     async def _ble_loop(self) -> None:
-        """Maintain BLE connection with automatic reconnection."""
+        """Maintain BLE connection with automatic reconnection.
+
+        Silver quality scale rule `log-when-unavailable`: log once when
+        the board becomes unreachable, once when it comes back. We
+        achieve that by:
+
+        - Only logging the "lost connection" WARNING on the FIRST retry
+          of a cluster (`retry_delay == BLE_RETRY_SECONDS`). The
+          `_on_ble_disconnect` callback already emits a one-off
+          "Phantom board disconnected" WARNING for the disconnect event
+          itself.
+        - Letting `_ble_connect_and_run` log the "Connected" INFO line
+          when the board is reachable again — that's the "back
+          connected" half of the rule.
+        - Subsequent retry attempts during the same outage stay
+          DEBUG-level so logs don't fill up during long board-off
+          periods.
+        """
         retry_delay = BLE_RETRY_SECONDS
+        first_failure_of_cluster = True
         while not self._stop_event.is_set():
             try:
                 await self._ble_connect_and_run()
                 retry_delay = BLE_RETRY_SECONDS  # reset on clean run
+                first_failure_of_cluster = True
             except asyncio.CancelledError:
                 return
             except Exception as err:
-                _LOGGER.warning(
-                    "BLE connection lost (%s), retrying in %ds", err, retry_delay
-                )
+                if first_failure_of_cluster:
+                    _LOGGER.warning(
+                        "BLE connection lost (%s), retrying in %ds",
+                        err,
+                        retry_delay,
+                    )
+                    first_failure_of_cluster = False
+                else:
+                    _LOGGER.debug(
+                        "BLE reconnect attempt failed (%s), next retry in %ds",
+                        err,
+                        retry_delay,
+                    )
                 self._ble_connected = False
                 self.async_set_updated_data(self._state)
 
