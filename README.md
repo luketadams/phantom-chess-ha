@@ -105,6 +105,7 @@ The Conversation assistant will ask you for color and difficulty if you haven't 
 
 ---
 
+<a id="chess-dashboard-frontend-dependencies"></a>
 ## The Chess Dashboard
 
 The Phantom Chess Board is a single-purpose device with one sensible UI: a mode-picker that walks you through Lichess / Stockfish / Sculpture / 2-Player, contextual cards for each, live-game view with eval bar and move classifications, post-game review with top mistakes, and an embedded drag-drop interactive board. **The dashboard isn't a nice-to-have add-on — it's the user-facing surface of the integration.** A bare entity-list view doesn't show what this thing can do.

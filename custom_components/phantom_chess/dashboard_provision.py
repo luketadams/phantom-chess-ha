@@ -73,7 +73,7 @@ from homeassistant.components.lovelace.const import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.storage import Store
 
 from .const import CONF_BLE_ADDRESS, DOMAIN
@@ -94,6 +94,22 @@ DASHBOARD_URL_PATH: Final = "phantom-chess"
 DASHBOARD_ID: Final = "phantom_chess"
 DASHBOARD_TITLE: Final = "Chess"
 DASHBOARD_ICON: Final = "mdi:chess-knight"
+
+# Frontend dependencies the auto-provisioned dashboard uses. If any of
+# these aren't installed via HACS, the dashboard renders functional but
+# visually broken (no rounded cards, no template substitutions, no
+# tap-feedback styling). Detected by substring-matching the user's
+# Lovelace resource URLs; the issue is surfaced as an HA Repair so the
+# user gets a clickable Settings → Repairs entry instead of a silent
+# visual regression.
+#
+# Each tuple = (issue-id suffix, display name, URL substring patterns).
+FRONTEND_DEPS: Final = (
+    ("mushroom",  "Mushroom",            ("mushroom",)),
+    ("layout-card", "layout-card",       ("layout-card", "layout_card")),
+    ("card-mod", "card-mod",             ("card-mod", "card_mod")),
+)
+MISSING_DEPS_ISSUE_ID: Final = "missing_frontend_deps"
 
 # v0.3 setup-pack script names → v0.4 native service names.
 _SCRIPT_TO_SERVICE: Final[dict[str, str]] = {
@@ -539,6 +555,75 @@ async def _async_load_dashboards_store(hass: HomeAssistant) -> tuple[Store, list
     return store, items
 
 
+def _missing_frontend_deps(hass: HomeAssistant) -> list[str]:
+    """Return the human-readable names of frontend HACS plugins that the
+    bundled dashboard depends on but aren't currently registered as
+    Lovelace resources.
+
+    Detection is substring-based against the user's Lovelace resource
+    URLs (`hass.data[LOVELACE_DATA].resources`). HACS plugins typically
+    register themselves at `/hacsfiles/<plugin-name>/...`, but we don't
+    pin the exact form — we accept any URL containing the plugin's
+    canonical name (with or without underscores) since older HACS
+    versions used dashes vs underscores inconsistently.
+
+    Returns an empty list when all deps are present (issue can be
+    cleared) or HA isn't running in a state where we can introspect
+    Lovelace resources (e.g. the user is on YAML mode — in which case
+    we conservatively return empty so we don't surface a false-positive
+    issue).
+    """
+    lovelace_data = hass.data.get(LOVELACE_DATA)
+    if lovelace_data is None:
+        return []
+    resources = getattr(lovelace_data, "resources", None)
+    if resources is None:
+        return []
+    # async_items returns the list of stored resource dicts. On YAML
+    # mode the resources collection isn't a Store-backed collection
+    # and the API differs — guard against the missing attribute.
+    try:
+        items = resources.async_items()
+    except Exception:  # noqa: BLE001
+        return []
+    urls = " ".join(item.get("url", "") for item in items).lower()
+    missing: list[str] = []
+    for _suffix, display_name, patterns in FRONTEND_DEPS:
+        if not any(pat.lower() in urls for pat in patterns):
+            missing.append(display_name)
+    return missing
+
+
+def _sync_frontend_deps_issue(hass: HomeAssistant) -> None:
+    """Create or clear the missing-frontend-deps Repair issue.
+
+    Called at the end of dashboard provisioning. The issue is
+    non-fixable (the fix is "install the HACS plugin"), uses WARNING
+    severity (the dashboard still works, just looks broken), and
+    includes the plugin names in translation_placeholders so the
+    Repairs UI can list them inline.
+    """
+    missing = _missing_frontend_deps(hass)
+    if missing:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            MISSING_DEPS_ISSUE_ID,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="missing_frontend_deps",
+            translation_placeholders={
+                "missing": ", ".join(missing),
+            },
+            learn_more_url=(
+                "https://github.com/luketadams/phantom-chess-ha"
+                "#chess-dashboard-frontend-dependencies"
+            ),
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, MISSING_DEPS_ISSUE_ID)
+
+
 async def async_provision_dashboard(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
@@ -628,6 +713,15 @@ async def async_provision_dashboard(
         DASHBOARD_URL_PATH,
         ble_address,
     )
+
+    # alpha15: surface missing-frontend-deps as a Repair issue so users
+    # get a clickable Settings → Repairs entry pointing at the HACS
+    # plugins they need to install. Non-fatal — the dashboard works
+    # without them, just looks broken.
+    try:
+        _sync_frontend_deps_issue(hass)
+    except Exception:  # noqa: BLE001 — never block provision on diagnostics
+        _LOGGER.exception("Failed to sync frontend-deps issue")
 
 
 async def async_unprovision_dashboard(hass: HomeAssistant) -> None:

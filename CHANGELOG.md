@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha15] — 2026-05-27
+
+HA Repair issue for missing HACS frontend dependencies. Satisfies Gold quality scale rule `repair-issues`.
+
+### Added
+
+- **Settings → Repairs entry** when the auto-provisioned `/phantom-chess` dashboard's HACS plugins (`mushroom-template-card`, `layout-card`, `card-mod`) aren't installed. Pre-alpha15 the dashboard rendered visually broken with no indication of why; now the user gets a clickable Repair entry naming the missing plugins. Issue is non-fixable (the fix is "install the HACS plugin"), severity WARNING, with a `learn_more_url` linking to the README's dashboard-deps section.
+- **`_missing_frontend_deps(hass)`** helper in `dashboard_provision.py`. Substring-matches plugin names against the user's Lovelace resource URLs; accepts both dash and underscore variants since older HACS versions used them inconsistently. Tolerant of early-boot races (returns empty list rather than raising).
+- **`_sync_frontend_deps_issue(hass)`** called at the end of `async_provision_dashboard`. Creates the issue if any deps are missing, deletes it if all present — so the issue auto-clears when the user installs the missing plugin and reloads the integration.
+
+### Added (tests)
+
+- **6 new tests** in `test_dashboard_provision.py` for the detection helper: all-present → empty, all-missing → all flagged, partial, underscore-variant accepted, no-LOVELACE_DATA → empty, iteration-error → empty.
+
+### Internal notes
+
+- Translation strings added under `issues.missing_frontend_deps` in `strings.json` (title + description, plus `{missing}` placeholder).
+- README got an `id="chess-dashboard-frontend-dependencies"` anchor so the Repair's `learn_more_url` lands in the right section.
+
 ## [0.4.0-alpha14] — 2026-05-27
 
 Incremental coverage push: 43.7% → 44.5%.

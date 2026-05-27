@@ -262,11 +262,34 @@ rules:
   test-coverage:
     status: todo
     comment: |
-      alpha12 brought combined coverage to ~42.7% (up from ~9%). Most
-      entity platforms are now 79–93% covered via the ha-tests job's
+      alpha14 baseline: 44.5% combined coverage (up from ~9% pre-push).
+      Most entity platforms are now 79–93% covered via the ha-tests job's
       setup-time entity instantiation; matrix.py is 93%; lichess_analysis
       is 39%. The remaining gap is mostly coordinator.py (BLE async paths
       that need bleak mocking) and lichess_analysis's HTTP client +
-      Stockfish-binary class. CI fail_under gate set to 40% as a
-      regression guard. Reaching 95% is a multi-alpha goal — Silver is
-      otherwise compliant.
+      Stockfish-binary class. CI fail_under gate ratchets up with each
+      alpha (currently 43%). Reaching 95% is a multi-alpha goal — Silver
+      is otherwise compliant.
+
+  # ── Gold ───────────────────────────────────────────────────────────────
+  repair-issues:
+    status: done
+    comment: |
+      v0.4.0-alpha15 (2026-05-27) — surfaces missing HACS frontend
+      dependencies (mushroom-template-card, layout-card, card-mod) as a
+      WARNING-severity Settings → Repairs entry. The dashboard works
+      without them but renders visually broken; the repair entry tells
+      the user exactly which plugins to install. Issue is non-fixable
+      (the fix is "install via HACS"); auto-clears on next reload when
+      the plugins are detected. Detection lives in
+      `dashboard_provision._missing_frontend_deps`; the sync call runs
+      at the end of `async_provision_dashboard`.
+
+      Other repair-issue surfaces in the integration:
+      - The sensor-mismatch persistent notification (managed by
+        `coordinator._update_mismatch_notification`) is informational and
+        auto-dismisses on consistency restored — could be promoted to a
+        Repair issue in a future alpha but the current notification is
+        already user-actionable.
+      - The AI-move-not-delivered persistent notification (managed by
+        coordinator). Same pattern; could be a Repair issue.

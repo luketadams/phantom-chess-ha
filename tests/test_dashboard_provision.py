@@ -23,12 +23,14 @@ import pytest
 import yaml
 
 from custom_components.phantom_chess.dashboard_provision import (
+    FRONTEND_DEPS,
     _HELPER_TO_NATIVE,
     _SCRIPT_TO_SERVICE,
     _TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES,
     _convert_action_tiles_to_buttons,
     _is_action_service_call,
     _mac_to_slug,
+    _missing_frontend_deps,
     _render_template,
     _resolve_or_fallback,
     _rewrite_script_turn_on_in_text,
@@ -425,6 +427,90 @@ def test_script_to_service_covers_every_template_script_entity() -> None:
     assert missing_from_map == set(), (
         f"template references scripts with no mapping: {missing_from_map}"
     )
+
+
+# ─── _missing_frontend_deps ─────────────────────────────────────────────
+
+
+def _hass_with_resources(urls: list[str]):
+    """Build a hass-like object whose Lovelace resources async_items()
+    returns a list of {url: ..., type: ..., id: ...} dicts.
+    """
+    from unittest.mock import MagicMock
+    from custom_components.phantom_chess.dashboard_provision import LOVELACE_DATA
+
+    lovelace = MagicMock()
+    lovelace.resources.async_items.return_value = [
+        {"url": u, "type": "module", "id": f"r{i}"} for i, u in enumerate(urls)
+    ]
+    hass = MagicMock()
+    hass.data = {LOVELACE_DATA: lovelace}
+    return hass
+
+
+def test_missing_frontend_deps_all_present() -> None:
+    """When every dep is registered, the missing-list is empty."""
+    hass = _hass_with_resources([
+        "/hacsfiles/mushroom/mushroom.js",
+        "/hacsfiles/layout-card/layout-card.js",
+        "/hacsfiles/lovelace-card-mod/card-mod.js",
+    ])
+    assert _missing_frontend_deps(hass) == []
+
+
+def test_missing_frontend_deps_all_missing() -> None:
+    """When the resources list is empty, every dep is reported missing."""
+    hass = _hass_with_resources([])
+    missing = _missing_frontend_deps(hass)
+    # Every entry in FRONTEND_DEPS shows up by display name
+    expected = {display for _suffix, display, _patterns in FRONTEND_DEPS}
+    assert set(missing) == expected
+
+
+def test_missing_frontend_deps_partial() -> None:
+    """One present, two missing — only the missing ones are reported."""
+    hass = _hass_with_resources([
+        "/hacsfiles/mushroom/mushroom.js",
+    ])
+    missing = _missing_frontend_deps(hass)
+    # Mushroom is present; layout-card and card-mod should be flagged.
+    assert "Mushroom" not in missing
+    assert "layout-card" in missing
+    assert "card-mod" in missing
+
+
+def test_missing_frontend_deps_underscore_variant_accepted() -> None:
+    """Older HACS versions sometimes used underscores in URLs; we accept
+    both 'card-mod' and 'card_mod' as canonical."""
+    hass = _hass_with_resources([
+        "/hacsfiles/mushroom/mushroom.js",
+        "/hacsfiles/layout_card/layout_card.js",
+        "/hacsfiles/card_mod/card_mod.js",
+    ])
+    assert _missing_frontend_deps(hass) == []
+
+
+def test_missing_frontend_deps_no_lovelace_data_returns_empty() -> None:
+    """When LOVELACE_DATA isn't in hass.data (e.g. early boot), we
+    conservatively return empty so we don't surface a false-positive
+    issue. The user can't have a broken dashboard yet either way."""
+    from unittest.mock import MagicMock
+    hass = MagicMock()
+    hass.data = {}
+    assert _missing_frontend_deps(hass) == []
+
+
+def test_missing_frontend_deps_resources_iteration_error_returns_empty() -> None:
+    """If the resources collection isn't iterable yet (rare boot race),
+    fall through to empty rather than crash."""
+    from unittest.mock import MagicMock
+    from custom_components.phantom_chess.dashboard_provision import LOVELACE_DATA
+
+    lovelace = MagicMock()
+    lovelace.resources.async_items.side_effect = AttributeError("not ready")
+    hass = MagicMock()
+    hass.data = {LOVELACE_DATA: lovelace}
+    assert _missing_frontend_deps(hass) == []
 
 
 def test_helper_to_native_covers_every_template_input_helper() -> None:

@@ -48,6 +48,12 @@
       "reauth_successful": "Lichess token updated — integration reloaded."
     }
   },
+  "issues": {
+    "missing_frontend_deps": {
+      "title": "Phantom Chess dashboard is missing HACS plugins",
+      "description": "The auto-provisioned Chess dashboard at /phantom-chess uses these HACS frontend plugins for its visual polish: **{missing}**.\n\nThe dashboard still loads, but tiles will render with broken styling and template substitutions won't run. Install the missing plugins via HACS → Frontend, then reload the Phantom Chess integration (or restart Home Assistant) to clear this notice.\n\nIf you've intentionally turned off the auto-provisioned dashboard via the integration's options (Configure → Auto-provision dashboard), you can dismiss this issue — it won't reappear until you re-enable the dashboard."
+    }
+  },
   "options": {
     "step": {
       "init": {
