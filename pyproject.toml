@@ -43,7 +43,8 @@ exclude_lines = [
 # Don't fail the build below this percentage. Bump as coverage grows.
 # - alpha12 baseline: 42.7% → fail_under=40 (locked in with 2.7 buffer)
 # - alpha13 added coordinator state-handler tests → 43.7%, bumped to 42
+# - alpha14 added diagnostics tests → 44.5%, bumped to 43
 # The Silver `test-coverage` rule's 95% target is a multi-alpha goal.
-fail_under = 42
+fail_under = 43
 skip_empty = true
 precision = 1

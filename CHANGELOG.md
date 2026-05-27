@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha14] — 2026-05-27
+
+Incremental coverage push: 43.7% → 44.5%.
+
+### Added (tests)
+
+- **`tests/test_diagnostics.py`** — 19 tests covering the diagnostics module:
+  - `_mask_ble_address` (8 cases) — happy-path, None passthrough, empty passthrough, three malformed-input cases.
+  - `_mask_username` (6 cases) — happy-path, edge-length, too-short fallback, None.
+  - `async_get_config_entry_diagnostics` (5 cases) — no coordinator branch, token redaction, address+username masking, loaded-coordinator state passthrough with noisy-key filtering, environment + stockfish blocks.
+
+  Tests use `asyncio.run()` to avoid the `pytest-asyncio` dependency in the matrix-tests minimal env. `conftest.py` stubs `homeassistant.components.diagnostics.async_redact_data` so `diagnostics.py` loads in the minimal env.
+
+### Changed (CI)
+
+- **`fail_under` bumped 42 → 43** in `pyproject.toml`. Locks in the alpha14 baseline (44.5%) with a 1.5-point buffer.
+
+### Test totals
+
+- matrix-tests Py 3.12: 165 passed
+- matrix-tests Py 3.13: 165 passed
+- ha-tests: 176 passed
+- **Total: 506 tests across all CI jobs.**
+
 ## [0.4.0-alpha13] — 2026-05-27
 
 Incremental coverage push: 42.7% → 43.7%.
