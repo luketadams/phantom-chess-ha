@@ -93,6 +93,36 @@ jobs:
         run: |
           coverage report
 
+  typecheck:
+    # Platinum quality scale prep — track the type-error baseline.
+    # Currently non-blocking (continue-on-error: true). Errors get
+    # logged to the run summary so PRs that make things worse show up
+    # in diffs even though they don't fail the build.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install mypy + deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install mypy 'chess>=1.10.0,<2.0' pyyaml aiohttp
+      - name: Run mypy (informational — baseline tracking)
+        # --ignore-missing-imports because we don't install HA core
+        # here (way too heavy for a type check pass); HA's own types
+        # show up via stubs in pytest-homeassistant-custom-component
+        # if needed later. Today we just want a stable error count.
+        run: |
+          PYTHONPATH=. python -m mypy --ignore-missing-imports \
+            --no-incremental \
+            custom_components/phantom_chess/ 2>&1 | tee mypy-report.txt
+          echo ""
+          echo "Type-error count baseline (treat regressions as PR review feedback):"
+          grep -c "^.*error:" mypy-report.txt || echo "0"
+
   lint:
     # Light-touch static checks — syntax, manifest shape. Avoids
     # opinionated linters (black/ruff) for now since the codebase

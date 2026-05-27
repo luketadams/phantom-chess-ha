@@ -30,7 +30,13 @@ from .dashboard_provision import (
 # Storing the coordinator on entry.runtime_data (instead of
 # hass.data[DOMAIN][entry.entry_id]) lets HA garbage-collect it on
 # unload and gives type-checkers visibility into the stored value.
-PhantomChessConfigEntry = ConfigEntry[PhantomChessCoordinator]
+#
+# `type X = ...` (PEP 695, Python 3.12+) is the modern preferred form;
+# falls back to a plain TypeAlias on older runtimes via the import
+# branch below. HACS floor is HA 2024.11 which ships Python 3.12+.
+from typing import TypeAlias  # noqa: E402
+
+PhantomChessConfigEntry: TypeAlias = ConfigEntry[PhantomChessCoordinator]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 

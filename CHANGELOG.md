@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha24] — 2026-05-27
+
+Platinum prep — mypy CI baseline + Platinum rule audit.
+
+### Added
+
+- **`typecheck` CI job** — runs `mypy --ignore-missing-imports` on the integration package. Non-blocking (`continue-on-error: true`); logs the error count to the run summary so PRs that make things worse get flagged in review without failing the build.
+- **`PhantomChessConfigEntry: TypeAlias = ConfigEntry[PhantomChessCoordinator]`** — adds the explicit `TypeAlias` annotation so mypy recognises the parameterised ConfigEntry as a type alias rather than a runtime value. Resolves the 3 most common alias errors.
+
+### Quality scale (Platinum prep)
+
+- `async-dependency` → `done`. All runtime deps are async-native or async-compatible (`chess` is sync but CPU-bound and fast; `aiohttp` and `bleak` are HA-bundled async).
+- `inject-websession` → `done`. Both Lichess HTTP endpoints use `homeassistant.helpers.aiohttp_client.async_get_clientsession` — HA's shared session, not a new one.
+- `strict-typing` → `todo`. mypy baseline is ~17 errors at alpha24; reaching zero with `--strict` is a multi-alpha effort. The biggest cleanups would be migrating coordinator's `dict[str, Any]` state to a TypedDict and tightening signatures across coordinator-side methods.
+
 ## [0.4.0-alpha23] — 2026-05-27
 
 Fix: entity display names now use our translation strings instead of falling through to device_class names.

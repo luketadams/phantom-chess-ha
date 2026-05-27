@@ -486,3 +486,39 @@ rules:
     comment: |
       One device per config entry. The user removes the device by
       removing the integration (`async_remove_entry` cleans up).
+
+  # ── Platinum (prep, not yet claimed) ──────────────────────────────────
+  async-dependency:
+    status: done
+    comment: |
+      All runtime dependencies are async-native or async-compatible:
+      `chess` is pure-Python (sync) but called only synchronously
+      inside the loop (chess.Board operations are CPU-bound and fast);
+      `aiohttp` (HA-bundled); `bleak` (HA-bundled). No sync HTTP, no
+      blocking I/O on the event loop except the brief Stockfish
+      binary download which runs in an executor job.
+
+  inject-websession:
+    status: done
+    comment: |
+      Both Lichess endpoints (cloud-eval, opening explorer) use
+      `homeassistant.helpers.aiohttp_client.async_get_clientsession`,
+      which returns HA's shared aiohttp session. The integration never
+      creates its own ClientSession.
+
+  strict-typing:
+    status: todo
+    comment: |
+      v0.4.0-alpha24 — mypy CI job added (informational, non-blocking).
+      Baseline: ~17 type errors at alpha24. The biggest categories:
+      - `entry.runtime_data` typing requires the integration to declare
+        `PhantomChessConfigEntry: TypeAlias = ConfigEntry[PhantomChessCoordinator]`
+        AND every function signature to use that alias explicitly. Done
+        in `async_setup`, `async_setup_entry`, `async_unload_entry`,
+        `async_remove_entry`; coordinator-side methods that take
+        `ConfigEntry` still type as the unparameterised form.
+      - `coordinator.py` uses `dict[str, Any]` extensively for the
+        state dict. Migrating to a `TypedDict` would resolve a chunk of
+        the remaining errors.
+      Reaching the "zero mypy errors with --strict" bar is a separate
+      multi-alpha effort tracked here.
