@@ -98,7 +98,7 @@ class PhantomStartGameButton(_PhantomBaseButton):
     re-enabled per-device when debugging the snapshot path.
     """
 
-    _attr_name = "Start Game"
+    _attr_translation_key = "start_game"
     _attr_icon = "mdi:play-circle"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
@@ -142,7 +142,7 @@ class PhantomMovementVerifyButton(_PhantomBaseButton):
     into emitting fresh state.
     """
 
-    _attr_name = "Movement Verify"
+    _attr_translation_key = "movement_verify"
     _attr_icon = "mdi:check-circle-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False  # diagnostic; off by default

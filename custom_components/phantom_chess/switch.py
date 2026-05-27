@@ -45,7 +45,7 @@ class PhantomPauseSwitch(CoordinatorEntity[PhantomChessCoordinator], SwitchEntit
     """Pause/resume the board mechanism (pieces stop moving)."""
 
     _attr_has_entity_name = True
-    _attr_name = "Paused"
+    _attr_translation_key = "paused"
     _attr_icon = "mdi:pause-circle"
     # Gold quality scale rule `entity-category`: pause is a user-tunable
     # control (not a primary game-state surface).
@@ -101,7 +101,7 @@ class PhantomTrainingWheelsSwitch(
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Training Wheels"
+    _attr_translation_key = "training_wheels"
     _attr_icon = "mdi:school"
     _attr_entity_category = EntityCategory.CONFIG
 

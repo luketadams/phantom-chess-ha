@@ -81,7 +81,7 @@ class PhantomBaseSelect(CoordinatorEntity[PhantomChessCoordinator], SelectEntity
 
 
 class PhantomAiLevelSelect(PhantomBaseSelect):
-    _attr_name = "AI Level"
+    _attr_translation_key = "ai_level"
     _attr_icon = "mdi:robot"
     _attr_options = ["1", "2", "3", "4", "5", "6", "7", "8"]
 
@@ -98,7 +98,7 @@ class PhantomAiLevelSelect(PhantomBaseSelect):
 
 
 class PhantomPlayerColorSelect(PhantomBaseSelect):
-    _attr_name = "Player Color"
+    _attr_translation_key = "player_color"
     _attr_icon = "mdi:chess-pawn"
     _attr_options = ["white", "black", "random"]
 
@@ -144,7 +144,7 @@ class _PhantomRestorableSelect(PhantomBaseSelect, RestoreEntity):
 
 
 class PhantomSetupModeSelect(_PhantomRestorableSelect):
-    _attr_name = "Setup Mode"
+    _attr_translation_key = "setup_mode"
     _attr_icon = "mdi:view-list"
     _attr_options = SETUP_MODE_OPTIONS
     _coord_attr = "setup_mode"
@@ -162,7 +162,7 @@ class PhantomSetupModeSelect(_PhantomRestorableSelect):
 
 
 class PhantomSculptureGameSelect(_PhantomRestorableSelect):
-    _attr_name = "Sculpture Game"
+    _attr_translation_key = "sculpture_game"
     _attr_icon = "mdi:chess-rook"
     _attr_options = SCULPTURE_GAMES
     _coord_attr = "selected_sculpture"

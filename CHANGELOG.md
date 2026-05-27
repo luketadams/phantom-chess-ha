@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha20] — 2026-05-27
+
+Gold `entity-translations` rule implemented.
+
+### Changed
+
+- **All 46 entities across 7 platforms** migrated from `_attr_name = "X"` literals to `_attr_translation_key = "x_snake_case"`. Display names now live in `strings.json` under `entity.<platform>.<key>.name`. English is the only shipped translation; translators can add new locales by dropping `translations/<locale>.json` alongside `strings.json` per HA's standard mechanism.
+
+### Gold rules → `done`
+
+`entity-translations`.
+
+### Still todo on Gold
+
+`exception-translations`, `icon-translations`.
+
 ## [0.4.0-alpha19] — 2026-05-27
 
 Gold `reconfiguration-flow` rule implemented.

@@ -130,7 +130,7 @@ class PhantomBaseSensor(CoordinatorEntity[PhantomChessCoordinator], SensorEntity
 
 
 class PhantomBatterySensor(PhantomBaseSensor):
-    _attr_name = "Battery"
+    _attr_translation_key = "battery"
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
@@ -149,7 +149,7 @@ class PhantomLichessIdSensor(PhantomBaseSensor):
     Diagnostic-only — useful for support / debug, not main play UX.
     Recategorized from disabled-by-default to DIAGNOSTIC 2026-05-17.
     """
-    _attr_name = "Lichess Game ID"
+    _attr_translation_key = "lichess_game_id"
     _attr_icon = "mdi:identifier"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -178,7 +178,7 @@ class PhantomLivePositionSensor(PhantomBaseSensor):
     is what most users will actually render.
     """
 
-    _attr_name = "Live Position"
+    _attr_translation_key = "live_position"
     _attr_icon = "mdi:chess-board"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -237,7 +237,7 @@ class PhantomPieceCountSensor(PhantomBaseSensor):
     """Total pieces detected by the firmware on the board (0–32 normally).
     Counts non-empty cells in the 10×10 piece grid."""
 
-    _attr_name = "Piece Count"
+    _attr_translation_key = "piece_count"
     _attr_icon = "mdi:chess-pawn"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -253,7 +253,7 @@ class PhantomFirmwareModeSensor(PhantomBaseSensor):
     """Firmware operating mode — Running, Paused, Snapping Pieces, etc.
     Read from UUID acb6543c."""
 
-    _attr_name = "Firmware Mode"
+    _attr_translation_key = "firmware_mode"
     _attr_icon = "mdi:chip"
 
     def __init__(self, coord, entry, address, name):
@@ -274,7 +274,7 @@ class PhantomMatrixStatusSensor(PhantomBaseSensor):
     detect. Values: 'Clean' (all expected pieces in place), 'Error' (mismatch
     detected — check status_message attribute), or unknown."""
 
-    _attr_name = "Matrix Status"
+    _attr_translation_key = "matrix_status"
     _attr_icon = "mdi:check-network"
 
     def __init__(self, coord, entry, address, name):
@@ -295,7 +295,7 @@ class PhantomFirmwareLastMoveSensor(PhantomBaseSensor):
     (e.g. 'K e1-a4', 'p a7-g6'). Fires during chess play and sculpture
     playback. This is the firmware-authoritative move source."""
 
-    _attr_name = "Firmware Last Move"
+    _attr_translation_key = "firmware_last_move"
     _attr_icon = "mdi:chess-knight"
 
     def __init__(self, coord, entry, address, name):
@@ -319,7 +319,7 @@ class PhantomFirmwareLastMoveSensor(PhantomBaseSensor):
 
 class PhantomOpeningNameSensor(PhantomBaseSensor):
     """Opening name from the Lichess explorer (e.g. 'Sicilian Defense, Najdorf')."""
-    _attr_name = "Opening Name"
+    _attr_translation_key = "opening_name"
     _attr_icon = "mdi:book-open-page-variant"
 
     def __init__(self, coord, entry, address, name):
@@ -336,7 +336,7 @@ class PhantomOpeningNameSensor(PhantomBaseSensor):
 
 
 class PhantomLichessWhiteNameSensor(PhantomBaseSensor):
-    _attr_name = "Lichess White Name"
+    _attr_translation_key = "lichess_white_name"
     _attr_icon = "mdi:account"
 
     def __init__(self, coord, entry, address, name):
@@ -348,7 +348,7 @@ class PhantomLichessWhiteNameSensor(PhantomBaseSensor):
 
 
 class PhantomLichessBlackNameSensor(PhantomBaseSensor):
-    _attr_name = "Lichess Black Name"
+    _attr_translation_key = "lichess_black_name"
     _attr_icon = "mdi:account-outline"
 
     def __init__(self, coord, entry, address, name):
@@ -360,7 +360,7 @@ class PhantomLichessBlackNameSensor(PhantomBaseSensor):
 
 
 class PhantomLichessWhiteClockSensor(PhantomBaseSensor):
-    _attr_name = "Lichess White Clock"
+    _attr_translation_key = "lichess_white_clock"
     _attr_icon = "mdi:timer-outline"
     _attr_native_unit_of_measurement = "s"
     # Gold quality scale rule `entity-device-class`: clock readings are
@@ -378,7 +378,7 @@ class PhantomLichessWhiteClockSensor(PhantomBaseSensor):
 
 
 class PhantomLichessBlackClockSensor(PhantomBaseSensor):
-    _attr_name = "Lichess Black Clock"
+    _attr_translation_key = "lichess_black_clock"
     _attr_icon = "mdi:timer-outline"
     _attr_native_unit_of_measurement = "s"
     _attr_device_class = SensorDeviceClass.DURATION
@@ -407,7 +407,7 @@ def _clock_display(seconds: int | float | None) -> str | None:
 
 
 class PhantomLichessWhiteClockDisplaySensor(PhantomBaseSensor):
-    _attr_name = "Lichess White Clock Display"
+    _attr_translation_key = "lichess_white_clock_display"
     _attr_icon = "mdi:timer"
 
     def __init__(self, coord, entry, address, name):
@@ -419,7 +419,7 @@ class PhantomLichessWhiteClockDisplaySensor(PhantomBaseSensor):
 
 
 class PhantomLichessBlackClockDisplaySensor(PhantomBaseSensor):
-    _attr_name = "Lichess Black Clock Display"
+    _attr_translation_key = "lichess_black_clock_display"
     _attr_icon = "mdi:timer"
 
     def __init__(self, coord, entry, address, name):
@@ -432,7 +432,7 @@ class PhantomLichessBlackClockDisplaySensor(PhantomBaseSensor):
 
 class PhantomEvalCpSensor(PhantomBaseSensor):
     """Centipawn evaluation, white-positive. Null when mate is forced."""
-    _attr_name = "Eval CP"
+    _attr_translation_key = "eval_cp"
     _attr_icon = "mdi:gauge"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -446,7 +446,7 @@ class PhantomEvalCpSensor(PhantomBaseSensor):
 
 class PhantomEvalMateSensor(PhantomBaseSensor):
     """Plies-to-mate, signed (positive = white mates). Null if no mate."""
-    _attr_name = "Eval Mate"
+    _attr_translation_key = "eval_mate"
     _attr_icon = "mdi:chess-king"
 
     def __init__(self, coord, entry, address, name):
@@ -463,7 +463,7 @@ class PhantomEvalSourceSensor(PhantomBaseSensor):
     Diagnostic-only — useful for debugging "why didn't eval update?"
     not for normal play. Recategorized DIAGNOSTIC 2026-05-17.
     """
-    _attr_name = "Eval Source"
+    _attr_translation_key = "eval_source"
     _attr_icon = "mdi:server-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -476,7 +476,7 @@ class PhantomEvalSourceSensor(PhantomBaseSensor):
 
 
 class PhantomEvalDepthSensor(PhantomBaseSensor):
-    _attr_name = "Eval Depth"
+    _attr_translation_key = "eval_depth"
     _attr_icon = "mdi:layers-search"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -489,7 +489,7 @@ class PhantomEvalDepthSensor(PhantomBaseSensor):
 
 
 class PhantomBestMoveSanSensor(PhantomBaseSensor):
-    _attr_name = "Best Move SAN"
+    _attr_translation_key = "best_move_san"
     _attr_icon = "mdi:lightbulb-on"
 
     def __init__(self, coord, entry, address, name):
@@ -502,7 +502,7 @@ class PhantomBestMoveSanSensor(PhantomBaseSensor):
 
 class PhantomLastMoveClassificationSensor(PhantomBaseSensor):
     """One of: brilliant/best/good/book/inaccuracy/mistake/blunder/unknown."""
-    _attr_name = "Last Move Classification"
+    _attr_translation_key = "last_move_classification"
     _attr_icon = "mdi:label-multiple"
 
     def __init__(self, coord, entry, address, name):
@@ -515,7 +515,7 @@ class PhantomLastMoveClassificationSensor(PhantomBaseSensor):
 
 class PhantomLastMoveCplSensor(PhantomBaseSensor):
     """Centipawns lost on the last move (≥0)."""
-    _attr_name = "Last Move CPL"
+    _attr_translation_key = "last_move_cpl"
     _attr_icon = "mdi:trending-down"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -529,7 +529,7 @@ class PhantomLastMoveCplSensor(PhantomBaseSensor):
 
 class PhantomLastMoveMotifSensor(PhantomBaseSensor):
     """Tactical motif on the last move (fork/pin/skewer/empty)."""
-    _attr_name = "Last Move Motif"
+    _attr_translation_key = "last_move_motif"
     _attr_icon = "mdi:vector-triangle"
 
     def __init__(self, coord, entry, address, name):
@@ -543,7 +543,7 @@ class PhantomLastMoveMotifSensor(PhantomBaseSensor):
 class PhantomThreatSanSensor(PhantomBaseSensor):
     """Best threat move for the side-to-move *if* it could move now.
     Empty when no notable threat exists."""
-    _attr_name = "Threat SAN"
+    _attr_translation_key = "threat_san"
     _attr_icon = "mdi:alert"
 
     def __init__(self, coord, entry, address, name):
@@ -557,7 +557,7 @@ class PhantomThreatSanSensor(PhantomBaseSensor):
 class PhantomMoveHistorySensor(PhantomBaseSensor):
     """State is ply count; attribute 'moves' is the rich per-ply list
     (san, color, classification, cpl, glyph, motif)."""
-    _attr_name = "Move History"
+    _attr_translation_key = "move_history"
     _attr_icon = "mdi:history"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -577,7 +577,7 @@ class PhantomMoveHistorySensor(PhantomBaseSensor):
 
 class PhantomLastGameResultSensor(PhantomBaseSensor):
     """'1-0', '0-1', '1/2-1/2', or termination reason."""
-    _attr_name = "Last Game Result"
+    _attr_translation_key = "last_game_result"
     _attr_icon = "mdi:trophy-outline"
 
     def __init__(self, coord, entry, address, name):
@@ -589,7 +589,7 @@ class PhantomLastGameResultSensor(PhantomBaseSensor):
 
 
 class PhantomLastGameAccuracyWhiteSensor(PhantomBaseSensor):
-    _attr_name = "Last Game Accuracy White"
+    _attr_translation_key = "last_game_accuracy_white"
     _attr_icon = "mdi:target"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
@@ -603,7 +603,7 @@ class PhantomLastGameAccuracyWhiteSensor(PhantomBaseSensor):
 
 
 class PhantomLastGameAccuracyBlackSensor(PhantomBaseSensor):
-    _attr_name = "Last Game Accuracy Black"
+    _attr_translation_key = "last_game_accuracy_black"
     _attr_icon = "mdi:target"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
@@ -618,7 +618,7 @@ class PhantomLastGameAccuracyBlackSensor(PhantomBaseSensor):
 
 class PhantomLastGameReviewSensor(PhantomBaseSensor):
     """State is count of top mistakes; attribute 'top_mistakes' is the rich list."""
-    _attr_name = "Last Game Review"
+    _attr_translation_key = "last_game_review"
     _attr_icon = "mdi:magnify-scan"
     _attr_state_class = SensorStateClass.MEASUREMENT
 

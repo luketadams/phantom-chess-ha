@@ -87,7 +87,7 @@ class PhantomChessBoardImage(CoordinatorEntity[PhantomChessCoordinator], ImageEn
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Board"
+    _attr_translation_key = "board"
     _attr_icon = "mdi:chess-board"
     _attr_content_type = "image/svg+xml"
 

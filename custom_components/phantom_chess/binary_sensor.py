@@ -88,7 +88,7 @@ class PhantomBaseBinary(CoordinatorEntity[PhantomChessCoordinator], BinarySensor
 
 
 class PhantomConnectedSensor(PhantomBaseBinary):
-    _attr_name = "Connected"
+    _attr_translation_key = "connected"
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
 
     def __init__(self, coord, entry, address, name):
@@ -115,7 +115,7 @@ class PhantomLichessActiveSensor(PhantomBaseBinary):
     """True while a Lichess Board API game is in progress.
     Drives conditional 6 (in-game rich view) on the chess dashboard."""
 
-    _attr_name = "Lichess Active"
+    _attr_translation_key = "lichess_active"
     _attr_icon = "mdi:chess-king"
     _attr_device_class = BinarySensorDeviceClass.RUNNING
 
@@ -132,7 +132,7 @@ class PhantomLichessReviewReadySensor(PhantomBaseBinary):
     Drives conditional 7 (post-game review) on the chess dashboard.
     Cleared when a new game starts."""
 
-    _attr_name = "Lichess Review Ready"
+    _attr_translation_key = "lichess_review_ready"
     _attr_icon = "mdi:magnify-scan"
 
     def __init__(self, coord, entry, address, name):
@@ -148,7 +148,7 @@ class PhantomLearningViewActiveSensor(PhantomBaseBinary):
     progress. Gates the rich learning-dashboard view so it renders for
     both gameplay modes, not just Lichess. Added 2026-05-16 (Task #9)."""
 
-    _attr_name = "Learning View Active"
+    _attr_translation_key = "learning_view_active"
     _attr_icon = "mdi:school"
     _attr_device_class = BinarySensorDeviceClass.RUNNING
 
@@ -187,7 +187,7 @@ class PhantomBoardIdleSensor(PhantomBaseBinary):
         {% else %}{{ (now() - s.last_changed).total_seconds() > 60 }}{% endif %}
     """
 
-    _attr_name = "Board Idle"
+    _attr_translation_key = "board_idle"
     _attr_icon = "mdi:sleep"
     _attr_device_class = BinarySensorDeviceClass.RUNNING
 

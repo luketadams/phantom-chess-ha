@@ -96,7 +96,7 @@ class PhantomMechanismSpeedNumber(PhantomBaseNumber):
     (manual "NORMAL"). The integration was previously exposing a 0..100
     slider which the firmware likely clamped silently.
     """
-    _attr_name = "Mechanism Speed"
+    _attr_translation_key = "mechanism_speed"
     _attr_icon = "mdi:speedometer"
     _attr_native_min_value = 1
     _attr_native_max_value = 5
@@ -115,7 +115,7 @@ class PhantomMechanismSpeedNumber(PhantomBaseNumber):
 
 
 class PhantomSoundLevelNumber(PhantomBaseNumber):
-    _attr_name = "Sound Level"
+    _attr_translation_key = "sound_level"
     _attr_icon = "mdi:volume-high"
     # Firmware accepts volume 0-32 (per Efraín's gameplay doc 2026-05-14).
     _attr_native_min_value = 0
@@ -184,7 +184,7 @@ class PhantomLichessClockMinutesNumber(_PhantomRestorableNumber):
     this as a slider 1..60; the start-game flow multiplies by 60 to get
     Lichess's seconds-based clock.limit. Default 30 = standard rapid.
     """
-    _attr_name = "Lichess Clock Minutes"
+    _attr_translation_key = "lichess_clock_minutes"
     _attr_icon = "mdi:timer"
     _attr_mode = NumberMode.BOX
     _attr_native_min_value = 1
@@ -210,7 +210,7 @@ class PhantomLichessClockIncrementNumber(_PhantomRestorableNumber):
     Combined with clock_minutes this forms the full Lichess time-control
     spec (e.g. "30+0", "10+5", "15+10").
     """
-    _attr_name = "Lichess Clock Increment"
+    _attr_translation_key = "lichess_clock_increment"
     _attr_icon = "mdi:timer-plus"
     _attr_mode = NumberMode.BOX
     _attr_native_min_value = 0

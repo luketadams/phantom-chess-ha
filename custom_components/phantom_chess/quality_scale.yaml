@@ -435,12 +435,14 @@ rules:
       are useful to most users; case-by-case disabling is overkill.
 
   entity-translations:
-    status: todo
+    status: done
     comment: |
-      Entity names currently use English strings via `_attr_name`.
-      Migrating to `_attr_translation_key` + translations in
-      `strings.json` is straightforward but requires touching every
-      entity class. Tracked for a future alpha.
+      v0.4.0-alpha20 — 46 entities across all 7 platforms migrated from
+      `_attr_name = "X"` to `_attr_translation_key = "x_snake_case"`.
+      Display names live in `strings.json` under `entity.<platform>.
+      <key>.name`. English is the only shipped translation; translators
+      can add new locales by dropping `translations/<locale>.json`
+      alongside `strings.json` per HA's standard mechanism.
 
   exception-translations:
     status: todo

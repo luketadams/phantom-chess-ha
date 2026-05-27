@@ -88,23 +88,157 @@
     }
   },
   "entity": {
-    "sensor": {
-      "battery": { "name": "Battery" },
-      "lichess_game_id": { "name": "Lichess Game ID" }
+    "button": {
+      "start_game": {
+        "name": "Start Game"
+      },
+      "movement_verify": {
+        "name": "Movement Verify"
+      }
     },
-    "binary_sensor": {
-      "connected": { "name": "Connected" }
-    },
-    "select": {
-      "ai_level": { "name": "AI Level" },
-      "player_color": { "name": "Player Color" }
-    },
-    "number": {
-      "mechanism_speed": { "name": "Mechanism Speed" },
-      "sound_level": { "name": "Sound Level" }
+    "image": {
+      "board": {
+        "name": "Board"
+      }
     },
     "switch": {
-      "pause": { "name": "Paused" }
+      "paused": {
+        "name": "Paused"
+      },
+      "training_wheels": {
+        "name": "Training Wheels"
+      }
+    },
+    "select": {
+      "ai_level": {
+        "name": "AI Level"
+      },
+      "player_color": {
+        "name": "Player Color"
+      },
+      "setup_mode": {
+        "name": "Setup Mode"
+      },
+      "sculpture_game": {
+        "name": "Sculpture Game"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "lichess_game_id": {
+        "name": "Lichess Game ID"
+      },
+      "live_position": {
+        "name": "Live Position"
+      },
+      "piece_count": {
+        "name": "Piece Count"
+      },
+      "firmware_mode": {
+        "name": "Firmware Mode"
+      },
+      "matrix_status": {
+        "name": "Matrix Status"
+      },
+      "firmware_last_move": {
+        "name": "Firmware Last Move"
+      },
+      "opening_name": {
+        "name": "Opening Name"
+      },
+      "lichess_white_name": {
+        "name": "Lichess White Name"
+      },
+      "lichess_black_name": {
+        "name": "Lichess Black Name"
+      },
+      "lichess_white_clock": {
+        "name": "Lichess White Clock"
+      },
+      "lichess_black_clock": {
+        "name": "Lichess Black Clock"
+      },
+      "lichess_white_clock_display": {
+        "name": "Lichess White Clock Display"
+      },
+      "lichess_black_clock_display": {
+        "name": "Lichess Black Clock Display"
+      },
+      "eval_cp": {
+        "name": "Eval CP"
+      },
+      "eval_mate": {
+        "name": "Eval Mate"
+      },
+      "eval_source": {
+        "name": "Eval Source"
+      },
+      "eval_depth": {
+        "name": "Eval Depth"
+      },
+      "best_move_san": {
+        "name": "Best Move SAN"
+      },
+      "last_move_classification": {
+        "name": "Last Move Classification"
+      },
+      "last_move_cpl": {
+        "name": "Last Move CPL"
+      },
+      "last_move_motif": {
+        "name": "Last Move Motif"
+      },
+      "threat_san": {
+        "name": "Threat SAN"
+      },
+      "move_history": {
+        "name": "Move History"
+      },
+      "last_game_result": {
+        "name": "Last Game Result"
+      },
+      "last_game_accuracy_white": {
+        "name": "Last Game Accuracy White"
+      },
+      "last_game_accuracy_black": {
+        "name": "Last Game Accuracy Black"
+      },
+      "last_game_review": {
+        "name": "Last Game Review"
+      }
+    },
+    "number": {
+      "mechanism_speed": {
+        "name": "Mechanism Speed"
+      },
+      "sound_level": {
+        "name": "Sound Level"
+      },
+      "lichess_clock_minutes": {
+        "name": "Lichess Clock Minutes"
+      },
+      "lichess_clock_increment": {
+        "name": "Lichess Clock Increment"
+      }
+    },
+    "binary_sensor": {
+      "connected": {
+        "name": "Connected"
+      },
+      "lichess_active": {
+        "name": "Lichess Active"
+      },
+      "lichess_review_ready": {
+        "name": "Lichess Review Ready"
+      },
+      "learning_view_active": {
+        "name": "Learning View Active"
+      },
+      "board_idle": {
+        "name": "Board Idle"
+      }
     }
   }
 }
