@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha12] — 2026-05-27
+
+Test-coverage push: 9% → 42.7% combined coverage. CI now has a coverage.py gate at 40% fail_under as a regression guard.
+
+### Added (tests)
+
+- **`tests/test_lichess_analysis.py`** — 45 tests covering the module's pure-function surface: `_safe_fen_for_eval` (5 cases), `EvalResult.white_win_pct` / `from_mover_view` (10 cases), `classify_move` (10 cases across every classification band + edge cases), `classification_color_glyph` (8 parametrized + fallback), `detect_fork` (4 scenarios), `_win_pct_loss_to_accuracy` (4 cases), `compute_game_accuracy` (3 cases). Module coverage: 0% → 39%.
+- **`tests/test_coordinator_helpers.py`** — 29 tests covering pure functions in `coordinator.py`: `_phantom_to_uci` parser (firmware notation → UCI, 10 cases), `_rotate_uci_180` 180° transform (involution property, promotion preservation, short-input handling, 8 cases), `PhantomChessCoordinator._coarse_accuracy` staticmethod (5 cases), `PhantomChessCoordinator._describe_mistake` staticmethod (6 cases). Coordinator coverage: 0% → 9%.
+- **5 new config-flow edge-case tests** in `tests/test_config_flow.py`: invalid MAC format, Lichess network error, reauth with invalid replacement token, v1→v3 migration canonicalises MAC, v3→v4 migration bumps version.
+
+### Added (CI)
+
+- **coverage.py wired into the ha-tests CI job.** `coverage run -m pytest` records hits across the whole package; `coverage report` enforces the `fail_under = 40` threshold set in `pyproject.toml`. Build fails if combined coverage drops below 40%.
+- **`pyproject.toml`** got `[tool.coverage.run]` + `[tool.coverage.report]` sections. Source scoped to `custom_components/phantom_chess`. Excluded patterns: `pragma: no cover`, `raise NotImplementedError`, `if TYPE_CHECKING:`, `if __name__ == "__main__":`, defensive `except ImportError:` branches.
+- **Conftest extended** to stub HA modules `bluetooth`, `aiohttp_client`, `issue_registry`, `update_coordinator` so coordinator.py can be loaded for unit testing in the minimal matrix-tests environment. `DataUpdateCoordinator` stub supports `__class_getitem__` for the generic-subscript syntax at class-definition time.
+
+### Coverage snapshot (alpha12)
+
+```
+matrix.py                  93%   (was 93%)
+number.py                  87%   (was 0%, ha-tests entity setup covered it)
+select.py                  88%   (was 0%)
+switch.py                  86%   (was 0%)
+sensor.py                  79%   (was 0%)
+dashboard_provision.py     covered via offline + ha-tests
+image.py                   47%   (was 0%)
+lichess_analysis.py        39%   (was 0%)
+coordinator.py             9%    (was 0%)
+__init__.py                covered by ha-tests setup
+diagnostics.py             0%    (no tests)
+TOTAL                      42.7%
+```
+
+### Internal notes
+
+- Silver's `test-coverage` rule asks for >95%; we're at 42.7%. Reaching 95% needs BLE-mocked coordinator integration tests (most of the remaining 1680 uncovered lines are in coordinator.py's async BLE paths). Tracked as future work; the rest of Silver is otherwise compliant.
+- Test totals: 133 in matrix-tests (Py 3.12 + 3.13), 144 in ha-tests, 7 lint checks. Run time: ~10s matrix, ~1m30s ha-tests.
+
 ## [0.4.0-alpha11] — 2026-05-26
 
 Silver quality-scale compliance pass — code-side. 9 of 10 Silver rules now done; only `test-coverage` (95% threshold) remains.

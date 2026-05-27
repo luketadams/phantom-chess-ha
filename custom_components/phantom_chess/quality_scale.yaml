@@ -262,8 +262,11 @@ rules:
   test-coverage:
     status: todo
     comment: |
-      Current coverage is well below the 95% Silver threshold —
-      matrix.py and dashboard_provision.py are near-fully covered but
-      coordinator.py (4500+ LOC), lichess_analysis.py, and the entity
-      platforms are not. Test-coverage push tracked as the next
-      multi-alpha workstream.
+      alpha12 brought combined coverage to ~42.7% (up from ~9%). Most
+      entity platforms are now 79–93% covered via the ha-tests job's
+      setup-time entity instantiation; matrix.py is 93%; lichess_analysis
+      is 39%. The remaining gap is mostly coordinator.py (BLE async paths
+      that need bleak mocking) and lichess_analysis's HTTP client +
+      Stockfish-binary class. CI fail_under gate set to 40% as a
+      regression guard. Reaching 95% is a multi-alpha goal — Silver is
+      otherwise compliant.

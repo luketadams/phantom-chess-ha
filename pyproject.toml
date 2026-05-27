@@ -40,9 +40,11 @@ exclude_lines = [
     # Defensive imports for optional dependencies
     "except ImportError:",
 ]
-# Don't fail the build below this percentage. Set conservatively at
-# 25% as a regression gate while the test-coverage push is ongoing;
+# Don't fail the build below this percentage. Set at 40% — the
+# alpha12 baseline is 42.7% combined (matrix-tests + ha-tests
+# exercise entity platforms via HA's setup machinery), so 40% locks
+# in the gain with a small buffer for noise. Bump as coverage grows;
 # the Silver `test-coverage` rule's 95% target is a multi-alpha goal.
-fail_under = 25
+fail_under = 40
 skip_empty = true
 precision = 1
