@@ -457,11 +457,17 @@ rules:
       but not required for any functional behaviour.
 
   reconfiguration-flow:
-    status: todo
+    status: done
     comment: |
-      `async_step_reconfigure` not yet implemented. Tracked for
-      alpha19; would let users change BLE address or Lichess token
-      without delete + recreate.
+      v0.4.0-alpha19 — `async_step_reconfigure` implemented. Settings →
+      Devices & Services → Phantom Chess Board → ⋮ → Reconfigure now
+      opens a form pre-filled with the existing BLE address; the user
+      can paste a fresh Lichess token to rotate it preemptively
+      (without waiting for the reauth flow's 401 trigger). The BLE
+      address field is shown but submitting a different MAC aborts
+      with `ble_address_mismatch` — a different physical board should
+      be a new entry, not a reconfigure. Tests cover happy path, blank-
+      token no-op, MAC-mismatch reject, invalid-token reject.
 
   stale-devices:
     status: exempt

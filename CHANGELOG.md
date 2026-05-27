@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha19] — 2026-05-27
+
+Gold `reconfiguration-flow` rule implemented.
+
+### Added
+
+- **Reconfigure flow** in `config_flow.py`. Settings → Devices & Services → Phantom Chess Board → ⋮ → Reconfigure now opens a form pre-filled with the existing BLE address; the user can paste a fresh Lichess token to rotate it preemptively (without waiting for the reauth flow's 401 trigger). The BLE address field is read-only in intent — submitting a different MAC aborts with `ble_address_mismatch` (that's a different physical board, should be a new entry not a reconfigure).
+- **4 new tests** for the reconfigure flow: happy-path token rotation, blank-token no-op, BLE-address-mismatch reject, invalid-token reject.
+- **5 new abort/strings entries**: `reconfigure_successful`, `reconfigure_entry_not_found`, `ble_address_mismatch`, plus the `reconfigure` step's title/description/data labels.
+
+### Gold rules → `done`
+
+`reconfiguration-flow`.
+
+### Still todo on Gold
+
+`entity-translations`, `exception-translations`, `icon-translations` (3 translation-polish rules; the integration ships in English only).
+
 ## [0.4.0-alpha18] — 2026-05-27
 
 Test-coverage push: lichess_analysis client parser + cache + AI-level-table.

@@ -439,6 +439,156 @@ async def test_migrate_entry_canonicalises_mac_to_uppercase(
     assert entry.version >= 3
 
 
+# ─── Reconfigure flow (Gold rule, alpha19) ──────────────────────────────
+
+
+async def test_reconfigure_flow_updates_lichess_token(
+    hass: HomeAssistant,
+    mock_lichess_account_response_valid,
+    mock_aiohttp_session_factory,
+) -> None:
+    """Reconfigure: existing entry, user pastes a fresh token, entry updated."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="AA:BB:CC:DD:EE:FF",
+        data={
+            CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+            CONF_LICHESS_TOKEN: "old-token",
+            CONF_LICHESS_USER: "OldUser",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    valid_session = mock_aiohttp_session_factory(
+        status=200, json_data=mock_lichess_account_response_valid
+    )
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_get_clientsession",
+        return_value=valid_session,
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+                CONF_LICHESS_TOKEN: "fresh-rotated-token",
+            },
+        )
+        assert result["type"] == FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert entry.data[CONF_LICHESS_TOKEN] == "fresh-rotated-token"
+        # Username auto-refreshed from the validated token's /api/account response
+        assert entry.data[CONF_LICHESS_USER] == "TestUser"
+
+
+async def test_reconfigure_flow_blank_token_is_no_op(
+    hass: HomeAssistant,
+) -> None:
+    """Submitting the form with the BLE address unchanged and the token
+    field blank aborts cleanly without changing anything."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="AA:BB:CC:DD:EE:FF",
+        data={
+            CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+            CONF_LICHESS_TOKEN: "kept-token",
+            CONF_LICHESS_USER: "KeptUser",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+            CONF_LICHESS_TOKEN: "",
+        },
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_LICHESS_TOKEN] == "kept-token"
+    assert entry.data[CONF_LICHESS_USER] == "KeptUser"
+
+
+async def test_reconfigure_flow_rejects_ble_address_change(
+    hass: HomeAssistant,
+) -> None:
+    """A reconfigure flow that tries to change the BLE address aborts with
+    `ble_address_mismatch` — that would be a different physical board,
+    which should be a new entry, not a reconfigure."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="AA:BB:CC:DD:EE:FF",
+        data={
+            CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+            CONF_LICHESS_TOKEN: "tok",
+            CONF_LICHESS_USER: "User",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_BLE_ADDRESS: "11:22:33:44:55:66",  # different MAC
+            CONF_LICHESS_TOKEN: "",
+        },
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "ble_address_mismatch"
+    # Original entry data unchanged
+    assert entry.data[CONF_BLE_ADDRESS] == "AA:BB:CC:DD:EE:FF"
+
+
+async def test_reconfigure_flow_rejects_invalid_token(
+    hass: HomeAssistant,
+    mock_aiohttp_session_factory,
+) -> None:
+    """A reconfigure flow with an invalid new token shows the form error
+    and leaves the entry untouched."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="AA:BB:CC:DD:EE:FF",
+        data={
+            CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+            CONF_LICHESS_TOKEN: "good-token",
+            CONF_LICHESS_USER: "GoodUser",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    invalid_session = mock_aiohttp_session_factory(status=401, json_data={})
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_get_clientsession",
+        return_value=invalid_session,
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+                CONF_LICHESS_TOKEN: "still-bad-token",
+            },
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {CONF_LICHESS_TOKEN: "invalid_lichess_token"}
+        # Original data untouched
+        assert entry.data[CONF_LICHESS_TOKEN] == "good-token"
+
+
 async def test_migrate_entry_v3_to_v4_bumps_version(
     hass: HomeAssistant,
 ) -> None:

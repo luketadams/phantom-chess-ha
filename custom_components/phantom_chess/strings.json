@@ -35,6 +35,18 @@
         "data_description": {
           "lichess_token": "A fresh Lichess personal-access token with the Board API scope. Existing token was rejected by the API and needs replacement."
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Phantom Chess",
+        "description": "Update the configuration for **{device}** (currently linked to Lichess account: `{current_user}`).\n\nLeave the Lichess token field blank to keep the existing token. The BLE address can't be changed here — that would mean a different physical board; remove this entry and add a new one if you've swapped boards.",
+        "data": {
+          "ble_address": "Board Bluetooth Address (read-only)",
+          "lichess_token": "New Lichess Board API Token (optional)"
+        },
+        "data_description": {
+          "ble_address": "The BLE address of the board this entry is configured for. Changing it isn't supported — submit a different address and the flow will abort.",
+          "lichess_token": "Optional. Paste a fresh Lichess token here to rotate it preemptively (e.g. before expiry). Leave blank if you only want to confirm the existing config."
+        }
       }
     },
     "error": {
@@ -45,7 +57,10 @@
     "abort": {
       "already_configured": "This board is already configured.",
       "no_devices_found": "No Phantom Chess Boards were discovered. Make sure the board is powered on and in Bluetooth range.",
-      "reauth_successful": "Lichess token updated — integration reloaded."
+      "reauth_successful": "Lichess token updated — integration reloaded.",
+      "reconfigure_successful": "Configuration confirmed — no changes needed.",
+      "reconfigure_entry_not_found": "Couldn't find the integration entry to reconfigure. Try again from Settings → Devices & Services.",
+      "ble_address_mismatch": "The BLE address you submitted differs from this entry's board. To set up a different board, delete this integration and add a new one with the new address."
     }
   },
   "issues": {

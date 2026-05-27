@@ -297,6 +297,89 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):
             return None
         return self.hass.config_entries.async_get_entry(entry_id)
 
+    # ── Reconfigure flow (Gold quality scale rule, alpha19) ─────────────
+    # Lets the user preemptively update the Lichess token (without
+    # waiting for a 401 to trigger reauth) and confirm the BLE address.
+    # Triggered via Settings → Devices & Services → Phantom Chess Board
+    # → ⋮ → Reconfigure.
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration of an existing entry.
+
+        Currently scoped to the Lichess token (the BLE address can't
+        change for the same physical board — the unique_id is the MAC,
+        so changing it would mean a different board which should be a
+        new entry, not a reconfigure). The BLE address is shown as
+        read-only context; submitting a different one will be rejected.
+        """
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+        if entry is None:
+            return self.async_abort(reason="reconfigure_entry_not_found")
+
+        if user_input is not None:
+            submitted_address = (
+                _normalize_ble_address(user_input.get(CONF_BLE_ADDRESS, ""))
+                or user_input.get(CONF_BLE_ADDRESS, "")
+            )
+            # Reject mismatched BLE addresses — that's a different board,
+            # not a reconfigure. User should add a separate entry.
+            if submitted_address and submitted_address != entry.data.get(
+                CONF_BLE_ADDRESS
+            ):
+                return self.async_abort(reason="ble_address_mismatch")
+
+            token = user_input.get(CONF_LICHESS_TOKEN, "").strip()
+            if token:
+                # Validate the new token before committing the update.
+                username = await self._validate_lichess_token(token)
+                if username is None:
+                    errors[CONF_LICHESS_TOKEN] = "invalid_lichess_token"
+                else:
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={
+                            CONF_LICHESS_TOKEN: token,
+                            CONF_LICHESS_USER: username,
+                        },
+                    )
+            else:
+                # Empty token = no change requested for the token field.
+                # Treat as a no-op reconfigure (still aborts cleanly).
+                return self.async_abort(reason="reconfigure_successful")
+
+        # Show the form with the existing BLE address pre-filled.
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_BLE_ADDRESS,
+                        default=entry.data.get(CONF_BLE_ADDRESS, ""),
+                    ): str,
+                    vol.Optional(CONF_LICHESS_TOKEN, default=""): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": entry.data.get(CONF_DEVICE_NAME, "Phantom Chess Board"),
+                "current_user": entry.data.get(CONF_LICHESS_USER, "(none)"),
+            },
+        )
+
+    def _get_reconfigure_entry(self) -> ConfigEntry | None:
+        """Look up the ConfigEntry the reconfigure flow is targeting.
+
+        HA's framework stores the source entry_id in context['entry_id']
+        for reconfigure flows just like reauth flows.
+        """
+        entry_id = self.context.get("entry_id")
+        if not entry_id:
+            return None
+        return self.hass.config_entries.async_get_entry(entry_id)
+
     # ── Options flow ─────────────────────────────────────────────────────
     # Registers the static helper HA calls to launch the user's options UI.
 
