@@ -438,7 +438,10 @@ class StockfishFallback:
         self.hass = hass
         self.bin_dir = Path(bin_dir)
         self.binary_path: Path | None = None
-        self._transport = None
+        # Concrete type unknown at class init (loop.subprocess_exec
+        # returns asyncio.SubprocessTransport when called); Any is the
+        # least-friction annotation because we only call .close() on it.
+        self._transport: Any = None
         self._engine: chess.engine.UciProtocol | None = None
         self._init_lock = asyncio.Lock()
         self._eval_lock = asyncio.Lock()

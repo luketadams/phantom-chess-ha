@@ -7,7 +7,10 @@ import logging
 import random
 import re
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .lichess_analysis import LichessAnalysisClient
 
 import aiohttp
 import chess
@@ -194,7 +197,9 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # snapshots during eval. Reset on each new Lichess game.
         self._analysis_board: chess.Board = chess.Board()
         # Lazily initialized; needs the HA event loop.
-        self._analysis_client = None  # set in async_setup
+        # Quoted forward-ref so mypy doesn't require importing the
+        # heavy LichessAnalysisClient at module top.
+        self._analysis_client: "LichessAnalysisClient | None" = None  # set in async_setup
 
         # Game settings (mutated by HA services / select entities)
         self.ai_level: int = 3
@@ -3082,7 +3087,10 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("phantom_chess_announce event fire failed: %s", ev_err)
 
         # ── Optional direct TTS call (when configured in options) ──────
-        options = (self._entry.options if getattr(self, "_entry", None) else {}) or {}
+        # Two-step null-check so mypy can narrow `self._entry` past
+        # the truthy guard before we touch `.options`.
+        entry = getattr(self, "_entry", None)
+        options = (entry.options if entry is not None else {}) or {}
         tts_service = options.get("tts_service")
         tts_media_player = options.get("tts_media_player_entity_id")
         if tts_service and tts_media_player:

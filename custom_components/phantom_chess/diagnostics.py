@@ -140,8 +140,11 @@ async def async_get_config_entry_diagnostics(
 
     # ── Stockfish state ───────────────────────────────────────────────────
     stockfish: dict[str, Any] = {"client_initialized": False}
-    if coordinator is not None and getattr(coordinator, "_analysis_client", None) is not None:
-        sf = coordinator._analysis_client._stockfish
+    analysis_client = (
+        getattr(coordinator, "_analysis_client", None) if coordinator else None
+    )
+    if analysis_client is not None:
+        sf = analysis_client._stockfish
         if sf is not None:
             stockfish = {
                 "client_initialized": True,

@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha25] — 2026-05-27
+
+mypy clean. Gating typecheck job in CI. Platinum `strict-typing` done.
+
+### Fixed
+
+- **All 17 mypy errors driven to zero.** Five real ones fixed (rest were resolved by the TypeAlias annotation in alpha24):
+  - `_analysis_client` annotated `"LichessAnalysisClient | None"` with `TYPE_CHECKING` import (avoids runtime circular).
+  - `_transport: Any` (concrete type is `asyncio.SubprocessTransport` but the integration only calls `.close()`).
+  - `_entry` checks restructured as two-step null-narrow so mypy can track the guard.
+  - `diagnostics.py` analysis_client deref restructured for the same reason.
+  - `PhantomChessConfigFlow(... domain=DOMAIN)` suppressed with `# type: ignore[call-arg]` — HA's metaclass-registration kwarg pattern.
+
+### Changed (CI)
+
+- **`typecheck` job is now gating** (was `continue-on-error: true` in alpha24). Zero mypy errors required for the build to pass. The build broke if a future PR introduces a type bug.
+
+### Quality scale: Platinum
+
+- `strict-typing` → `done`.
+
+**Platinum tier complete in code** — all 3 Platinum rules done. The integration officially meets every code-side quality scale rule across Bronze, Silver, Gold, and Platinum. Only blockers to claiming the tiers in the manifest: `brands` (Bronze, needs PR to home-assistant/brands) and `test-coverage` (Silver, needs 95% — currently ~44.5%).
+
 ## [0.4.0-alpha24] — 2026-05-27
 
 Platinum prep — mypy CI baseline + Platinum rule audit.

@@ -56,8 +56,13 @@ def _normalize_ble_address(raw: str | None) -> str | None:
     return cleaned.upper()
 
 
-class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle the config flow for Phantom Chess Board."""
+class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
+    """Handle the config flow for Phantom Chess Board.
+
+    `domain=DOMAIN` is HA's metaclass-registration pattern; mypy can't
+    see through `ConfigFlow.__init_subclass__` so it flags the kwarg.
+    Suppressed via type: ignore — pattern is documented in HA core.
+    """
 
     # VERSION 4 (2026-05-24): v3 had a priority bug in the "both lowercase
     # AND uppercase variants exist for the same suffix" branch — it kept
