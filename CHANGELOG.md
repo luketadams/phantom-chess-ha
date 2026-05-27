@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha8] — 2026-05-26
+
+Action tiles converted to `type: button` cards — the icon-popup bug class is now eliminated at the root rather than worked around.
+
+### Changed
+
+- **Auto-provisioned dashboard's action tiles are now `type: button` cards.** alpha7 patched the "icon click opens the connected-sensor history popup" bug by mirroring `tap_action` into `icon_tap_action` on each `type: tile`. The button card has no separate icon action — the whole card shares one `tap_action` — so converting eliminates the bug class entirely instead of working around it. The icon_tap_action mirror is gone.
+- **21 action tiles converted, 17 left as tiles.** Conversions cover:
+  - 15 script-entity button tiles (Back to modes, Start Lichess game, Play selected sculpture, Takeback, Resign, Request hint, all back-to-modes variants).
+  - 1 alpha7-shape native-service tile (Start game vs Stockfish).
+  - 4 mode-picker tiles (Play with Lichess, Play with Stockfish, Sculpture Library, 2-Player Game) — these also had the icon-popup bug, since clicking the icon opened the setup_mode entity history. alpha7's mirror skipped them because the tap_action service was `select.select_option`, not `phantom_chess.*`.
+  - 1 "New game" post-review button.
+
+  Tiles left untouched: Bluetooth-connection info, Firmware-state info (×7), Last move / Pieces / State info tiles, AI level / My color / Choose-a-game / training-wheels controls (5 tiles with `features:` or `tap_action: toggle`). These have legitimate state-display semantics and shouldn't be buttons.
+
+### Changed (internal)
+
+- **`_fixup_script_tiles` replaced by `_convert_action_tiles_to_buttons`.** Detection rules expanded to recognise four button shapes (bare script-entity, script-entity with text-rewritten tap_action, alpha7 connected-sensor shape, mode-picker `select.select_option`). Each converted card drops tile-only fields (`entity`, `hide_state`, `vertical`, `icon_tap_action`) and gains an explicit `show_state: false` for intent.
+- **`build_dashboard_config` no longer resolves a `connected_entity` for the dict pass.** The button card has no entity binding, so the variable is unused.
+- **`confirmation` blocks on `tap_action` preserved** through conversion (Resign button retains its "Resign this game?" prompt).
+
+### Internal notes
+
+- The bundled template stays unchanged — it's still close to v0.3's `examples/dashboard-rich.yaml` so future merges from the v0.3 reference stay diffable. The button conversion lives entirely in the renderer.
+- Validated offline via `outputs/validate_renderer.py`: 21 buttons, 17 surviving tiles, no residual `script.phantom_*`, no `icon_tap_action`, no `script.turn_on`, no `input_*` helpers, no `YOUR_BOARD_MAC` placeholders.
+
 ## [0.4.0-alpha7] — 2026-05-26
 
 Visual polish for the auto-provisioned dashboard.
