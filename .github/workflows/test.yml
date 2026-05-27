@@ -32,18 +32,21 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test deps
+        # aiohttp is needed because lichess_analysis.py imports it at
+        # module top (its LichessAnalysisClient uses HA's aiohttp session).
+        # Pure-Python install, ~50KB, fast.
         run: |
           python -m pip install --upgrade pip
-          pip install pytest 'chess>=1.10.0,<2.0' pyyaml
+          pip install pytest 'chess>=1.10.0,<2.0' pyyaml aiohttp
       - name: Run pure-function tests
         # The tests/conftest.py stub stages matrix.py + dashboard_provision.py
-        # into sys.modules with stubbed homeassistant.* symbols, so these
-        # tests run on a minimal Python install. test_config_flow.py
-        # gracefully skips because it pytest.importorskip()s
-        # pytest-homeassistant-custom-component (only installed in the
-        # ha-tests job).
+        # + lichess_analysis.py into sys.modules with stubbed homeassistant.*
+        # symbols, so these tests run on a minimal Python install.
+        # test_config_flow.py gracefully skips because it
+        # pytest.importorskip()s pytest-homeassistant-custom-component
+        # (only installed in the ha-tests job).
         run: |
-          PYTHONPATH=. pytest tests/test_matrix.py tests/test_dashboard_provision.py -v
+          PYTHONPATH=. pytest tests/test_matrix.py tests/test_dashboard_provision.py tests/test_lichess_analysis.py -v
 
   ha-tests:
     # The config_flow tests use pytest-homeassistant-custom-component

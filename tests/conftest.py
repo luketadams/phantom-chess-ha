@@ -105,6 +105,14 @@ except ImportError:
         "custom_components.phantom_chess.dashboard_provision",
         _PC_DIR / "dashboard_provision.py",
     )
+    # lichess_analysis imports aiohttp + chess at module top. Both are
+    # installable in the minimal env (chess is the integration's own
+    # runtime dep; aiohttp is small and pure-python). No HA imports
+    # inside it that we'd need to stub.
+    _stage_pure_module(
+        "custom_components.phantom_chess.lichess_analysis",
+        _PC_DIR / "lichess_analysis.py",
+    )
 
 
 # pytest-homeassistant-custom-component scopes integration discovery to
