@@ -47,6 +47,10 @@ jobs:
         # (only installed in the ha-tests job).
         run: |
           PYTHONPATH=. pytest tests/test_matrix.py tests/test_dashboard_provision.py tests/test_lichess_analysis.py tests/test_coordinator_helpers.py tests/test_coordinator_state.py tests/test_diagnostics.py -v
+          # test_lichess_analysis.py grew in alpha18 with parse + cache +
+          # AI-level-table tests for LichessAnalysisClient. No new deps
+          # needed — all tests use direct construction and stay in the
+          # minimal env.
 
   ha-tests:
     # The config_flow tests use pytest-homeassistant-custom-component

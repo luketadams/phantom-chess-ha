@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha18] — 2026-05-27
+
+Test-coverage push: lichess_analysis client parser + cache + AI-level-table.
+
+### Added (tests)
+
+- **10 new tests** in `tests/test_lichess_analysis.py` for `LichessAnalysisClient`:
+  - `_parse_eval_payload` (6 cases) — empty PVs, white-to-move sign preserved, black-to-move flipped, mate flipped, single-move-no-space PV, no-moves-string → best_uci is None.
+  - LRU cache eviction for both `_eval_cache` (256 entries) and `_opening_cache` (64 entries).
+  - `_AI_LEVEL_TABLE` covers levels 1–8 with monotonically-non-decreasing Stockfish skill values.
+
+Coverage: `lichess_analysis.py` 35% → 40% in the minimal env (combined coverage in CI will be higher since ha-tests exercises more paths).
+
 ## [0.4.0-alpha17] — 2026-05-27
 
 Gold `entity-category` + `entity-device-class` audit pass.

@@ -1,7 +1,7 @@
 {
   "domain": "phantom_chess",
   "name": "Phantom Chess Board",
-  "version": "0.4.0a17",
+  "version": "0.4.0a18",
   "documentation": "https://github.com/luketadams/phantom-chess-ha",
   "issue_tracker": "https://github.com/luketadams/phantom-chess-ha/issues",
   "codeowners": ["@luketadams"],

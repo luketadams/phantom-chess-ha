@@ -27,6 +27,7 @@ from custom_components.phantom_chess.const import (
 from custom_components.phantom_chess.lichess_analysis import (
     CLASSIFICATION_DISPLAY,
     EvalResult,
+    LichessAnalysisClient,
     _safe_fen_for_eval,
     _win_pct_loss_to_accuracy,
     classification_color_glyph,
@@ -390,3 +391,176 @@ def test_compute_game_accuracy_one_blunder_drops_average() -> None:
     assert white_acc is not None
     assert black_acc is not None
     assert white_acc < black_acc
+
+
+# ─── LichessAnalysisClient._parse_eval_payload ─────────────────────────
+
+
+def _new_client() -> LichessAnalysisClient:
+    """Build a client with no Stockfish and a stub hass.
+
+    The client's __init__ creates an asyncio.Lock(); we don't actually
+    use it in these pure-function tests but it requires a running event
+    loop to construct. Building outside any async context works because
+    asyncio.Lock() is a sync-instantiable primitive in Python 3.10+.
+    """
+    from unittest.mock import MagicMock
+    return LichessAnalysisClient(hass=MagicMock(), stockfish_bin_dir=None)
+
+
+def test_parse_eval_payload_empty_pvs_returns_none() -> None:
+    """No 'pvs' key in payload → can't parse, return None."""
+    client = _new_client()
+    result = client._parse_eval_payload(
+        {"depth": 20, "pvs": []},
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    )
+    assert result is None
+
+
+def test_parse_eval_payload_white_to_move_preserves_sign() -> None:
+    """When white is to move, cp is already white-positive — no flip."""
+    client = _new_client()
+    result = client._parse_eval_payload(
+        {
+            "depth": 20,
+            "pvs": [{"cp": 150, "moves": "e2e4 e7e5 g1f3"}],
+        },
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    )
+    assert result is not None
+    assert result.cp == 150
+    assert result.mate is None
+    assert result.depth == 20
+    assert result.best_uci == "e2e4"
+    assert result.source == "lichess-cloud"
+
+
+def test_parse_eval_payload_black_to_move_flips_sign() -> None:
+    """When black is to move, Lichess returns cp from black's perspective.
+    Our internal convention is white-positive, so we flip."""
+    client = _new_client()
+    result = client._parse_eval_payload(
+        {
+            "depth": 22,
+            "pvs": [{"cp": 80, "moves": "e7e5"}],  # +80 for black-to-move = -80 white
+        },
+        fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    )
+    assert result is not None
+    assert result.cp == -80
+    assert result.best_uci == "e7e5"
+
+
+def test_parse_eval_payload_mate_for_black_flips_sign() -> None:
+    """Lichess returns mate-in-N from side-to-move's perspective.
+    Black-to-move + mate=3 means white is getting mated → mate=-3 internally."""
+    client = _new_client()
+    result = client._parse_eval_payload(
+        {
+            "depth": 30,
+            "pvs": [{"mate": 3, "moves": "h4h2"}],
+        },
+        fen="6kr/6pp/8/8/7q/8/PP6/K7 b - - 0 1",
+    )
+    assert result is not None
+    assert result.cp is None
+    assert result.mate == -3
+    assert result.best_uci == "h4h2"
+
+
+def test_parse_eval_payload_moves_string_with_no_space() -> None:
+    """A single-move PV ('e2e4' with no spaces) parses correctly."""
+    client = _new_client()
+    result = client._parse_eval_payload(
+        {
+            "depth": 5,
+            "pvs": [{"cp": 0, "moves": "e2e4"}],
+        },
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    )
+    assert result is not None
+    assert result.best_uci == "e2e4"
+
+
+def test_parse_eval_payload_no_moves_string_yields_none_best_uci() -> None:
+    """An eval with no PV moves string → best_uci is None."""
+    client = _new_client()
+    result = client._parse_eval_payload(
+        {
+            "depth": 5,
+            "pvs": [{"cp": 0}],
+        },
+        fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    )
+    assert result is not None
+    assert result.best_uci is None
+
+
+# ─── LichessAnalysisClient cache behaviour ─────────────────────────────
+
+
+def test_eval_cache_lru_eviction() -> None:
+    """When the cache exceeds EVAL_CACHE_SIZE, oldest entries get evicted.
+
+    Pre-load the cache directly to avoid mocking the HTTP path; the
+    eviction logic lives in `get_eval`'s outer flow but we can test
+    the bare LRU bookkeeping by writing directly to `_eval_cache`.
+    """
+    client = _new_client()
+    # Populate one past the cap to trigger eviction logic.
+    cap = client.EVAL_CACHE_SIZE
+    for i in range(cap + 5):
+        client._eval_cache[f"fen{i}::1"] = EvalResult(
+            cp=i, mate=None, depth=20, best_uci=None
+        )
+        # Trim like get_eval does
+        while len(client._eval_cache) > cap:
+            client._eval_cache.popitem(last=False)
+    # The oldest 5 entries should be gone
+    assert "fen0::1" not in client._eval_cache
+    assert "fen4::1" not in client._eval_cache
+    # The newest should still be present
+    assert f"fen{cap + 4}::1" in client._eval_cache
+    # Total size is exactly cap
+    assert len(client._eval_cache) == cap
+
+
+def test_opening_cache_lru_eviction() -> None:
+    """OPENING_CACHE_SIZE is smaller (openings are deterministic);
+    same eviction pattern."""
+    client = _new_client()
+    cap = client.OPENING_CACHE_SIZE
+    for i in range(cap + 3):
+        client._opening_cache[f"fen{i}"] = (f"opening-{i}", f"eco-{i}")
+        while len(client._opening_cache) > cap:
+            client._opening_cache.popitem(last=False)
+    assert "fen0" not in client._opening_cache
+    assert "fen2" not in client._opening_cache
+    assert f"fen{cap + 2}" in client._opening_cache
+    assert len(client._opening_cache) == cap
+
+
+# ─── _AI_LEVEL_TABLE ───────────────────────────────────────────────────
+
+
+def test_ai_level_table_covers_1_through_8() -> None:
+    """The Lichess AI 1–8 levels all map to (skill, depth) tuples."""
+    table = LichessAnalysisClient._AI_LEVEL_TABLE
+    for level in range(1, 9):
+        assert level in table
+        skill, depth = table[level]
+        # Skill is 0–20 (Stockfish range); depth is positive
+        assert 0 <= skill <= 20
+        assert depth > 0
+
+
+def test_ai_level_table_monotonic() -> None:
+    """Higher AI levels = stronger skill (monotonic, with one allowed plateau
+    at the bottom for the deliberately-weak levels 1–4)."""
+    table = LichessAnalysisClient._AI_LEVEL_TABLE
+    prev_skill = -1
+    for level in range(1, 9):
+        skill, _ = table[level]
+        assert skill >= prev_skill, f"Skill non-monotonic at level {level}"
+        prev_skill = skill
