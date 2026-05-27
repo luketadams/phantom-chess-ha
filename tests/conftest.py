@@ -66,6 +66,7 @@ except ImportError:
     for _ha_path in (
         "homeassistant",
         "homeassistant.components",
+        "homeassistant.components.bluetooth",
         "homeassistant.components.frontend",
         "homeassistant.components.lovelace",
         "homeassistant.components.lovelace.dashboard",
@@ -73,8 +74,11 @@ except ImportError:
         "homeassistant.config_entries",
         "homeassistant.core",
         "homeassistant.helpers",
+        "homeassistant.helpers.aiohttp_client",
         "homeassistant.helpers.entity_registry",
+        "homeassistant.helpers.issue_registry",
         "homeassistant.helpers.storage",
+        "homeassistant.helpers.update_coordinator",
     ):
         sys.modules.setdefault(_ha_path, types.ModuleType(_ha_path))
     _ll_const = sys.modules["homeassistant.components.lovelace.const"]
@@ -112,6 +116,40 @@ except ImportError:
     _stage_pure_module(
         "custom_components.phantom_chess.lichess_analysis",
         _PC_DIR / "lichess_analysis.py",
+    )
+
+    # coordinator.py: heavy module that pulls in HA's bluetooth +
+    # aiohttp_client + update_coordinator helpers. Stub everything it
+    # touches at module-load time. Only the pure-function helpers at the
+    # module top (`_phantom_to_uci`, `_rotate_uci_180`) and the static-
+    # methods inside `PhantomChessCoordinator` (`_coarse_accuracy`,
+    # `_describe_mistake`) are unit-testable from this stub; everything
+    # else needs the full HA test loop in the ha-tests job.
+    sys.modules["homeassistant.components.bluetooth"].async_ble_device_from_address = (
+        lambda *a, **k: None
+    )
+    sys.modules["homeassistant.helpers.aiohttp_client"].async_get_clientsession = (
+        lambda *a, **k: None
+    )
+    sys.modules["homeassistant.helpers.issue_registry"].async_delete_issue = (
+        lambda *a, **k: None
+    )
+    # DataUpdateCoordinator is subscripted as `DataUpdateCoordinator[dict[str, Any]]`
+    # at class-definition time in coordinator.py — the stub needs to support
+    # generic subscription. Easiest is to give it a __class_getitem__ that
+    # returns the class itself, matching how typing.Generic works.
+    class _StubDataUpdateCoordinator:
+        def __class_getitem__(cls, _params):
+            return cls
+    sys.modules["homeassistant.helpers.update_coordinator"].DataUpdateCoordinator = (
+        _StubDataUpdateCoordinator
+    )
+    sys.modules["homeassistant.helpers.update_coordinator"].UpdateFailed = type(
+        "UpdateFailed", (Exception,), {}
+    )
+    _stage_pure_module(
+        "custom_components.phantom_chess.coordinator",
+        _PC_DIR / "coordinator.py",
     )
 
 
