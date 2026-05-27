@@ -183,8 +183,13 @@ async def test_options_flow_round_trip(hass: HomeAssistant) -> None:
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
+    # auto_provision_dashboard is required-with-default-True in the schema
+    # (added in v0.4.0-alpha4 along with the auto-provisioned dashboard),
+    # so the saved options always include it even when the user doesn't
+    # touch the toggle.
     assert entry.options == {
         "tts_service": "tts.example",
         "tts_media_player_entity_id": "media_player.example",
         "debug_dump": True,
+        "auto_provision_dashboard": True,
     }
