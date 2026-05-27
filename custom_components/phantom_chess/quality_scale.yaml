@@ -390,21 +390,42 @@ rules:
       devices on an existing entry. No "device list" to keep in sync.
 
   entity-category:
-    status: todo
+    status: done
     comment: |
-      Diagnostic-grade entities should be `EntityCategory.DIAGNOSTIC`
-      (the two `button.*` entities already have this); pure-config
-      entities should be `EntityCategory.CONFIG`. Audit + add in
-      alpha17.
+      v0.4.0-alpha17 — audit pass:
+      - `EntityCategory.CONFIG` on all selects (AI level, player color,
+        setup mode, sculpture game) via base class.
+      - `EntityCategory.CONFIG` on all numbers (mechanism speed, sound
+        level, Lichess clock minutes / increment) via base class.
+      - `EntityCategory.CONFIG` on both switches (paused, training
+        wheels).
+      - `EntityCategory.DIAGNOSTIC` already on both buttons (start_game,
+        movement_verify) — set in alpha6.
+      - `EntityCategory.DIAGNOSTIC` already on several diagnostic-grade
+        sensors (Lichess ID, eval source, eval depth, etc.).
+
+      Primary state surfaces (battery %, firmware mode, live position,
+      classification, history, accuracy) intentionally have no
+      category — they're the front-page "what's happening on the
+      board" view.
 
   entity-device-class:
-    status: todo
+    status: done
     comment: |
-      `binary_sensor.<id>_connected` already uses
-      `BinarySensorDeviceClass.CONNECTIVITY`; `sensor.<id>_battery`
-      should be `SensorDeviceClass.BATTERY` with `%` unit; clock
-      sensors should be `SensorDeviceClass.DURATION` with `s`. Audit
-      + add in alpha17.
+      v0.4.0-alpha17 — audit pass:
+      - `BinarySensorDeviceClass.CONNECTIVITY` on the connected sensor
+      - `BinarySensorDeviceClass.RUNNING` on lichess_active /
+        local_game_active / lichess_review_ready / learning_view_active /
+        board_idle
+      - `SensorDeviceClass.BATTERY` on battery sensor (+ PERCENTAGE
+        unit, MEASUREMENT state_class)
+      - `SensorDeviceClass.DURATION` on Lichess white/black clock
+        sensors (+ "s" unit, MEASUREMENT state_class)
+
+      Sensors without a meaningful device_class (firmware_mode is a
+      label, opening_name is a string, etc.) intentionally don't have
+      one — there's no HA device_class that fits and inventing one
+      would hurt rather than help.
 
   entity-disabled-by-default:
     status: done

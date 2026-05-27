@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -50,6 +51,10 @@ class PhantomBaseNumber(CoordinatorEntity[PhantomChessCoordinator], NumberEntity
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
+    # Gold quality scale rule `entity-category`: every number on this
+    # integration is user-tunable configuration (mechanism speed, sound
+    # level, Lichess clock minutes / increment).
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,

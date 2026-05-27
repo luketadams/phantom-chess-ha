@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha17] — 2026-05-27
+
+Gold `entity-category` + `entity-device-class` audit pass.
+
+### Added
+
+- **`EntityCategory.CONFIG`** on every select (AI level, player color, setup mode, sculpture game) via `PhantomBaseSelect`, every number (mechanism speed, sound level, Lichess clock minutes/increment) via `PhantomBaseNumber`, and both switches (paused, training wheels). HA's UI now groups these under "Configuration" in the device page instead of mixing them with state sensors.
+- **`SensorDeviceClass.DURATION`** + `SensorStateClass.MEASUREMENT` on `Lichess White Clock` and `Lichess Black Clock` sensors. Lets HA's frontend display them with the right unit-conversion options and chart formatting.
+
+### Gold quality scale: 2 more rules → `done`
+
+`entity-category` and `entity-device-class`.
+
+### Still todo on Gold
+
+`entity-translations`, `exception-translations`, `icon-translations` (translation polish), `reconfiguration-flow` (alpha19).
+
 ## [0.4.0-alpha16] — 2026-05-27
 
 Gold-tier documentation pass. README expanded with six new sections; `quality_scale.yaml` updated to reflect 8 additional Gold rules as `done`.

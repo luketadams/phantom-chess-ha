@@ -363,6 +363,11 @@ class PhantomLichessWhiteClockSensor(PhantomBaseSensor):
     _attr_name = "Lichess White Clock"
     _attr_icon = "mdi:timer-outline"
     _attr_native_unit_of_measurement = "s"
+    # Gold quality scale rule `entity-device-class`: clock readings are
+    # durations in seconds. Tagging lets HA display them with the right
+    # unit-conversion options + chart formatting.
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coord, entry, address, name):
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_WHITE_CLOCK)
@@ -376,6 +381,8 @@ class PhantomLichessBlackClockSensor(PhantomBaseSensor):
     _attr_name = "Lichess Black Clock"
     _attr_icon = "mdi:timer-outline"
     _attr_native_unit_of_measurement = "s"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coord, entry, address, name):
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_BLACK_CLOCK)

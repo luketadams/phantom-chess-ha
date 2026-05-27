@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -46,6 +47,9 @@ class PhantomPauseSwitch(CoordinatorEntity[PhantomChessCoordinator], SwitchEntit
     _attr_has_entity_name = True
     _attr_name = "Paused"
     _attr_icon = "mdi:pause-circle"
+    # Gold quality scale rule `entity-category`: pause is a user-tunable
+    # control (not a primary game-state surface).
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
@@ -99,6 +103,7 @@ class PhantomTrainingWheelsSwitch(
     _attr_has_entity_name = True
     _attr_name = "Training Wheels"
     _attr_icon = "mdi:school"
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,

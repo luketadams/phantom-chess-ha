@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -55,6 +56,10 @@ async def async_setup_entry(
 
 class PhantomBaseSelect(CoordinatorEntity[PhantomChessCoordinator], SelectEntity):
     _attr_has_entity_name = True
+    # Gold quality scale rule `entity-category`: all selects in this
+    # integration are user-tunable configuration (AI level, player
+    # color, dashboard mode, sculpture choice). None are diagnostic.
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
