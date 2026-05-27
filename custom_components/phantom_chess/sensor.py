@@ -51,7 +51,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: PhantomChessCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: PhantomChessCoordinator = entry.runtime_data
     address = entry.data[CONF_BLE_ADDRESS]
     name = entry.data.get(CONF_DEVICE_NAME, "Phantom Chess Board")
 

@@ -6,6 +6,9 @@
         "description": "Discovered boards: {discovered}\n\nSelect a board address or enter the MAC address manually.",
         "data": {
           "ble_address": "Board Bluetooth Address"
+        },
+        "data_description": {
+          "ble_address": "The board's Bluetooth MAC address (6 hex pairs separated by colons or dashes, e.g. C8:C9:A3:F2:7C:0A). Visible on the board's serial sticker, the official Phantom app's settings screen, or via any nearby BLE scanner."
         }
       },
       "bluetooth_confirm": {
@@ -18,6 +21,9 @@
         "description": "Enter your Lichess Board API token for **{device}**.\n\nCreate one at https://lichess.org/account/oauth/token — enable **Board API** scope.",
         "data": {
           "lichess_token": "Lichess Board API Token"
+        },
+        "data_description": {
+          "lichess_token": "A personal-access token generated on Lichess with the Board API scope enabled. Used only for streaming your active board games and posting moves on your behalf — never read."
         }
       },
       "reauth_confirm": {
@@ -25,6 +31,9 @@
         "description": "Your Lichess token for **{device}** is no longer accepted (probably expired or revoked). Enter a new Board API token to resume online play.\n\nCreate one at https://lichess.org/account/oauth/token with the **Board API** scope.",
         "data": {
           "lichess_token": "Lichess Board API Token"
+        },
+        "data_description": {
+          "lichess_token": "A fresh Lichess personal-access token with the Board API scope. Existing token was rejected by the API and needs replacement."
         }
       }
     },

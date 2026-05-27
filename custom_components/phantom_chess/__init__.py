@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from homeassistant.helpers import (
     device_registry as dr,
@@ -21,6 +24,14 @@ from .dashboard_provision import (
     async_provision_dashboard,
     async_unprovision_dashboard,
 )
+
+# Typed ConfigEntry alias — Bronze quality scale rule `runtime-data`.
+# Storing the coordinator on entry.runtime_data (instead of
+# hass.data[DOMAIN][entry.entry_id]) lets HA garbage-collect it on
+# unload and gives type-checkers visibility into the stored value.
+PhantomChessConfigEntry = ConfigEntry[PhantomChessCoordinator]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 # Options-flow key. v0.4-alpha4 default: True (auto-provision the rich
 # Chess dashboard at /phantom-chess on first setup). Power users who want
@@ -541,7 +552,26 @@ def _rename_collision_suffix_entity_ids(
     return renamed
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register domain-level services and static paths.
+
+    Bronze quality scale rule ``action-setup`` requires service actions
+    to be registered here (not in ``async_setup_entry``), so they are
+    discoverable before any config entry is loaded and survive an entry
+    reload without needing re-registration.
+
+    Service handlers find their target coordinator at call-time by
+    enumerating ``hass.config_entries.async_entries(DOMAIN)`` and reading
+    ``entry.runtime_data`` — see ``_get_coordinator``.
+    """
+    _register_services(hass)
+    await _register_static_paths(hass)
+    return True
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: PhantomChessConfigEntry
+) -> bool:
     """Set up Phantom Chess Board from a config entry."""
     coordinator = PhantomChessCoordinator(hass, dict(entry.data), entry=entry)
     await coordinator.async_setup()
@@ -550,20 +580,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # crash on first read before the BLE loop calls async_set_updated_data.
     coordinator.async_set_updated_data(coordinator._state)
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
-
-    # Register services (once, even if multiple boards). Guard uses the latest
-    # service added — when a new service is introduced in a release, bump this
-    # to its constant so an integration reload picks up the new registration.
-    if not hass.services.has_service(DOMAIN, SERVICE_EXECUTE_MOVE):
-        _register_services(hass)
-
-    # Register static-file path so the bundled interactive web board is
-    # available at /phantom_chess_static/board.html for iframe embedding.
-    # Once per HA instance — guarded by hass.data[DOMAIN] being empty before
-    # the current entry was added above. Idempotent at the http layer too:
-    # HA raises RuntimeError on duplicate registration so we catch it.
-    await _register_static_paths(hass)
+    # Bronze quality scale rule `runtime-data` — store per-entry state on
+    # entry.runtime_data, not hass.data[DOMAIN][entry.entry_id]. HA
+    # garbage-collects this automatically on unload.
+    entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -593,9 +613,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
 
     # Reload when options change so the auto_provision_dashboard toggle takes
-    # effect without a HA restart. Stored once per entry.
-    if not hasattr(entry, "_phantom_options_unsub"):
-        entry._phantom_options_unsub = entry.add_update_listener(_async_options_updated)
+    # effect without a HA restart. async_on_unload auto-removes the listener
+    # when the entry is unloaded, so we don't re-register on every reload.
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
 
@@ -654,35 +674,24 @@ async def _register_static_paths(hass: HomeAssistant) -> None:
         _LOGGER.warning("Failed to register Phantom Chess static path: %s", err)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    coordinator: PhantomChessCoordinator = hass.data[DOMAIN][entry.entry_id]
+async def async_unload_entry(
+    hass: HomeAssistant, entry: PhantomChessConfigEntry
+) -> bool:
+    """Unload a config entry.
+
+    Services are registered in ``async_setup`` (not here), so unload only
+    needs to shut down the per-entry coordinator and unload the platforms.
+    HA garbage-collects ``entry.runtime_data`` automatically after this
+    function returns.
+    """
+    coordinator = entry.runtime_data
     await coordinator.async_shutdown()
-
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-
-    # Remove services only when no entries remain
-    if not hass.data[DOMAIN]:
-        for svc in (
-            SERVICE_START_GAME, SERVICE_START_LOCAL_GAME, SERVICE_STOP_LOCAL_GAME,
-            SERVICE_SEND_MOVE, SERVICE_RESIGN, SERVICE_TAKEBACK,
-            SERVICE_DEBUG_BLE_WRITE,
-            SERVICE_PHANTOM_START_GAME, SERVICE_PHANTOM_APPLY_AI_MOVE,
-            SERVICE_MOVE_PIECE, SERVICE_START_SCULPTURE,
-            SERVICE_RESET_POSITION, SERVICE_PLAY_SOUND, SERVICE_REQUEST_HINT,
-            SERVICE_DISMISS_REVIEW, SERVICE_RECONCILE_LICHESS_STATE,
-            SERVICE_RESUME_FROM_PHONE, SERVICE_EXECUTE_MOVE,
-            SERVICE_BACK_TO_MODES, SERVICE_START_LICHESS_CONFIGURED,
-            SERVICE_PLAY_SELECTED_SCULPTURE,
-        ):
-            hass.services.async_remove(DOMAIN, svc)
-
-    return unload_ok
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
-async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_remove_entry(
+    hass: HomeAssistant, entry: PhantomChessConfigEntry
+) -> None:
     """Tear down per-entry artifacts the user shouldn't keep after uninstall.
 
     Called by HA when the user actively deletes the integration (not on
@@ -693,10 +702,14 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     /phantom-chess url_path), so we only remove it when the last entry is
     going away.
     """
-    remaining = hass.data.get(DOMAIN, {})
-    # remaining still contains entry.entry_id when async_remove_entry runs;
-    # for v1 the dashboard is shared so a single board's removal clears it.
-    # If multi-board users complain, we can switch to per-board urls later.
+    # async_remove_entry runs AFTER async_unload_entry, so the entry being
+    # removed is no longer in async_entries(). If the user has multiple
+    # boards and is deleting just one, we keep the dashboard for the
+    # surviving entry/entries. v1 design: the dashboard is shared across
+    # all boards.
+    remaining_entries = hass.config_entries.async_entries(DOMAIN)
+    if remaining_entries:
+        return
     if entry.options.get(OPT_AUTO_PROVISION_DASHBOARD, DEFAULT_AUTO_PROVISION_DASHBOARD):
         try:
             await async_unprovision_dashboard(hass)
@@ -708,7 +721,17 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 def _register_services(hass: HomeAssistant) -> None:
-    """Register domain-level services."""
+    """Register domain-level services.
+
+    Idempotent — guarded against repeat invocation via has_service.
+    Called from async_setup so the services are available before any
+    config entry is loaded (Bronze quality scale rule `action-setup`).
+    """
+
+    if hass.services.has_service(DOMAIN, SERVICE_EXECUTE_MOVE):
+        # Services already registered (defensive — in normal flow
+        # async_setup runs exactly once per HA process).
+        return
 
     def _get_coordinator(call: ServiceCall) -> PhantomChessCoordinator:
         """Resolve which coordinator a service call targets.
@@ -726,7 +749,14 @@ def _register_services(hass: HomeAssistant) -> None:
         can find in Settings → Devices & Services → Phantom Chess → ⋮ → ID,
         or via the entity registry.
         """
-        coordinators = hass.data.get(DOMAIN, {})
+        # alpha10: enumerate loaded entries via the config-entries API and
+        # read entry.runtime_data (the Bronze `runtime-data` pattern).
+        # Pre-alpha10 this read from hass.data[DOMAIN][entry_id].
+        coordinators: dict[str, PhantomChessCoordinator] = {
+            e.entry_id: e.runtime_data
+            for e in hass.config_entries.async_entries(DOMAIN)
+            if getattr(e, "runtime_data", None) is not None
+        }
         if not coordinators:
             raise vol.Invalid("No Phantom Chess Board configured")
 

@@ -195,6 +195,27 @@ After setup, click the integration's **Configure** button to access options:
 
 ---
 
+## Removal
+
+To remove the integration:
+
+1. Go to **Settings → Devices & Services → Phantom Chess Board**.
+2. Click the ⋮ (three-dot) menu next to the integration and choose **Delete**.
+3. Confirm. HA will:
+   - Disconnect from the board over Bluetooth.
+   - Remove all `phantom_chess.*` entities (sensors, switches, buttons, etc.).
+   - Remove the auto-provisioned `/phantom-chess` dashboard from the sidebar (if this was the last configured board).
+   - Drop the device from the device registry.
+4. If you installed via HACS and want to remove the integration's code as well: go to **HACS → Integrations → Phantom Chess Board → ⋮ → Remove**. Restart Home Assistant after the HACS removal.
+5. **Files that are NOT removed automatically** (these are intentional — they may contain Stockfish binaries and debug artifacts you might want to keep or move):
+   - `/config/phantom_chess/bin/` — the downloaded Stockfish binary cache (~3 MB).
+   - `/config/phantom_chess/debug/` — debug-dump artifacts, only present if `debug_dump` was enabled in integration options.
+
+   Delete the `/config/phantom_chess/` directory manually if you want a fully clean uninstall.
+6. **Lichess token** — the integration only stores the token in HA's config-entry storage, so deleting the integration removes it. No revocation is performed against Lichess. If you want to invalidate the token, visit https://lichess.org/account/oauth/token and revoke it manually.
+
+---
+
 ## Privacy & Data Flow
 
 - **Lichess token** is stored in your HA config entry (HA's standard encrypted credential storage). It is sent only to `lichess.org` over HTTPS, never to third parties.

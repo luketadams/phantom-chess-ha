@@ -63,8 +63,8 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Build a redacted diagnostics dump for the given config entry."""
-    coordinator: PhantomChessCoordinator | None = hass.data.get(DOMAIN, {}).get(
-        entry.entry_id
+    coordinator: PhantomChessCoordinator | None = getattr(
+        entry, "runtime_data", None
     )
 
     # ── Entry-level data (mostly already redacted via TO_REDACT) ──────────

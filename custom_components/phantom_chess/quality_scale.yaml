@@ -1,0 +1,166 @@
+# Phantom Chess Board — quality scale rule tracking.
+#
+# Reference: https://developers.home-assistant.io/docs/core/integration-quality-scale/
+# Checklist: https://developers.home-assistant.io/docs/core/integration-quality-scale/checklist
+#
+# Updated for v0.4.0-alpha10 (2026-05-26) — claiming Bronze except for the
+# brands rule, which requires a separate PR to home-assistant/brands and is
+# tracked as a follow-up.
+
+rules:
+  # ── Bronze ─────────────────────────────────────────────────────────────
+  action-setup:
+    status: done
+    comment: |
+      Service actions registered in async_setup (custom_components/phantom_chess/__init__.py)
+      so they're available before any config entry loads. _get_coordinator
+      resolves the target entry at call time via hass.config_entries.async_entries(DOMAIN)
+      and entry.runtime_data.
+
+  appropriate-polling:
+    status: exempt
+    comment: |
+      The integration is local-push (iot_class: local_push). State updates
+      arrive via BLE notifications + Lichess Board API streaming; no polling
+      interval applies.
+
+  brands:
+    status: todo
+    comment: |
+      Brand assets PR to home-assistant/brands not yet submitted. Tracked
+      as a v0.4 follow-up — the integration currently uses the default
+      HA placeholder icon. Submitting requires icon.png + icon@2x.png +
+      logo.png + logo@2x.png in the right dimensions; see
+      https://developers.home-assistant.io/docs/creating_integration_brand
+
+  common-modules:
+    status: done
+    comment: |
+      Common code is split across purpose-specific modules:
+      - matrix.py: pure-function board/sensor matrix helpers
+      - coordinator.py: BLE + Lichess + game state
+      - lichess_analysis.py: cloud-eval, classification, accuracy, Stockfish fallback
+      - dashboard_provision.py: Lovelace dashboard renderer
+      - config_flow.py: setup + options + reauth
+      No "everything in __init__.py" anti-pattern.
+
+  config-flow-test-coverage:
+    status: done
+    comment: |
+      tests/test_config_flow.py covers:
+      - user flow with valid Lichess token (entry created)
+      - user flow with invalid Lichess token (form error)
+      - reauth happy path (entry data updated)
+      - options flow round-trip (TTS + debug_dump + auto_provision_dashboard)
+      - bluetooth-discovery → confirm → token → entry creation
+      - bluetooth-discovery aborts when board is already configured
+      Six tests covering every entry path the user can hit.
+
+  config-flow:
+    status: done
+    comment: |
+      Set up via UI only (manifest config_flow: true, no YAML schema).
+      strings.json includes data_description for every user-facing field
+      in the user, lichess_token, and reauth_confirm steps.
+      ConfigEntry.data carries identity + credential fields (BLE address,
+      Lichess token, user); ConfigEntry.options carries user-tunable
+      runtime settings (TTS, debug_dump, auto_provision_dashboard).
+
+  dependency-transparency:
+    status: done
+    comment: |
+      manifest.json["requirements"] lists "chess>=1.10.0,<2.0" (python-chess)
+      as the only runtime requirement. All other imports are from the
+      Python stdlib, HA core, or HA's bundled deps (aiohttp).
+      No vendored binaries — Stockfish is downloaded on demand at runtime
+      from official upstream releases (Alpine apk for musl, GitHub releases
+      for glibc); see lichess_analysis.StockfishFallback.
+
+  docs-actions:
+    status: done
+    comment: |
+      README.md "Services" section lists every phantom_chess.* service
+      with parameters and expected behavior. services.yaml provides the
+      structured schema that HA's developer-tools/services UI consumes.
+
+  docs-high-level-description:
+    status: done
+    comment: |
+      README.md opens with an integration-level description of what the
+      Phantom Chess Board is, what the integration drives, and the device
+      the integration connects to.
+
+  docs-installation-instructions:
+    status: done
+    comment: |
+      README.md "Installation" section covers HACS (preferred) and manual
+      install. "Setup" section walks through the config flow.
+
+  docs-removal-instructions:
+    status: done
+    comment: |
+      README.md "Removal" section walks through deleting the integration,
+      what HA cleans up automatically, and what files at /config/phantom_chess/
+      are kept (Stockfish binary cache, debug dumps).
+
+  entity-event-setup:
+    status: done
+    comment: |
+      All entities inherit from homeassistant.helpers.update_coordinator.CoordinatorEntity,
+      which subscribes/unsubscribes to coordinator updates in
+      async_added_to_hass / async_will_remove_from_hass — the correct
+      lifecycle hooks. No __init__-time event subscription.
+
+  entity-unique-id:
+    status: done
+    comment: |
+      Every entity sets _attr_unique_id (and _attr_has_entity_name = True)
+      in its constructor. unique_id format: "{ble_address}_{suffix}" with
+      the BLE address canonicalised to upper-case (see
+      phantom-chess-unique-id-canonicalization).
+
+  has-entity-name:
+    status: done
+    comment: |
+      All seven entity platforms (binary_sensor, button, image, number,
+      select, sensor, switch) set _attr_has_entity_name = True on every
+      entity class. Names derive from device_name slug + entity_name slug
+      via HA's standard entity-naming.
+
+  runtime-data:
+    status: done
+    comment: |
+      v0.4.0-alpha10 migrated from hass.data[DOMAIN][entry.entry_id] to
+      entry.runtime_data. Typed alias PhantomChessConfigEntry =
+      ConfigEntry[PhantomChessCoordinator] is exported from __init__.py.
+      All seven platform setup_entry functions, diagnostics, and
+      service-handler routing read entry.runtime_data.
+
+  test-before-configure:
+    status: done
+    comment: |
+      Config flow makes a real GET https://lichess.org/api/account call
+      with the user-provided token (config_flow.py async_step_lichess_token,
+      line ~227). Invalid tokens surface as a form error before the entry
+      is created.
+
+  test-before-setup:
+    status: exempt
+    comment: |
+      Integration is iot_class: local_push over BLE. Raising
+      ConfigEntryNotReady on a missing/disconnected board would be hostile —
+      Phantom boards spend most of their life powered off, and the
+      integration is designed to reconnect when the board appears (HA's
+      Bluetooth integration drives the connection lifecycle). The
+      coordinator's async_setup starts the BLE loop in a background task;
+      no synchronous "are we able to set it up" probe applies.
+
+  unique-config-entry:
+    status: done
+    comment: |
+      Both the bluetooth and user (manual MAC) flows call
+      async_set_unique_id(canonicalised_address) followed by
+      _abort_if_unique_id_configured() before advancing. v3 migration
+      (config_flow.py async_migrate_entry) canonicalises pre-existing
+      entries to upper-case so the abort path works for any case the
+      user originally entered.

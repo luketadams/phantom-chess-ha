@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha10] — 2026-05-26
+
+Audit + close-out pass against HA's Bronze quality scale checklist. Code-side work is complete; only the brand-assets PR to home-assistant/brands remains before the integration can officially claim Bronze.
+
+### Changed
+
+- **`runtime-data` migration.** Per-entry coordinator state moved from `hass.data[DOMAIN][entry.entry_id]` to `entry.runtime_data`. HA now garbage-collects the coordinator on unload automatically, and the typed alias `PhantomChessConfigEntry = ConfigEntry[PhantomChessCoordinator]` gives type-checkers visibility into the stored value. Touched: `__init__.py` (setup/unload/remove paths + service-handler routing), all seven platform `setup_entry` functions (`binary_sensor.py`, `button.py`, `image.py`, `number.py`, `select.py`, `sensor.py`, `switch.py`), and `diagnostics.py`.
+- **`action-setup` migration.** Service actions (`phantom_chess.*`) now register in `async_setup` instead of `async_setup_entry`. They're discoverable before any config entry loads and survive entry reloads without re-registration. `async_unload_entry`'s service-removal block is gone for the same reason. `_get_coordinator` resolves the target entry at call time by enumerating `hass.config_entries.async_entries(DOMAIN)`.
+- **Bronze HA floor.** Minimum HA version bumped from 2024.4 to 2024.11 (`hacs.json`). `entry.runtime_data` landed in 2024.11; the alpha9 options-flow fix also already implicitly required this floor.
+
+### Added
+
+- **`quality_scale.yaml`.** Every Bronze rule explicitly tracked with `done` / `exempt` / `todo` status and a rationale. Three rules are non-`done`: `brands` (todo — needs separate PR to home-assistant/brands), `appropriate-polling` (exempt — local-push integration), `test-before-setup` (exempt — BLE local-push; eager-fail would be hostile during board reboots).
+- **`data_description` blocks** added to the `user`, `lichess_token`, and `reauth_confirm` config-flow steps in `strings.json`. Tells the user what each field means inline in the form, satisfying the Bronze `config-flow` rule's sub-requirement.
+- **README "Removal" section.** Step-by-step instructions for cleanly removing the integration, including what files at `/config/phantom_chess/` are NOT removed automatically (Stockfish binary cache, debug dumps). Satisfies the Bronze `docs-removal-instructions` rule.
+- **Bluetooth-discovery config-flow tests.** `test_bluetooth_discovery_creates_entry` and `test_bluetooth_discovery_aborts_when_already_configured` cover the discovery path that the existing 4 tests didn't reach. Brings `config-flow-test-coverage` to "all entry paths covered".
+- **`CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)`** in `__init__.py` — explicit declaration that the integration accepts no YAML configuration. Convention since HA 2024.4.
+
+### Known Bronze gap
+
+- **`brands`** — the integration uses HA's default placeholder icon in Settings → Devices & Services. Properly fixing this requires submitting `icon.png` + `icon@2x.png` + `logo.png` + `logo@2x.png` to the [home-assistant/brands](https://github.com/home-assistant/brands) repo. Tracked as a v0.4 follow-up; the integration is functionally Bronze-compliant in code but cannot claim the tier until brands lands.
+
 ## [0.4.0-alpha9] — 2026-05-26
 
 CI workflow added; surfaces a real options-flow bug that's been latent since HA 2025.12.

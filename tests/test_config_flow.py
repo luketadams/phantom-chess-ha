@@ -193,3 +193,103 @@ async def test_options_flow_round_trip(hass: HomeAssistant) -> None:
         "debug_dump": True,
         "auto_provision_dashboard": True,
     }
+
+
+# ─── Bluetooth-discovery flow ───────────────────────────────────────────
+
+
+def _phantom_bluetooth_service_info(address: str = "AA:BB:CC:DD:EE:FF",
+                                     name: str = "Phantom 1234"):
+    """Build a BluetoothServiceInfoBleak fixture for a discovered Phantom.
+
+    Imports here (not at module top) so the file still loads in the
+    matrix-tests minimal environment, where homeassistant.components is
+    stubbed and the bluetooth import would fail before
+    pytest.importorskip can save us.
+    """
+    from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+
+    return BluetoothServiceInfoBleak(
+        name=name,
+        address=address,
+        rssi=-60,
+        manufacturer_data={},
+        service_data={},
+        service_uuids=["fd31a840-22e7-11eb-adc1-0242ac120002"],
+        source="local",
+        device=MagicMock(),
+        advertisement=MagicMock(),
+        connectable=True,
+        time=0.0,
+        tx_power=-127,
+    )
+
+
+async def test_bluetooth_discovery_creates_entry(
+    hass: HomeAssistant,
+    mock_lichess_account_response_valid,
+    mock_aiohttp_session_factory,
+) -> None:
+    """Bluetooth discovery → confirm → token → entry creation."""
+    valid_session = mock_aiohttp_session_factory(
+        status=200, json_data=mock_lichess_account_response_valid
+    )
+
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_get_clientsession",
+        return_value=valid_session,
+    ):
+        # Step 1: bluetooth discovery initiates the flow at bluetooth_confirm.
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_BLUETOOTH},
+            data=_phantom_bluetooth_service_info(),
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "bluetooth_confirm"
+        assert result["description_placeholders"]["address"] == "AA:BB:CC:DD:EE:FF"
+
+        # Step 2: confirming advances to the Lichess-token step (no token in
+        # this submission — bluetooth_confirm has an empty form).
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {}
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "lichess_token"
+
+        # Step 3: provide token → entry is created with the discovered MAC.
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_LICHESS_TOKEN: "bt-discovered-token"},
+        )
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_BLE_ADDRESS] == "AA:BB:CC:DD:EE:FF"
+        assert result["data"][CONF_LICHESS_TOKEN] == "bt-discovered-token"
+        assert result["data"][CONF_LICHESS_USER] == "TestUser"
+
+
+async def test_bluetooth_discovery_aborts_when_already_configured(
+    hass: HomeAssistant,
+) -> None:
+    """A second bluetooth discovery of an already-configured board aborts."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="AA:BB:CC:DD:EE:FF",
+        data={
+            CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+            CONF_LICHESS_TOKEN: "already-set-token",
+            CONF_LICHESS_USER: "ExistingUser",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    # No need to mock Lichess — the abort fires before any HTTP call.
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_BLUETOOTH},
+        data=_phantom_bluetooth_service_info(),
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
