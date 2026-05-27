@@ -23,9 +23,14 @@ import pytest
 import yaml
 
 from custom_components.phantom_chess.dashboard_provision import (
+    _HELPER_TO_NATIVE,
+    _SCRIPT_TO_SERVICE,
+    _TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES,
     _convert_action_tiles_to_buttons,
     _is_action_service_call,
+    _mac_to_slug,
     _render_template,
+    _resolve_or_fallback,
     _rewrite_script_turn_on_in_text,
 )
 
@@ -329,3 +334,114 @@ def test_helper_service_domains_rewritten(rendered_config: dict[str, Any]) -> No
 )
 def test_is_action_service_call(tap_action: Any, expected: bool) -> None:
     assert _is_action_service_call(tap_action) is expected
+
+
+# ─── _mac_to_slug ────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "ble_address,expected_slug",
+    [
+        ("AA:BB:CC:DD:EE:FF", "aa_bb_cc_dd_ee_ff"),
+        ("aa:bb:cc:dd:ee:ff", "aa_bb_cc_dd_ee_ff"),
+        ("C8:C9:A3:F2:7C:0A", "c8_c9_a3_f2_7c_0a"),  # Luke's actual board
+        # Mixed case is canonicalised to lowercase
+        ("c8:C9:a3:F2:7C:0a", "c8_c9_a3_f2_7c_0a"),
+    ],
+)
+def test_mac_to_slug_canonicalises(ble_address: str, expected_slug: str) -> None:
+    assert _mac_to_slug(ble_address) == expected_slug
+
+
+# ─── _resolve_or_fallback ────────────────────────────────────────────────
+
+
+def test_resolve_or_fallback_uses_registry_when_present() -> None:
+    """When the registry has an entity_id under (domain, suffix), use it
+    verbatim — regardless of what the MAC-slug guess would produce.
+    """
+    mac_slug = "c8_c9_a3_f2_7c_0a"
+    # Simulate v0.3 entities registered with MAC-slug + v0.4-alpha entities
+    # registered with device-name slug (Phantom 6552 → phantom_6552_*),
+    # which is the exact divergence Luke's board has.
+    entity_map = {
+        ("binary_sensor", "connected"): "binary_sensor.phantom_c8_c9_a3_f2_7c_0a_connected",
+        ("select", "setup_mode"): "select.phantom_6552_setup_mode",
+    }
+    # v0.3 entity — registry returns MAC-slug form, matches the guess
+    assert _resolve_or_fallback("binary_sensor", "connected", entity_map, mac_slug) == (
+        "binary_sensor.phantom_c8_c9_a3_f2_7c_0a_connected"
+    )
+    # v0.4 alpha entity — registry returns device-name slug, NOT the
+    # MAC-slug guess. This is the load-bearing case for the alpha6+
+    # fix (see ha-entity-id-slug-divergence memory).
+    assert _resolve_or_fallback("select", "setup_mode", entity_map, mac_slug) == (
+        "select.phantom_6552_setup_mode"
+    )
+
+
+def test_resolve_or_fallback_uses_mac_slug_when_registry_misses() -> None:
+    """When the entity hasn't been registered yet (first setup_entry,
+    platform forward not complete), fall back to the MAC-slug guess.
+    """
+    mac_slug = "c8_c9_a3_f2_7c_0a"
+    entity_map: dict[tuple[str, str], str] = {}  # registry empty
+    assert _resolve_or_fallback("sensor", "battery", entity_map, mac_slug) == (
+        "sensor.phantom_c8_c9_a3_f2_7c_0a_battery"
+    )
+
+
+def test_resolve_or_fallback_applies_image_alias() -> None:
+    """The image platform's unique_id suffix differs from the entity_id
+    suffix (`_board_image` in registry, `_board` in template). The
+    resolver bridges this via ``_TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES``.
+    """
+    mac_slug = "c8_c9_a3_f2_7c_0a"
+    entity_map = {
+        # The registry has it under "board_image"
+        ("image", "board_image"): "image.phantom_c8_c9_a3_f2_7c_0a_board",
+    }
+    # Template uses "board", which is aliased to "board_image" before lookup.
+    assert _resolve_or_fallback("image", "board", entity_map, mac_slug) == (
+        "image.phantom_c8_c9_a3_f2_7c_0a_board"
+    )
+    # Sanity check: the alias map declares this
+    assert _TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES.get("board") == "board_image"
+
+
+# ─── _SCRIPT_TO_SERVICE / _HELPER_TO_NATIVE map consistency ─────────────
+
+
+def test_script_to_service_covers_every_template_script_entity() -> None:
+    """Every `script.phantom_X` referenced by the bundled template must
+    have an entry in ``_SCRIPT_TO_SERVICE`` — otherwise the renderer
+    leaves the script reference unchanged and the button is a no-op.
+    """
+    template = _TEMPLATE_PATH.read_text(encoding="utf-8")
+    import re
+
+    referenced = set(re.findall(r"script\.(phantom_[a-z_]+)", template))
+    missing_from_map = referenced - set(_SCRIPT_TO_SERVICE.keys())
+    assert missing_from_map == set(), (
+        f"template references scripts with no mapping: {missing_from_map}"
+    )
+
+
+def test_helper_to_native_covers_every_template_input_helper() -> None:
+    """Every `input_select.phantom_chess_X` / `input_number.phantom_chess_X` /
+    `input_boolean.phantom_chess_X` reference in the template must have a
+    mapping to its v0.4 native replacement.
+    """
+    template = _TEMPLATE_PATH.read_text(encoding="utf-8")
+    import re
+
+    referenced = set(
+        re.findall(r"(input_(?:select|number|boolean)\.phantom_chess_[a-z_]+)", template)
+    )
+    # Also pick up the v0.3 template-helper binary_sensor that alpha5
+    # rewrote to a native binary_sensor.
+    referenced |= set(re.findall(r"(binary_sensor\.phantom_chess_[a-z_]+)", template))
+    missing_from_map = referenced - set(_HELPER_TO_NATIVE.keys())
+    assert missing_from_map == set(), (
+        f"template references helpers with no mapping: {missing_from_map}"
+    )
