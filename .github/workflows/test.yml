@@ -46,7 +46,7 @@ jobs:
         # pytest.importorskip()s pytest-homeassistant-custom-component
         # (only installed in the ha-tests job).
         run: |
-          PYTHONPATH=. pytest tests/test_matrix.py tests/test_dashboard_provision.py tests/test_lichess_analysis.py tests/test_coordinator_helpers.py tests/test_coordinator_state.py -v
+          PYTHONPATH=. pytest tests/test_matrix.py tests/test_dashboard_provision.py tests/test_lichess_analysis.py tests/test_coordinator_helpers.py tests/test_coordinator_state.py tests/test_diagnostics.py -v
 
   ha-tests:
     # The config_flow tests use pytest-homeassistant-custom-component

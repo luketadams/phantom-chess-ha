@@ -67,6 +67,7 @@ except ImportError:
         "homeassistant",
         "homeassistant.components",
         "homeassistant.components.bluetooth",
+        "homeassistant.components.diagnostics",
         "homeassistant.components.frontend",
         "homeassistant.components.lovelace",
         "homeassistant.components.lovelace.dashboard",
@@ -81,6 +82,16 @@ except ImportError:
         "homeassistant.helpers.update_coordinator",
     ):
         sys.modules.setdefault(_ha_path, types.ModuleType(_ha_path))
+
+    # diagnostics.async_redact_data is a small helper that replaces
+    # selected dict keys with "**REDACTED**". Stub it with the same
+    # semantics so diagnostics.py loads + behaves the same in the
+    # minimal env.
+    def _stub_redact(data: dict, keys: set[str]) -> dict:
+        return {k: ("**REDACTED**" if k in keys else v) for k, v in data.items()}
+    sys.modules["homeassistant.components.diagnostics"].async_redact_data = (
+        _stub_redact
+    )
     _ll_const = sys.modules["homeassistant.components.lovelace.const"]
     _ll_const.CONF_ICON = "icon"
     _ll_const.CONF_REQUIRE_ADMIN = "require_admin"
@@ -150,6 +161,14 @@ except ImportError:
     _stage_pure_module(
         "custom_components.phantom_chess.coordinator",
         _PC_DIR / "coordinator.py",
+    )
+
+    # diagnostics.py imports the coordinator class but only references it
+    # as an annotation type at runtime — the function works on
+    # entry.runtime_data which is just a duck-typed object.
+    _stage_pure_module(
+        "custom_components.phantom_chess.diagnostics",
+        _PC_DIR / "diagnostics.py",
     )
 
 
