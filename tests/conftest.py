@@ -56,6 +56,28 @@ except ImportError:
     _stage_pure_module("custom_components.phantom_chess.matrix", _PC_DIR / "matrix.py")
 
 
+# pytest-homeassistant-custom-component scopes integration discovery to
+# the built-in HA components by default — custom integrations in
+# `custom_components/` are NOT loaded unless the test opts in via this
+# fixture. Marking it autouse so every HA test (which always wants
+# phantom_chess registered) gets it without per-test boilerplate.
+#
+# Wrapped in try/except so the file still imports in the minimal
+# environment where pytest-homeassistant-custom-component isn't
+# installed (matrix-tests job).
+try:
+    from pytest_homeassistant_custom_component.common import (  # noqa: F401
+        MockConfigEntry,
+    )
+
+    @pytest.fixture(autouse=True)
+    def auto_enable_custom_integrations(enable_custom_integrations):
+        """Auto-enable custom_components/phantom_chess discovery for every HA test."""
+        yield
+except ImportError:
+    pass
+
+
 @pytest.fixture
 def mock_lichess_account_response_valid() -> dict:
     """A successful /api/account response shape."""
