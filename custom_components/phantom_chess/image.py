@@ -30,6 +30,11 @@ from .lichess_analysis import classification_color_glyph
 
 _LOGGER = logging.getLogger(__name__)
 
+# Read-only platform — the image is re-rendered on coordinator-triggered
+# state changes, never via the entity-update pipeline. No parallel-
+# request concern (Silver quality scale rule `parallel-updates`).
+PARALLEL_UPDATES = 0
+
 ENTITY_BOARD_IMAGE = "board_image"
 
 # Board-only starting FEN — what live_position emits when no game has run.
@@ -123,6 +128,16 @@ class PhantomChessBoardImage(CoordinatorEntity[PhantomChessCoordinator], ImageEn
 
         # Seed timestamp so the frontend fetches on first dashboard load.
         self._attr_image_last_updated = datetime.now(timezone.utc)
+
+    @property
+    def available(self) -> bool:
+        """Silver quality scale rule `entity-unavailable`.
+
+        Mark unavailable when the BLE connection drops — the rendered
+        board would otherwise show a stale position with no indication
+        that the board itself is offline.
+        """
+        return super().available and self.coordinator.is_ble_connected
 
     # ── Render inputs ────────────────────────────────────────────────────────
 

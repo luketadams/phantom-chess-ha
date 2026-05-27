@@ -19,6 +19,11 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+# Action-issuing platform — each set_native_value triggers a BLE
+# characteristic write. Serialize so we don't overlap writes on the
+# single GATT client (Silver quality scale rule `parallel-updates`).
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -63,6 +68,18 @@ class PhantomBaseNumber(CoordinatorEntity[PhantomChessCoordinator], NumberEntity
             "manufacturer": "Phantom",
             "model": "Phantom Chess Board",
         }
+
+    @property
+    def available(self) -> bool:
+        """Silver quality scale rule `entity-unavailable`.
+
+        Default for number entities is "BLE write required" — most
+        number-platform entries on this device are mechanism speed /
+        sound level, which need an active GATT session. Lichess clock
+        controls (which are pure-local game-start config storage)
+        override this back to always-available below.
+        """
+        return super().available and self.coordinator.is_ble_connected
 
 
 class PhantomMechanismSpeedNumber(PhantomBaseNumber):
@@ -131,9 +148,20 @@ class _PhantomRestorableNumber(PhantomBaseNumber, RestoreEntity):
     state-restore the field is re-populated from the last persisted
     value so the dashboard's clock-control sliders don't reset to
     default on every reload.
+
+    These fields are pure-local config storage (Lichess clock minutes /
+    increment used only at start-game time). They don't write to BLE,
+    so we override the BLE-availability check from PhantomBaseNumber
+    back to always-available — the user must be able to pre-configure
+    the clock before the board is reachable.
     """
 
     _coord_attr: str  # subclass sets; e.g. "lichess_clock_minutes"
+
+    @property
+    def available(self) -> bool:
+        """Always available — local config storage, no BLE dependency."""
+        return True
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

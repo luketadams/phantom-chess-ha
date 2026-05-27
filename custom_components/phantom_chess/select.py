@@ -25,6 +25,14 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+# No BLE writes on any select-platform entity — every option stored
+# here is pure-local UI / game-start config (AI level, player color,
+# setup mode, sculpture game choice). No concurrency to coordinate,
+# and (importantly) entities stay available when the board is offline
+# so the user can pre-configure game settings (Silver quality scale
+# rule `parallel-updates`).
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

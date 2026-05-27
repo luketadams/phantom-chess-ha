@@ -45,6 +45,11 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+# Read-only platform — entity updates are pushed by the coordinator's
+# BLE notification stream + Lichess Board API stream. No parallel-
+# request concern (Silver quality scale rule `parallel-updates`).
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -113,6 +118,15 @@ class PhantomBaseSensor(CoordinatorEntity[PhantomChessCoordinator], SensorEntity
             "manufacturer": "Phantom",
             "model": "Phantom Chess Board",
         }
+
+    @property
+    def available(self) -> bool:
+        """Silver quality scale rule `entity-unavailable`.
+
+        Mark unavailable when the BLE connection drops — the board can't
+        be providing fresh state at that point.
+        """
+        return super().available and self.coordinator.is_ble_connected
 
 
 class PhantomBatterySensor(PhantomBaseSensor):

@@ -17,6 +17,13 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+# Mixed platform — PhantomPauseSwitch writes BLE (pause/resume the
+# mechanism); PhantomTrainingWheelsSwitch is pure-local config storage
+# for the training-wheels glyph overlay. Serializing BLE writes against
+# any other concurrent BLE work is cheap insurance (Silver quality
+# scale rule `parallel-updates`).
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -59,6 +66,15 @@ class PhantomPauseSwitch(CoordinatorEntity[PhantomChessCoordinator], SwitchEntit
     @property
     def is_on(self) -> bool:
         return self.coordinator.paused
+
+    @property
+    def available(self) -> bool:
+        """Silver quality scale rule `entity-unavailable`.
+
+        Pause/resume drives a BLE write (UUID_PAUSE) — useless when the
+        board isn't connected.
+        """
+        return super().available and self.coordinator.is_ble_connected
 
     async def async_turn_on(self, **kwargs) -> None:
         await self.coordinator.async_set_pause(True)

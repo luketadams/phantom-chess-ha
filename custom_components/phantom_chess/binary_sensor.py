@@ -26,6 +26,11 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+# Read-only platform — entity updates are driven by the coordinator,
+# which centralises the BLE notification stream. No parallel-request
+# concern (Silver quality scale rule `parallel-updates`).
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -71,6 +76,16 @@ class PhantomBaseBinary(CoordinatorEntity[PhantomChessCoordinator], BinarySensor
             "model": "Phantom Chess Board",
         }
 
+    @property
+    def available(self) -> bool:
+        """Silver quality scale rule `entity-unavailable`.
+
+        Mark unavailable when the BLE connection drops. The connected
+        sensor itself overrides this back to True so the user can still
+        see the disconnected state.
+        """
+        return super().available and self.coordinator.is_ble_connected
+
 
 class PhantomConnectedSensor(PhantomBaseBinary):
     _attr_name = "Connected"
@@ -82,6 +97,16 @@ class PhantomConnectedSensor(PhantomBaseBinary):
     @property
     def is_on(self) -> bool:
         return self.coordinator.is_ble_connected
+
+    @property
+    def available(self) -> bool:
+        """Always available — its state IS the BLE-connection signal.
+
+        Overriding ``PhantomBaseBinary.available`` so this sensor stays
+        visible when the board is disconnected; otherwise the user
+        would lose the very indicator they need to diagnose connectivity.
+        """
+        return True
 
 
 # ── Learning-dashboard binary signals (added 2026-05-14) ─────────────────────

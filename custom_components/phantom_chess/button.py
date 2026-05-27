@@ -25,6 +25,11 @@ from .coordinator import PhantomChessCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Action-issuing platform — each button press triggers a BLE write
+# sequence. Serialize so we don't overlap writes on the single GATT
+# client (Silver quality scale rule `parallel-updates`).
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -62,6 +67,15 @@ class _PhantomBaseButton(CoordinatorEntity[PhantomChessCoordinator], ButtonEntit
             "manufacturer": "Phantom",
             "model": "Phantom Chess Board",
         }
+
+    @property
+    def available(self) -> bool:
+        """Silver quality scale rule `entity-unavailable`.
+
+        Pressing a button while BLE is disconnected would silently no-op
+        or queue indefinitely. Marking unavailable surfaces the gap.
+        """
+        return super().available and self.coordinator.is_ble_connected
 
 
 class PhantomStartGameButton(_PhantomBaseButton):

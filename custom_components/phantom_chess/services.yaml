@@ -266,6 +266,100 @@ resume_from_phone:
     sends a RESET_DETECTION (opcode 14) snapshot to firmware so it knows the
     current position without driving the magnet.
 
+move_piece:
+  name: Move Piece (raw firmware)
+  description: >
+    Low-level move primitive — instructs the firmware to physically move a
+    piece via the magnet head without checking game state or move legality.
+    Use to set up arbitrary positions or to recover from a state mismatch
+    where the integration's internal board has drifted from the firmware's
+    "Setting Up" pose. Most users want execute_move or send_move instead;
+    move_piece bypasses chess.Board validation entirely.
+  fields:
+    from_square:
+      name: From square
+      description: Source square in algebraic notation, e.g. "e2".
+      required: true
+      selector:
+        text:
+    to_square:
+      name: To square
+      description: Destination square in algebraic notation, e.g. "e4".
+      required: true
+      selector:
+        text:
+    capture:
+      name: Capture
+      description: True if the move should also lift the captured piece to the graveyard.
+      required: false
+      default: false
+      selector:
+        boolean:
+    piece:
+      name: Promotion piece
+      description: >
+        Promotion suffix (Q/R/B/N) when promoting a pawn. Use "E" for a
+        non-promotion move (default).
+      required: false
+      default: E
+      selector:
+        text:
+
+start_sculpture:
+  name: Start Sculpture Mode
+  description: >
+    Switch the firmware to sculpture mode (SELECT_MODE = 1). In this mode
+    the board plays out famous historical games as a kinetic display
+    without expecting human input. Pair with select.<device>_sculpture_game
+    to choose which game to play. Sculpture playback itself currently runs
+    via the official phone app or the v0.3 setup-pack scripts; per-game
+    automation in the integration is tracked in play_selected_sculpture.
+
+reset_position:
+  name: Reset Position
+  description: >
+    Drive the physical board and the integration's internal chess.Board
+    back to the standard starting position. Use after an aborted game or
+    if you've manually rearranged pieces and want a clean reset before
+    starting a new game. Sends opcode 0 (GAME_START) on UUID_GAME with the
+    starting-position snapshot matrix, side = W.
+
+play_sound:
+  name: Play Firmware Sound
+  description: >
+    Trigger a check or checkmate sound on the board's onboard speaker
+    using opcode 9 (CHECK_SOUND) on UUID_GAME, per the firmware 0.3.0
+    protocol. Useful as a confirmation in voice / automation workflows.
+  fields:
+    sound:
+      name: Sound
+      description: Which sound to play.
+      required: false
+      default: check
+      selector:
+        select:
+          options:
+            - check
+            - checkmate
+
+request_hint:
+  name: Request Hint
+  description: >
+    Force-refresh the Lichess cloud-eval / Stockfish-fallback evaluation
+    for the current position and publish the engine's best move to
+    sensor.<device>_best_move_san. Used by the dashboard's Hint button in
+    learning mode. Safe to call at any time; no-op if no game is active.
+
+dismiss_review:
+  name: Dismiss Post-Game Review
+  description: >
+    Clear the post-game review state so the dashboard returns to the
+    mode-picker view. Equivalent to the back_to_modes service but scoped
+    to only the review flag — leaves select.<device>_setup_mode unchanged.
+    Used internally by back_to_modes; exposed as a service for
+    automations that want to drop the review pane without changing the
+    user's current mode selection.
+
 execute_move:
   name: Execute Move (Dashboard)
   description: >
