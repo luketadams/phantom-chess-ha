@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha22] — 2026-05-27
+
+Incremental coverage push — 12 more coordinator tests.
+
+### Added (tests)
+
+- `_build_move_speech` (5 cases): pawn-to-square, capture-uses-takes, kingside-castle, invalid-from-square → empty, black-move prefix.
+- `_post_move_event_speech` (4 cases): check, checkmate, stalemate, nothing-to-announce.
+- `_on_battery` parse path (3 cases): well-formed payload marshals correct (percent, charging) onto loop, malformed payloads are silent no-ops, charging=False when field 2 is "0".
+
+Coordinator coverage: ~11% → ~13% in matrix-tests minimal env; ha-tests combined will be higher.
+
 ## [0.4.0-alpha21] — 2026-05-27
 
 Gold `exception-translations` + `icon-translations` rules — all 22 Gold rules now `done` or `exempt`.

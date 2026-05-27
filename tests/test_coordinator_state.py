@@ -233,3 +233,173 @@ def test_blank_state_returns_independent_dicts(
     b = coord._blank_state()
     a["custom_key"] = "marker"
     assert "custom_key" not in b
+
+
+# ─── _build_move_speech / _post_move_event_speech ──────────────────────
+
+
+import chess  # noqa: E402  - imported here for the speech-test fixtures
+
+
+@pytest.fixture
+def coord_with_board(coord: PhantomChessCoordinator) -> PhantomChessCoordinator:
+    """Coordinator with a chess.Board ready for the speech builders."""
+    coord._board = chess.Board()
+    return coord
+
+
+def test_build_move_speech_white_pawn_to_e4(coord_with_board) -> None:
+    """The opening 1.e4 → 'White pawn to e4'."""
+    move = chess.Move.from_uci("e2e4")
+    out = coord_with_board._build_move_speech(move)
+    assert out == "White pawn to e4"
+
+
+def test_build_move_speech_capture_uses_takes(coord_with_board) -> None:
+    """A capture move uses 'takes' instead of 'to'."""
+    # Build a position where Nxe5 is legal: 1.e4 e5 2.Nf3
+    board = chess.Board()
+    board.push_uci("e2e4")
+    board.push_uci("e7e5")
+    board.push_uci("g1f3")
+    coord_with_board._board = board
+    # Black moves; pawn on e5 is now black-to-defend; but we want WHITE's
+    # next move = Nxe5. Hmm — board.turn is BLACK now. Let me skip a black
+    # move first.
+    board.push_uci("b7b6")  # black tempo move
+    # Now white: Nxe5
+    out = coord_with_board._build_move_speech(chess.Move.from_uci("f3e5"))
+    assert "takes" in out
+    assert out.startswith("White ")
+    assert out.endswith(" e5")
+
+
+def test_build_move_speech_kingside_castle(coord_with_board) -> None:
+    """Castling is described as 'White castles kingside'."""
+    # Set up white's kingside castle: clear bishop + knight, then castle.
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5", "g1f3", "g8f6", "f1c4", "f8c5"):
+        board.push_uci(uci)
+    coord_with_board._board = board
+    out = coord_with_board._build_move_speech(chess.Move.from_uci("e1g1"))
+    assert out == "White castles kingside"
+
+
+def test_build_move_speech_invalid_from_square_returns_empty(coord_with_board) -> None:
+    """If self._board has nothing on the from square, return empty string."""
+    # Construct an empty-ish board
+    coord_with_board._board = chess.Board.empty()
+    out = coord_with_board._build_move_speech(chess.Move.from_uci("e2e4"))
+    assert out == ""
+
+
+def test_build_move_speech_black_move(coord_with_board) -> None:
+    """Black's move is announced with 'Black' prefix."""
+    board = chess.Board()
+    board.push_uci("e2e4")
+    coord_with_board._board = board
+    out = coord_with_board._build_move_speech(chess.Move.from_uci("e7e5"))
+    assert out == "Black pawn to e5"
+
+
+def test_post_move_event_speech_check(coord_with_board) -> None:
+    """A check is announced as 'Check on <side>'."""
+    # Build a "Black in check" position: scholar's-mate-adjacent.
+    # Position: Black king on e8, white queen on h5 attacking f7, no
+    # piece blocking. Slightly artificial but simpler than real games.
+    board = chess.Board("rnbqkbnr/ppp2ppp/8/3pp2Q/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 1 3")
+    # Wait — this position has white queen on h5, black king on e8. Is
+    # black in check? h5 doesn't attack e8. Let me use a real check pos.
+    # 1.e4 e5 2.Bc4 Nc6 3.Qh5 Nf6?? 4.Qxf7# is mate; we want CHECK not mate.
+    # Try: white queen on h5, black king on e8, black pawn on f7 protects.
+    # We want check. Simplest: position with white rook on e1, black king
+    # on e8, e-file clear.
+    board = chess.Board("4k3/8/8/8/8/8/8/4R2K b - - 0 1")
+    coord_with_board._board = board
+    # Black is to move and is in check (white rook on e1 attacks e8).
+    assert board.is_check()
+    out = coord_with_board._post_move_event_speech()
+    assert "Check" in out
+    assert "Black" in out  # Black is the side now to move (in check)
+
+
+def test_post_move_event_speech_checkmate(coord_with_board) -> None:
+    """Checkmate is announced with the winner's name."""
+    # Fool's mate: 1.f3 e5 2.g4 Qh4#
+    board = chess.Board()
+    for uci in ("f2f3", "e7e5", "g2g4", "d8h4"):
+        board.push_uci(uci)
+    coord_with_board._board = board
+    assert board.is_checkmate()
+    out = coord_with_board._post_move_event_speech()
+    assert "Checkmate" in out
+    assert "Black wins" in out  # White is to move and is mated → Black won
+
+
+def test_post_move_event_speech_stalemate(coord_with_board) -> None:
+    """Stalemate produces 'Stalemate. Draw.'."""
+    # Stalemate position: Black king on a8 with no legal moves but not in
+    # check. White king on c7, queen on b6 controlling escape squares.
+    board = chess.Board("k7/8/1QK5/8/8/8/8/8 b - - 0 1")
+    coord_with_board._board = board
+    assert board.is_stalemate()
+    out = coord_with_board._post_move_event_speech()
+    assert "Stalemate" in out
+
+
+def test_post_move_event_speech_nothing_to_announce(coord_with_board) -> None:
+    """A normal position (no check, no mate, no stalemate) returns empty."""
+    out = coord_with_board._post_move_event_speech()
+    assert out == ""
+
+
+# ─── _on_battery parse path ────────────────────────────────────────────
+
+
+def test_on_battery_marshal_path_well_formed(
+    coord: PhantomChessCoordinator,
+) -> None:
+    """A well-formed battery payload schedules an apply via call_soon_threadsafe.
+
+    The marshal target receives (percent, charging) parsed from the
+    payload's comma-separated fields.
+    """
+    from unittest.mock import MagicMock
+    coord.hass.loop = MagicMock()
+    # Payload: "percent,wallStatus,charging,doneCharging" — only [0] and [2]
+    # are used.
+    coord._on_battery(characteristic=None, data=bytearray(b"75,1,1,0"))
+    coord.hass.loop.call_soon_threadsafe.assert_called_once()
+    args = coord.hass.loop.call_soon_threadsafe.call_args[0]
+    # First arg is the callable (apply_battery_state); rest are its args.
+    assert args[1] == 75
+    assert args[2] is True
+
+
+def test_on_battery_malformed_payload_is_silent_noop(
+    coord: PhantomChessCoordinator,
+) -> None:
+    """A malformed payload (non-numeric percent, missing fields, etc.)
+    returns silently — no exception, no apply call."""
+    from unittest.mock import MagicMock
+    coord.hass.loop = MagicMock()
+    for bad in (
+        b"not,a,battery,payload",
+        b"",
+        b"75",          # missing fields
+        b",,,",         # blank fields
+    ):
+        coord._on_battery(characteristic=None, data=bytearray(bad))
+    coord.hass.loop.call_soon_threadsafe.assert_not_called()
+
+
+def test_on_battery_charging_off(
+    coord: PhantomChessCoordinator,
+) -> None:
+    """Field 2 = '0' → charging is False."""
+    from unittest.mock import MagicMock
+    coord.hass.loop = MagicMock()
+    coord._on_battery(characteristic=None, data=bytearray(b"42,0,0,0"))
+    args = coord.hass.loop.call_soon_threadsafe.call_args[0]
+    assert args[1] == 42
+    assert args[2] is False
