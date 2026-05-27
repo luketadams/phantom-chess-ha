@@ -293,3 +293,174 @@ async def test_bluetooth_discovery_aborts_when_already_configured(
     )
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+# ─── User-flow edge cases ───────────────────────────────────────────────
+
+
+async def test_user_flow_invalid_mac_format(hass: HomeAssistant) -> None:
+    """Malformed MAC (not six hex pairs) surfaces an inline form error."""
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_discovered_service_info",
+        return_value=[],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_BLE_ADDRESS: "not-a-mac-address"},
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {CONF_BLE_ADDRESS: "invalid_ble_address"}
+
+
+async def test_user_flow_lichess_network_error_falls_back_to_error(
+    hass: HomeAssistant,
+    mock_aiohttp_session_factory,
+) -> None:
+    """If the Lichess token-validation HTTP call raises, the form returns
+    the same `invalid_lichess_token` error as a 401 response would.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Build a session whose .get raises aiohttp.ClientError on entry.
+    import aiohttp
+    session = MagicMock()
+    error_cm = MagicMock()
+    error_cm.__aenter__ = AsyncMock(side_effect=aiohttp.ClientError("network down"))
+    error_cm.__aexit__ = AsyncMock(return_value=None)
+    session.get = MagicMock(return_value=error_cm)
+
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_get_clientsession",
+        return_value=session,
+    ), patch(
+        "custom_components.phantom_chess.config_flow.async_discovered_service_info",
+        return_value=[],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_LICHESS_TOKEN: "some-token"},
+        )
+        # Network error is treated as invalid token — same UX.
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {CONF_LICHESS_TOKEN: "invalid_lichess_token"}
+
+
+# ─── Reauth-flow edge cases ─────────────────────────────────────────────
+
+
+async def test_reauth_flow_rejects_invalid_new_token(
+    hass: HomeAssistant,
+    mock_aiohttp_session_factory,
+) -> None:
+    """Reauth with an invalid replacement token shows the form error and
+    leaves the existing entry untouched.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="AA:BB:CC:DD:EE:FF",
+        data={
+            CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+            CONF_LICHESS_TOKEN: "old-token",
+            CONF_LICHESS_USER: "OldUser",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    invalid_session = mock_aiohttp_session_factory(status=401, json_data={})
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_get_clientsession",
+        return_value=invalid_session,
+    ):
+        result = await entry.start_reauth_flow(hass)
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reauth_confirm"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_LICHESS_TOKEN: "still-bad-token"},
+        )
+        # Form remains open with the inline error.
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {CONF_LICHESS_TOKEN: "invalid_lichess_token"}
+        # Original entry data untouched.
+        assert entry.data[CONF_LICHESS_TOKEN] == "old-token"
+        assert entry.data[CONF_LICHESS_USER] == "OldUser"
+
+
+# ─── Migration v1 → v3 (MAC canonicalisation) ──────────────────────────
+
+
+async def test_migrate_entry_canonicalises_mac_to_uppercase(
+    hass: HomeAssistant,
+) -> None:
+    """A pre-v3 entry stored with a mixed-case MAC is upgraded to upper-case.
+
+    The migration runs at setup time but we call it directly here to avoid
+    spinning up the full coordinator + platform stack. This was the cause
+    of the "perpetually Discovered" bug fixed in v0.3.0; the test guards
+    against regression of the canonicalisation logic itself.
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from custom_components.phantom_chess import async_migrate_entry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=1,
+        unique_id="c8:C9:a3:F2:7C:0a",
+        data={
+            CONF_BLE_ADDRESS: "c8:C9:a3:F2:7C:0a",
+            CONF_LICHESS_TOKEN: "tok",
+            CONF_LICHESS_USER: "user",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await async_migrate_entry(hass, entry)
+    assert result is True
+
+    # After migration:
+    # - unique_id is upper-case
+    # - CONF_BLE_ADDRESS is upper-case
+    # - entry version is bumped
+    assert entry.unique_id == "C8:C9:A3:F2:7C:0A"
+    assert entry.data[CONF_BLE_ADDRESS] == "C8:C9:A3:F2:7C:0A"
+    assert entry.version >= 3
+
+
+async def test_migrate_entry_already_canonical_is_noop(
+    hass: HomeAssistant,
+) -> None:
+    """An entry already in canonical form passes through the migration
+    untouched (idempotent).
+    """
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from custom_components.phantom_chess import async_migrate_entry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=4,
+        unique_id="AA:BB:CC:DD:EE:FF",
+        data={
+            CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
+            CONF_LICHESS_TOKEN: "tok",
+            CONF_LICHESS_USER: "user",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await async_migrate_entry(hass, entry)
+    assert result is True
+    assert entry.unique_id == "AA:BB:CC:DD:EE:FF"
+    assert entry.data[CONF_BLE_ADDRESS] == "AA:BB:CC:DD:EE:FF"
