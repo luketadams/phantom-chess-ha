@@ -70,16 +70,24 @@ jobs:
         #   bluetooth → usb → utils → pyserial (the `serial` module)
         # Plus the integration's own runtime dep:
         #   chess (python-chess, for AI move generation + board state)
-        # Add them explicitly so test collection doesn't crash on
-        # ModuleNotFoundError before reaching the actual test code.
+        # And coverage.py for the Silver `test-coverage` rule's trend
+        # tracking (fail_under threshold lives in pyproject.toml).
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-homeassistant-custom-component \
                       aiousbwatcher pyserial \
-                      'chess>=1.10.0,<2.0'
-      - name: Run HA-integration tests
+                      'chess>=1.10.0,<2.0' \
+                      coverage
+      - name: Run HA-integration tests with coverage
+        # coverage run records hits across the whole package; coverage
+        # report enforces the fail_under threshold set in pyproject.toml.
+        # The package-relative source path is configured under
+        # [tool.coverage.run] in pyproject.toml.
         run: |
-          PYTHONPATH=. pytest tests/ -v
+          PYTHONPATH=. coverage run -m pytest tests/ -v
+      - name: Coverage report (informational + fail_under gate)
+        run: |
+          coverage report
 
   lint:
     # Light-touch static checks — syntax, manifest shape. Avoids

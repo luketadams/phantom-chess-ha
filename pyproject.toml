@@ -21,3 +21,28 @@ asyncio_mode = "auto"
 filterwarnings = [
     "ignore::pytest.PytestRemovedIn9Warning",
 ]
+
+[tool.coverage.run]
+# Scope coverage to the integration package only; tests + outputs files
+# don't need to be measured.
+source = ["custom_components/phantom_chess"]
+branch = false
+
+[tool.coverage.report]
+# Lines that should NOT count against coverage. Standard patterns plus
+# defensive branches that handle bleak / aiohttp edge cases not
+# reachable from unit tests.
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    # Defensive imports for optional dependencies
+    "except ImportError:",
+]
+# Don't fail the build below this percentage. Set conservatively at
+# 25% as a regression gate while the test-coverage push is ongoing;
+# the Silver `test-coverage` rule's 95% target is a multi-alpha goal.
+fail_under = 25
+skip_empty = true
+precision = 1

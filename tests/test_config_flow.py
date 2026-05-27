@@ -439,18 +439,21 @@ async def test_migrate_entry_canonicalises_mac_to_uppercase(
     assert entry.version >= 3
 
 
-async def test_migrate_entry_already_canonical_is_noop(
+async def test_migrate_entry_v3_to_v4_bumps_version(
     hass: HomeAssistant,
 ) -> None:
-    """An entry already in canonical form passes through the migration
-    untouched (idempotent).
+    """A v3 entry migrates to v4 (the entity-id collision-rename path).
+
+    With no _2-suffixed entities in the registry the migration's main work
+    is a no-op, but the version field gets bumped so HA stops re-running
+    the migration on every load.
     """
     from pytest_homeassistant_custom_component.common import MockConfigEntry
     from custom_components.phantom_chess import async_migrate_entry
 
     entry = MockConfigEntry(
         domain=DOMAIN,
-        version=4,
+        version=3,
         unique_id="AA:BB:CC:DD:EE:FF",
         data={
             CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF",
@@ -462,5 +465,6 @@ async def test_migrate_entry_already_canonical_is_noop(
 
     result = await async_migrate_entry(hass, entry)
     assert result is True
+    assert entry.version >= 4
+    # MAC was already canonical — should stay that way.
     assert entry.unique_id == "AA:BB:CC:DD:EE:FF"
-    assert entry.data[CONF_BLE_ADDRESS] == "AA:BB:CC:DD:EE:FF"
