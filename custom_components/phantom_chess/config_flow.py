@@ -305,7 +305,13 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: ConfigEntry,
     ) -> PhantomChessOptionsFlow:
-        return PhantomChessOptionsFlow(config_entry)
+        # config_entry is wired automatically onto the returned instance
+        # by the HA framework via the OptionsFlow.config_entry property.
+        # Don't pass it through here and don't assign in __init__ —
+        # that pattern was deprecated in HA 2024.11 and stopped working
+        # entirely in HA 2025.12 (the property no longer has a setter).
+        # See https://developers.home-assistant.io/blog/2024/11/12/options-flow/
+        return PhantomChessOptionsFlow()
 
 
 class PhantomChessOptionsFlow(OptionsFlow):
@@ -314,10 +320,13 @@ class PhantomChessOptionsFlow(OptionsFlow):
     Added 2026-05-16 (Task #20). The integration previously had no options
     flow at all — users couldn't rotate their Lichess token, change debug
     settings, or wire TTS without delete-and-recreate.
-    """
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
+    No ``__init__`` on purpose. ``self.config_entry`` is auto-populated by
+    the parent ``OptionsFlow`` class. The previous pattern
+    (``__init__(self, config_entry): self.config_entry = config_entry``)
+    raises ``AttributeError: property 'config_entry' has no setter`` on
+    HA 2025.12+.
+    """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha9] — 2026-05-26
+
+CI workflow added; surfaces a real options-flow bug that's been latent since HA 2025.12.
+
+### Fixed
+
+- **Options flow no longer crashes on HA 2025.12+.** `PhantomChessOptionsFlow.__init__` was assigning `self.config_entry = config_entry`. HA 2024.11 made `OptionsFlow.config_entry` a property; HA 2025.12 removed its setter. On HA 2025.12 and later (Luke's HA is 2026.5.4), opening Settings → Devices & Services → Phantom Chess → Configure raised `AttributeError: property 'config_entry' of 'PhantomChessOptionsFlow' object has no setter` and the options dialog never rendered. Fix: drop the `__init__`; HA auto-wires `config_entry` on the parent class. The `async_get_options_flow` factory now returns a no-argument instance.
+
+### Added
+
+- **GitHub Actions CI** (`.github/workflows/test.yml`). Three jobs:
+  - `matrix-tests`: pure-function tests for `matrix.py` on Python 3.12 and 3.13. Fast (~10s).
+  - `ha-tests`: HA-integration tests via `pytest-homeassistant-custom-component`. Marked `continue-on-error: true` since the HA test plugin tracks core releases tightly.
+  - `lint`: `compileall` + `manifest.json` / `hacs.json` shape validation.
+- **`tests/conftest.py` stub** for matrix-tests: pre-stages pure-function submodules into `sys.modules` so `from custom_components.phantom_chess.matrix import ...` works in a minimal environment without running the package's HA-heavy `__init__.py`. Detects "minimal environment" by whether `voluptuous` is importable.
+- **`tests/conftest.py` autouse fixture** `auto_enable_custom_integrations` so every HA test gets `custom_components/phantom_chess` registered with the test framework without per-test boilerplate.
+- **`pyproject.toml`** with `asyncio_mode = "auto"` so HA async tests don't need per-test `@pytest.mark.asyncio` decorators.
+
+### Internal notes
+
+- CI's first run after `gh release create v0.4.0-alpha8` was the catalyst: the new ha-tests caught the options-flow bug at line 320 of `config_flow.py`. Without CI, the bug would've stayed latent until the next time Luke (or any other user) tried to open the integration's options dialog.
+- After this alpha lands, 24/25 ha-tests should pass green; the previously-failing `test_options_flow_round_trip` becomes one of the passing ones.
+
 ## [0.4.0-alpha8] — 2026-05-26
 
 Action tiles converted to `type: button` cards — the icon-popup bug class is now eliminated at the root rather than worked around.
