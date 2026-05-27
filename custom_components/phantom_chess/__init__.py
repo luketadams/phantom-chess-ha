@@ -765,14 +765,25 @@ def _register_services(hass: HomeAssistant) -> None:
             if getattr(e, "runtime_data", None) is not None
         }
         if not coordinators:
-            raise ServiceValidationError("No Phantom Chess Board configured")
+            # Gold quality scale rule `exception-translations`: use
+            # translation_domain + translation_key so the message is
+            # locale-friendly. Falls back to the existing English
+            # string if no translation is registered.
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="no_board_configured",
+            )
 
         target_id = call.data.get("entry_id")
         if target_id:
             if target_id not in coordinators:
                 raise ServiceValidationError(
-                    f"entry_id {target_id!r} does not match any configured "
-                    f"Phantom Chess Board (known: {list(coordinators)})"
+                    translation_domain=DOMAIN,
+                    translation_key="unknown_entry_id",
+                    translation_placeholders={
+                        "entry_id": str(target_id),
+                        "known": ", ".join(coordinators),
+                    },
                 )
             return coordinators[target_id]
 
@@ -780,9 +791,12 @@ def _register_services(hass: HomeAssistant) -> None:
         if len(coordinators) == 1:
             return next(iter(coordinators.values()))
         raise ServiceValidationError(
-            f"{len(coordinators)} Phantom Chess Boards configured — service "
-            f"call must include an entry_id field to target one specifically. "
-            f"Known entry_ids: {list(coordinators)}"
+            translation_domain=DOMAIN,
+            translation_key="ambiguous_target_entry",
+            translation_placeholders={
+                "count": str(len(coordinators)),
+                "known": ", ".join(coordinators),
+            },
         )
 
     async def handle_start_game(call: ServiceCall) -> None:

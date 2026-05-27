@@ -1,0 +1,144 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "default": "mdi:bluetooth",
+        "state": {
+          "off": "mdi:bluetooth-off",
+          "on": "mdi:bluetooth-connect"
+        }
+      },
+      "lichess_active": {
+        "default": "mdi:web-off",
+        "state": {
+          "on": "mdi:web"
+        }
+      },
+      "lichess_review_ready": {
+        "default": "mdi:book-open-blank-variant",
+        "state": {
+          "on": "mdi:book-open-page-variant"
+        }
+      },
+      "learning_view_active": {
+        "default": "mdi:school-outline",
+        "state": {
+          "on": "mdi:school"
+        }
+      },
+      "board_idle": {
+        "default": "mdi:chess-king",
+        "state": {
+          "on": "mdi:sleep"
+        }
+      }
+    },
+    "select": {
+      "setup_mode": {
+        "default": "mdi:view-list",
+        "state": {
+          "Play with Lichess": "mdi:web",
+          "Play with Stockfish": "mdi:chip",
+          "Sculpture Library": "mdi:auto-fix",
+          "2-Player Game": "mdi:account-multiple"
+        }
+      },
+      "player_color": {
+        "default": "mdi:chess-pawn",
+        "state": {
+          "white": "mdi:chess-king",
+          "black": "mdi:chess-king-outline",
+          "random": "mdi:dice-multiple"
+        }
+      },
+      "ai_level": {
+        "default": "mdi:robot"
+      },
+      "sculpture_game": {
+        "default": "mdi:chess-rook"
+      }
+    },
+    "switch": {
+      "paused": {
+        "default": "mdi:play-circle",
+        "state": {
+          "on": "mdi:pause-circle"
+        }
+      },
+      "training_wheels": {
+        "default": "mdi:school-outline",
+        "state": {
+          "on": "mdi:school"
+        }
+      }
+    },
+    "sensor": {
+      "firmware_mode": {
+        "default": "mdi:chip",
+        "state": {
+          "Running": "mdi:play-circle",
+          "Paused": "mdi:pause-circle",
+          "HOME": "mdi:home",
+          "Snap to Center": "mdi:magnet",
+          "Setting Up": "mdi:cog",
+          "Managing Mismatch": "mdi:alert-circle",
+          "Sculpture Playback": "mdi:auto-fix"
+        }
+      },
+      "eval_source": {
+        "default": "mdi:help-circle-outline",
+        "state": {
+          "lichess-cloud": "mdi:cloud",
+          "stockfish-local": "mdi:chip",
+          "stub": "mdi:help-circle-outline"
+        }
+      },
+      "matrix_status": {
+        "default": "mdi:checkbox-marked-circle",
+        "state": {
+          "Clean": "mdi:checkbox-marked-circle",
+          "Error": "mdi:alert-circle"
+        }
+      },
+      "last_move_classification": {
+        "default": "mdi:circle-outline",
+        "state": {
+          "best": "mdi:check-circle",
+          "good": "mdi:thumb-up",
+          "inaccuracy": "mdi:alert-circle-outline",
+          "mistake": "mdi:alert-circle",
+          "blunder": "mdi:alert",
+          "book": "mdi:book-open-page-variant",
+          "unknown": "mdi:help-circle-outline"
+        }
+      }
+    },
+    "button": {
+      "start_game": {
+        "default": "mdi:play-circle"
+      },
+      "movement_verify": {
+        "default": "mdi:check-circle-outline"
+      }
+    },
+    "image": {
+      "board": {
+        "default": "mdi:chess-board"
+      }
+    },
+    "number": {
+      "mechanism_speed": {
+        "default": "mdi:speedometer"
+      },
+      "sound_level": {
+        "default": "mdi:volume-high"
+      },
+      "lichess_clock_minutes": {
+        "default": "mdi:timer"
+      },
+      "lichess_clock_increment": {
+        "default": "mdi:timer-plus"
+      }
+    }
+  }
+}

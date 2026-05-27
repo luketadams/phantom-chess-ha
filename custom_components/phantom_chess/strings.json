@@ -240,5 +240,16 @@
         "name": "Board Idle"
       }
     }
+  },
+  "exceptions": {
+    "no_board_configured": {
+      "message": "No Phantom Chess Board configured. Add one via Settings → Devices & Services before calling phantom_chess.* services."
+    },
+    "unknown_entry_id": {
+      "message": "entry_id {entry_id} does not match any configured Phantom Chess Board (known: {known})"
+    },
+    "ambiguous_target_entry": {
+      "message": "{count} Phantom Chess Boards configured — service call must include an entry_id field to target one specifically. Known entry_ids: {known}"
+    }
   }
 }

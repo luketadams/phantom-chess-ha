@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha21] — 2026-05-27
+
+Gold `exception-translations` + `icon-translations` rules — all 22 Gold rules now `done` or `exempt`.
+
+### Added
+
+- **Exception translations.** `_get_coordinator`'s three `ServiceValidationError` raises now use `translation_domain` + `translation_key` + `translation_placeholders`. Messages live under `exceptions.no_board_configured` / `unknown_entry_id` / `ambiguous_target_entry` in `strings.json`. HA shows the translated message verbatim in the UI when a service call fails on a misconfigured target.
+- **`icons.json`** — state-based icon translations for the entities where state-derived icons help (binary sensors swap on on/off; selects swap per option; sensors swap per firmware_mode / eval_source / matrix_status / last_move_classification value). Static `_attr_icon` left as fallback for older HA versions that don't read `icons.json`.
+
+### Gold rules → `done`
+
+`exception-translations`, `icon-translations`.
+
+**Gold tier code-side compliance now complete.** Only `test-coverage` (95% threshold) and `brands` (PR to home-assistant/brands) remain across both Silver and Gold.
+
 ## [0.4.0-alpha20] — 2026-05-27
 
 Gold `entity-translations` rule implemented.

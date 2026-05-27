@@ -445,18 +445,28 @@ rules:
       alongside `strings.json` per HA's standard mechanism.
 
   exception-translations:
-    status: todo
+    status: done
     comment: |
-      Service handlers currently raise `ServiceValidationError` with
-      English literals. Migrating to translation keys is similar
-      scope to entity-translations and tracked together.
+      v0.4.0-alpha21 — `_get_coordinator`'s three ServiceValidationError
+      raises now use `translation_domain=DOMAIN` + `translation_key` +
+      `translation_placeholders`. Messages live under
+      `exceptions.no_board_configured` / `unknown_entry_id` /
+      `ambiguous_target_entry` in `strings.json`. HA shows the
+      translated message in the UI when a service call fails.
 
   icon-translations:
-    status: todo
+    status: done
     comment: |
-      Most entities have static `_attr_icon` values. Icon translations
-      (state-based icons via `strings.json`) would be a nice polish
-      but not required for any functional behaviour.
+      v0.4.0-alpha21 — `icons.json` ships state-based icon mappings
+      for entities where state-derived icons help (binary sensors:
+      connectivity / Lichess active / review-ready / learning-view /
+      board-idle all swap icons on state; selects: setup_mode /
+      player_color swap per option; switch: paused / training_wheels;
+      sensors: firmware_mode / eval_source / matrix_status /
+      last_move_classification). Entities with a single sensible icon
+      get a `default` entry only. Static `_attr_icon` left in place on
+      each entity class as a fallback for HA versions / forks that
+      don't read icons.json yet.
 
   reconfiguration-flow:
     status: done
