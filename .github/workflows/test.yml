@@ -1,0 +1,89 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  matrix-tests:
+    # The matrix.py module is pure functions (no Home Assistant, no async,
+    # no BLE) so its tests run on a stock Python environment without
+    # any HA scaffolding. This gives us a fast first-line signal that
+    # the FEN ↔ phantom-matrix conversions and sensor consistency
+    # checks haven't regressed.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest 'chess>=1.10.0,<2.0'
+      - name: Run pure-function tests
+        run: |
+          PYTHONPATH=. pytest custom_components/phantom_chess/tests/test_matrix.py -v || \
+          PYTHONPATH=. pytest tests/test_matrix.py -v
+
+  ha-tests:
+    # The config_flow tests use pytest-homeassistant-custom-component
+    # which pulls in the full HA dependency tree. They're skipped
+    # gracefully if the plugin isn't installed (see tests/test_config_flow.py).
+    # We install it here so the tests actually run in CI.
+    runs-on: ubuntu-latest
+    continue-on-error: true   # HA test plugin tracks HA versions tightly; don't gate on this
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install HA test scaffolding
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-homeassistant-custom-component
+      - name: Run HA-integration tests
+        run: |
+          PYTHONPATH=. pytest tests/ -v
+
+  lint:
+    # Light-touch static checks — syntax, manifest shape. Avoids
+    # opinionated linters (black/ruff) for now since the codebase
+    # predates this CI and hasn't been style-passed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile all Python files
+        run: python -m compileall -q custom_components/
+      - name: Validate manifest.json
+        run: |
+          python -c "
+          import json, sys
+          m = json.load(open('custom_components/phantom_chess/manifest.json'))
+          required = {'domain', 'name', 'version', 'documentation', 'issue_tracker', 'codeowners'}
+          missing = required - set(m.keys())
+          assert not missing, f'manifest.json missing keys: {missing}'
+          assert m['domain'] == 'phantom_chess', f'unexpected domain: {m[\"domain\"]}'
+          print(f'manifest.json OK — version {m[\"version\"]}')
+          "
+      - name: Validate hacs.json
+        run: |
+          python -c "
+          import json
+          h = json.load(open('hacs.json'))
+          assert 'name' in h, 'hacs.json missing name'
+          assert 'homeassistant' in h, 'hacs.json missing homeassistant version floor'
+          print(f'hacs.json OK — name={h[\"name\"]!r} ha-floor={h[\"homeassistant\"]}')
+          "
