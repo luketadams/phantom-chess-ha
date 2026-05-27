@@ -12,8 +12,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     CONF_BLE_ADDRESS,
     CONF_DEVICE_NAME,
-    DEFAULT_AI_LEVEL,
-    DEFAULT_PLAYER_COLOR,
     DEFAULT_SCULPTURE_GAME,
     DEFAULT_SETUP_MODE,
     DOMAIN,

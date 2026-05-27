@@ -119,10 +119,30 @@ jobs:
             --no-incremental \
             custom_components/phantom_chess/
 
+  ruff:
+    # Code-quality linter — catches unused imports, undefined names,
+    # mutable default args, F-style errors. Faster than pyflakes/flake8.
+    # alpha26 brought the baseline to zero; this job is gating from
+    # the start so future PRs that introduce ruff warnings fail CI.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+      - name: Run ruff
+        run: |
+          python -m ruff check custom_components/phantom_chess/
+
   lint:
-    # Light-touch static checks — syntax, manifest shape. Avoids
-    # opinionated linters (black/ruff) for now since the codebase
-    # predates this CI and hasn't been style-passed.
+    # Light-touch static checks — syntax, manifest shape. Complements
+    # the `ruff` job: catches things ruff doesn't (manifest shape,
+    # hacs.json structure, compileall-style syntax errors).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

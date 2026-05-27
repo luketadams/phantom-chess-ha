@@ -25,12 +25,10 @@ import os
 import platform
 import stat
 import tarfile
-import tempfile
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 import aiohttp
 import chess

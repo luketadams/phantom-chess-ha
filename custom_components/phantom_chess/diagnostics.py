@@ -18,7 +18,6 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     CONF_BLE_ADDRESS,
-    CONF_DEVICE_NAME,
     CONF_LICHESS_TOKEN,
     CONF_LICHESS_USER,
     DOMAIN,

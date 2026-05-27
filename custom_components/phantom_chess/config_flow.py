@@ -18,7 +18,6 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
-from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -169,8 +168,10 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
                 self._discovered_name = name
                 return await self.async_step_lichess_token()
 
-        # Build address selector — discovered devices + manual entry option
-        address_options: list[str] = list(self._discovered_devices.keys())
+        # Build address selector — discovered devices + manual entry option.
+        # (Inline-form: the `vol.In(...)` mapping below is the actual selector;
+        # the address_options local was a leftover from an earlier iteration
+        # that built the schema imperatively. Removed alpha26.)
 
         schema = vol.Schema(
             {

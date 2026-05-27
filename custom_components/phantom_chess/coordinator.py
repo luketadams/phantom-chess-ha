@@ -20,16 +20,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.issue_registry import async_delete_issue
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     BLE_MAX_RETRY_SECONDS,
     BLE_RETRY_SECONDS,
-    BLE_SERVICE_UUID,
     CONF_BLE_ADDRESS,
     CONF_LICHESS_TOKEN,
     DOMAIN,
-    LICHESS_ABORT_URL,
     LICHESS_CHALLENGE_AI_URL,
     LICHESS_GAME_EXPORT_URL,
     LICHESS_GAME_STREAM_URL,
@@ -49,15 +47,12 @@ from .const import (
     UUID_ERROR_MSG,
     UUID_FIRMWARE_STATE,
     UUID_GAME,
-    UUID_PLAY_INFO,
     UUID_RECEIVE_MOVEMENT,
-    UUID_RECEIVE_MOVE_V2,
     UUID_SCULPTURE,
     UUID_SELECT_MODE,
     UUID_SEND_MATRIX,
     UUID_SOUND_LEVEL,
     UUID_STATUS_BOARD,
-    UUID_TAKEBACK,
     UUID_VERSION,
 )
 
@@ -139,13 +134,11 @@ def _rotate_uci_180(uci: str) -> str:
 # (2026-05-16). These functions are pure (stateless) — they never needed
 # to be on the coordinator class. Imported with underscore aliases to
 # preserve every existing call-site verbatim; no behavior change.
-from .matrix import (
-    PIECE_NAMES as _PIECE_NAMES,
+from .matrix import (  # noqa: E402 — intentional late import, kept beside the extraction-doc comment above
     build_matrix_from_fen as _build_matrix_from_fen_module,
     check_consistency as _check_consistency,
     diff_grid_vs_sensor as _diff_grid_vs_sensor,
     format_mismatch_instructions as _format_mismatch_instructions,
-    grid_index_to_square as _grid_index_to_square,
     grid_to_fen as _grid_to_fen,
     parse_matrix_notification as _parse_matrix_notification,
 )
@@ -1936,7 +1929,6 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Snapshot-based moves remain available via _phantom_execute_position
         for any arbitrary state setting (move_piece, start_game reset).
         """
-        import time as _time
 
         if not self._ble_connected:
             raise RuntimeError("BLE not connected")
@@ -3207,13 +3199,15 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._on_game_finish(event)
 
     async def _on_game_full(self, event: dict[str, Any]) -> None:
-        """First event — tells us which color we're playing."""
-        white_id = event.get("white", {}).get("id", "")
-        # We determine our color by whether our account is listed as white
-        # (the Lichess API token belongs to a specific account)
-        from .const import CONF_LICHESS_USER
-        our_username = ""  # fetched at config entry time — not re-fetched here
+        """First event — tells us which color we're playing.
 
+        (Historical aside: earlier iterations parsed `event["white"]["id"]`
+        and compared against the stored Lichess username. That approach was
+        replaced by the simpler check below — we know our color from the
+        stored `player_color` because for AI challenges we always start as
+        the human, color picked at challenge creation. The unused
+        `white_id` / `our_username` locals are gone as of alpha26.)
+        """
         # Simpler approach: check the initialFen and state.moves together.
         # For an AI game we're always the human. The "white" field for AI challenges
         # is the human when color="white"; we stored the color in player_color.
@@ -3705,7 +3699,6 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Post-game review payload: top 3 mistakes by the user's color,
         plus accuracy for both sides. Called when the game ends."""
         try:
-            from .lichess_analysis import compute_game_accuracy
             history = list(self._state.get("move_history_moves") or [])
             if not history:
                 self._state["lichess_review_ready"] = False

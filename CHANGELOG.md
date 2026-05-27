@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha26] — 2026-05-27
+
+ruff clean + gating CI step.
+
+### Fixed (ruff baseline → zero)
+
+- 17 auto-fixed: unused imports across multiple files, redundant `f""` strings, simple style issues.
+- 6 hand-fixed: unused locals (`white_id`, `our_username`, `address_options` historical leftovers), one intentional late import in `coordinator.py` marked `# noqa: E402` with rationale, unused `TYPE_CHECKING` + `Platform` imports in `__init__.py` cleaned out.
+
+### Changed (CI)
+
+- **`ruff` CI job** added (gating — zero warnings required). Complements the existing `lint` job (which handles compileall + manifest.json / hacs.json shape) and the `typecheck` job (mypy) from alpha25.
+
+### Result
+
+The integration now passes a four-way clean baseline:
+- **pytest**: 193 passing
+- **mypy**: zero errors
+- **ruff**: zero warnings
+- **coverage**: 44.5% (well above the 43% fail_under gate)
+
 ## [0.4.0-alpha25] — 2026-05-27
 
 mypy clean. Gating typecheck job in CI. Platinum `strict-typing` done.
