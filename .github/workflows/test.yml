@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# Opt every job into Node 24 for action runtimes. GitHub deprecated Node
+# 20 in Sep 2025 and the runners switch the default to Node 24 in June
+# 2026; setting this flag now removes the deprecation warning and gives
+# us early visibility into compat issues.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   matrix-tests:
     # The matrix.py module is pure functions (no Home Assistant, no async,
@@ -27,10 +34,14 @@ jobs:
       - name: Install test deps
         run: |
           python -m pip install --upgrade pip
-          pip install pytest 'chess>=1.10.0,<2.0'
+          pip install pytest 'chess>=1.10.0,<2.0' pyyaml
       - name: Run pure-function tests
+        # The tests/conftest.py stub stages matrix.py (and other
+        # pure-function submodules) into sys.modules without running
+        # custom_components.phantom_chess.__init__.py, which imports
+        # voluptuous + the HA core. That's how this fast job can run on
+        # a minimal Python install.
         run: |
-          PYTHONPATH=. pytest custom_components/phantom_chess/tests/test_matrix.py -v || \
           PYTHONPATH=. pytest tests/test_matrix.py -v
 
   ha-tests:
@@ -47,9 +58,17 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install HA test scaffolding
+        # pytest-homeassistant-custom-component pulls HA core + pytest +
+        # most fixtures. It does NOT install optional integration deps
+        # though — phantom_chess.config_flow imports
+        # homeassistant.components.bluetooth which transitively requires
+        # aiousbwatcher. Add it explicitly so test collection doesn't
+        # crash on ModuleNotFoundError.
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-homeassistant-custom-component
+          pip install pytest pytest-homeassistant-custom-component \
+                      aiousbwatcher \
+                      'chess>=1.10.0,<2.0'
       - name: Run HA-integration tests
         run: |
           PYTHONPATH=. pytest tests/ -v
