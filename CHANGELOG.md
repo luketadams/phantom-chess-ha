@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha13] — 2026-05-27
+
+Incremental coverage push: 42.7% → 43.7%.
+
+### Added (tests)
+
+- **`tests/test_coordinator_state.py`** — 13 tests for the synchronous state mutators inside `PhantomChessCoordinator`:
+  - `_apply_firmware_mode_state`: 6 cases covering mode-label storage, dedup of repeated values, separation of move events from mode labels (both `-` and `x` separators), fallthrough of unknown mode labels.
+  - `_apply_battery_state`: 2 cases (percent + charging flag).
+  - `_apply_matrix_state`: 3 cases (CLEAN payload populates state + dedup + piece_count recompute on empty board).
+  - `_blank_state`: 2 cases (starting FEN populated + each call returns an independent dict).
+
+  Tests bypass `__init__` via `__new__` and stub only the instance attributes the mutators actually need. This avoids `DataUpdateCoordinator.__init__`'s HA scheduling requirements.
+
+### Changed (CI)
+
+- **`fail_under` bumped from 40 → 42** in `pyproject.toml`. Locks in the alpha13 baseline; the 1.7-point buffer below 43.7% absorbs noise from future test additions that don't change coverage.
+
+### Coverage snapshot (alpha13)
+
+```
+TOTAL                      43.7%   (was 42.7%)
+coordinator.py             ~11%    (was 9% — +1.6pp from the 13 new tests)
+```
+
+Test totals across CI: 146 matrix-tests on Py 3.12, 146 on Py 3.13, 157 ha-tests = **449 passing tests**.
+
 ## [0.4.0-alpha12] — 2026-05-27
 
 Test-coverage push: 9% → 42.7% combined coverage. CI now has a coverage.py gate at 40% fail_under as a regression guard.

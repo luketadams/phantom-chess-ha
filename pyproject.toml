@@ -40,11 +40,10 @@ exclude_lines = [
     # Defensive imports for optional dependencies
     "except ImportError:",
 ]
-# Don't fail the build below this percentage. Set at 40% — the
-# alpha12 baseline is 42.7% combined (matrix-tests + ha-tests
-# exercise entity platforms via HA's setup machinery), so 40% locks
-# in the gain with a small buffer for noise. Bump as coverage grows;
-# the Silver `test-coverage` rule's 95% target is a multi-alpha goal.
-fail_under = 40
+# Don't fail the build below this percentage. Bump as coverage grows.
+# - alpha12 baseline: 42.7% → fail_under=40 (locked in with 2.7 buffer)
+# - alpha13 added coordinator state-handler tests → 43.7%, bumped to 42
+# The Silver `test-coverage` rule's 95% target is a multi-alpha goal.
+fail_under = 42
 skip_empty = true
 precision = 1
