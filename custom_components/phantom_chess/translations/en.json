@@ -1,0 +1,255 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set Up Phantom Chess Board",
+        "description": "Discovered boards: {discovered}\n\nSelect a board address or enter the MAC address manually.",
+        "data": {
+          "ble_address": "Board Bluetooth Address"
+        },
+        "data_description": {
+          "ble_address": "The board's Bluetooth MAC address (6 hex pairs separated by colons or dashes, e.g. C8:C9:A3:F2:7C:0A). Visible on the board's serial sticker, the official Phantom app's settings screen, or via any nearby BLE scanner."
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Confirm Phantom Chess Board",
+        "description": "Set up {name} ({address})?",
+        "data": {}
+      },
+      "lichess_token": {
+        "title": "Lichess Board API Token",
+        "description": "Enter your Lichess Board API token for **{device}**.\n\nCreate one at https://lichess.org/account/oauth/token — enable **Board API** scope.",
+        "data": {
+          "lichess_token": "Lichess Board API Token"
+        },
+        "data_description": {
+          "lichess_token": "A personal-access token generated on Lichess with the Board API scope enabled. Used only for streaming your active board games and posting moves on your behalf — never read."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Phantom Chess",
+        "description": "Your Lichess token for **{device}** is no longer accepted (probably expired or revoked). Enter a new Board API token to resume online play.\n\nCreate one at https://lichess.org/account/oauth/token with the **Board API** scope.",
+        "data": {
+          "lichess_token": "Lichess Board API Token"
+        },
+        "data_description": {
+          "lichess_token": "A fresh Lichess personal-access token with the Board API scope. Existing token was rejected by the API and needs replacement."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Phantom Chess",
+        "description": "Update the configuration for **{device}** (currently linked to Lichess account: `{current_user}`).\n\nLeave the Lichess token field blank to keep the existing token. The BLE address can't be changed here — that would mean a different physical board; remove this entry and add a new one if you've swapped boards.",
+        "data": {
+          "ble_address": "Board Bluetooth Address (read-only)",
+          "lichess_token": "New Lichess Board API Token (optional)"
+        },
+        "data_description": {
+          "ble_address": "The BLE address of the board this entry is configured for. Changing it isn't supported — submit a different address and the flow will abort.",
+          "lichess_token": "Optional. Paste a fresh Lichess token here to rotate it preemptively (e.g. before expiry). Leave blank if you only want to confirm the existing config."
+        }
+      }
+    },
+    "error": {
+      "invalid_lichess_token": "Invalid Lichess token — check that the token has Board API scope and try again.",
+      "invalid_ble_address": "That doesn't look like a Bluetooth MAC address. Expected 6 hex pairs separated by colons or dashes, e.g. C8:C9:A3:F2:7C:0A.",
+      "unknown": "Unexpected error — see Home Assistant logs."
+    },
+    "abort": {
+      "already_configured": "This board is already configured.",
+      "no_devices_found": "No Phantom Chess Boards were discovered. Make sure the board is powered on and in Bluetooth range.",
+      "reauth_successful": "Lichess token updated — integration reloaded.",
+      "reconfigure_successful": "Configuration confirmed — no changes needed.",
+      "reconfigure_entry_not_found": "Couldn't find the integration entry to reconfigure. Try again from Settings → Devices & Services.",
+      "ble_address_mismatch": "The BLE address you submitted differs from this entry's board. To set up a different board, delete this integration and add a new one with the new address."
+    }
+  },
+  "issues": {
+    "missing_frontend_deps": {
+      "title": "Phantom Chess dashboard is missing HACS plugins",
+      "description": "The auto-provisioned Chess dashboard at /phantom-chess uses these HACS frontend plugins for its visual polish: **{missing}**.\n\nThe dashboard still loads, but tiles will render with broken styling and template substitutions won't run. Install the missing plugins via HACS → Frontend, then reload the Phantom Chess integration (or restart Home Assistant) to clear this notice.\n\nIf you've intentionally turned off the auto-provisioned dashboard via the integration's options (Configure → Auto-provision dashboard), you can dismiss this issue — it won't reappear until you re-enable the dashboard."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Phantom Chess Board options",
+        "description": "Fine-tune integration behavior. Leave fields blank for defaults.",
+        "data": {
+          "tts_service": "TTS service (e.g. tts.google_ai_tts)",
+          "tts_media_player_entity_id": "TTS media player entity",
+          "debug_dump": "Write developer-debug artifacts to <config>/phantom_chess/debug/"
+        },
+        "data_description": {
+          "tts_service": "Optional. When set, the integration calls this TTS service for announcements in addition to firing the `phantom_chess_announce` event.",
+          "tts_media_player_entity_id": "Required if TTS service is set.",
+          "debug_dump": "Off by default. Only enable when troubleshooting an issue."
+        }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "start_game": {
+        "name": "Start Game"
+      },
+      "movement_verify": {
+        "name": "Movement Verify"
+      }
+    },
+    "image": {
+      "board": {
+        "name": "Board"
+      }
+    },
+    "switch": {
+      "paused": {
+        "name": "Paused"
+      },
+      "training_wheels": {
+        "name": "Training Wheels"
+      }
+    },
+    "select": {
+      "ai_level": {
+        "name": "AI Level"
+      },
+      "player_color": {
+        "name": "Player Color"
+      },
+      "setup_mode": {
+        "name": "Setup Mode"
+      },
+      "sculpture_game": {
+        "name": "Sculpture Game"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "lichess_game_id": {
+        "name": "Lichess Game ID"
+      },
+      "live_position": {
+        "name": "Live Position"
+      },
+      "piece_count": {
+        "name": "Piece Count"
+      },
+      "firmware_mode": {
+        "name": "Firmware Mode"
+      },
+      "matrix_status": {
+        "name": "Matrix Status"
+      },
+      "firmware_last_move": {
+        "name": "Firmware Last Move"
+      },
+      "opening_name": {
+        "name": "Opening Name"
+      },
+      "lichess_white_name": {
+        "name": "Lichess White Name"
+      },
+      "lichess_black_name": {
+        "name": "Lichess Black Name"
+      },
+      "lichess_white_clock": {
+        "name": "Lichess White Clock"
+      },
+      "lichess_black_clock": {
+        "name": "Lichess Black Clock"
+      },
+      "lichess_white_clock_display": {
+        "name": "Lichess White Clock Display"
+      },
+      "lichess_black_clock_display": {
+        "name": "Lichess Black Clock Display"
+      },
+      "eval_cp": {
+        "name": "Eval CP"
+      },
+      "eval_mate": {
+        "name": "Eval Mate"
+      },
+      "eval_source": {
+        "name": "Eval Source"
+      },
+      "eval_depth": {
+        "name": "Eval Depth"
+      },
+      "best_move_san": {
+        "name": "Best Move SAN"
+      },
+      "last_move_classification": {
+        "name": "Last Move Classification"
+      },
+      "last_move_cpl": {
+        "name": "Last Move CPL"
+      },
+      "last_move_motif": {
+        "name": "Last Move Motif"
+      },
+      "threat_san": {
+        "name": "Threat SAN"
+      },
+      "move_history": {
+        "name": "Move History"
+      },
+      "last_game_result": {
+        "name": "Last Game Result"
+      },
+      "last_game_accuracy_white": {
+        "name": "Last Game Accuracy White"
+      },
+      "last_game_accuracy_black": {
+        "name": "Last Game Accuracy Black"
+      },
+      "last_game_review": {
+        "name": "Last Game Review"
+      }
+    },
+    "number": {
+      "mechanism_speed": {
+        "name": "Mechanism Speed"
+      },
+      "sound_level": {
+        "name": "Sound Level"
+      },
+      "lichess_clock_minutes": {
+        "name": "Lichess Clock Minutes"
+      },
+      "lichess_clock_increment": {
+        "name": "Lichess Clock Increment"
+      }
+    },
+    "binary_sensor": {
+      "connected": {
+        "name": "Connected"
+      },
+      "lichess_active": {
+        "name": "Lichess Active"
+      },
+      "lichess_review_ready": {
+        "name": "Lichess Review Ready"
+      },
+      "learning_view_active": {
+        "name": "Learning View Active"
+      },
+      "board_idle": {
+        "name": "Board Idle"
+      }
+    }
+  },
+  "exceptions": {
+    "no_board_configured": {
+      "message": "No Phantom Chess Board configured. Add one via Settings → Devices & Services before calling phantom_chess.* services."
+    },
+    "unknown_entry_id": {
+      "message": "entry_id {entry_id} does not match any configured Phantom Chess Board (known: {known})"
+    },
+    "ambiguous_target_entry": {
+      "message": "{count} Phantom Chess Boards configured — service call must include an entry_id field to target one specifically. Known entry_ids: {known}"
+    }
+  }
+}
