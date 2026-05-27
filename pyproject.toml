@@ -1,0 +1,23 @@
+# Repository-level Python tooling config.
+#
+# Kept minimal on purpose — this is a Home Assistant custom integration,
+# not a PyPI-published package. There's no package definition here; the
+# integration is shipped via HACS, which reads custom_components/phantom_chess/
+# directly. This file exists so pytest picks up consistent settings in
+# CI and in local runs.
+
+[tool.pytest.ini_options]
+# pytest-homeassistant-custom-component wires the `hass` fixture as an
+# async fixture. With pytest-asyncio's default "strict" mode, every
+# async test would need an explicit `@pytest.mark.asyncio` decorator,
+# which the HA test pattern doesn't add. "auto" mode marks every
+# `async def test_*` as asyncio automatically, matching HA's test
+# conventions.
+asyncio_mode = "auto"
+
+# Filter the noisy "pytest 9 will break this" warning that
+# pytest-homeassistant-custom-component triggers in our pinned version
+# range. Re-evaluate when bumping pytest beyond 9.x.
+filterwarnings = [
+    "ignore::pytest.PytestRemovedIn9Warning",
+]
