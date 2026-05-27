@@ -1,0 +1,16 @@
+{
+  "required_status_checks": {
+    "strict": false,
+    "contexts": [
+      "matrix-tests (3.12)",
+      "matrix-tests (3.13)",
+      "lint"
+    ]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_linear_history": false
+}
