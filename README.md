@@ -35,9 +35,58 @@ This is an unofficial community integration — not produced by Phantom Technolo
 ## Hardware Requirements
 
 - **Phantom Chess Board** running firmware **v0.3.0 or later** (the integration uses the firmware-0.3.0 BLE protocol exclusively — earlier firmware versions are not supported).
-- **Home Assistant** 2024.4.0 or later.
+- **Home Assistant** 2024.11.0 or later.
 - A Bluetooth adapter or BLE proxy reachable by HA (the board uses BLE, not classic Bluetooth). HA Yellow, HA Green, and most Raspberry Pi setups work out of the box. For HA running in a container or VM without local Bluetooth, an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html) within radio range of the board solves this.
 - **Optional**: a [Lichess account](https://lichess.org/) with a Board API token (free) — required only for online play.
+
+---
+
+## Dependencies & What Gets Installed
+
+A complete map of everything that ends up on your system when you install this integration. Three categories — handled automatically, optional things you can add for the full experience, and what you have to provide.
+
+### Automatic (handled by HA / the integration)
+
+| Component | How it's installed | Notes |
+|---|---|---|
+| `python-chess` (the `chess` PyPI package) | **HA auto-installs via pip** when the integration first loads | Declared in `manifest.json` `requirements`. The integration's only Python dependency. |
+| `homeassistant.components.bluetooth` | **Already present** in any HA install with Bluetooth support | Declared in `manifest.json` `dependencies`. |
+| Stockfish chess engine binary (~3 MB) | **Integration auto-downloads on first use** and caches at `/config/phantom_chess/bin/` | Used for local-Stockfish AI games and as a fallback when Lichess cloud-eval misses. Source depends on your libc: glibc Linux → `github.com/official-stockfish/Stockfish/releases`; musl Linux (Alpine, HA OS) → `dl-cdn.alpinelinux.org` (apk). One-shot download, persists across reboots. If your architecture isn't supported, the integration logs a warning once and skips local-Stockfish — cloud-eval still works for online play. |
+
+### Highly recommended (for the auto-provisioned dashboard)
+
+The integration ships a rich Chess dashboard at `/phantom-chess` that uses three HACS frontend plugins. **Without them, the dashboard loads but renders visually broken** (no template substitutions, no rounded cards, no tap-feedback styling). The integration surfaces a Settings → Repairs entry naming the missing plugins so you know which to install.
+
+| HACS plugin | Install via | What it provides |
+|---|---|---|
+| **Mushroom** | HACS → Frontend → "Mushroom" | `custom:mushroom-template-card` — the dashboard's tile-style buttons + most layout cards |
+| **layout-card** | HACS → Frontend → "Lovelace Layout Card" | `custom:layout-card` — the grid-based card layout the dashboard uses |
+| **card-mod** | HACS → Frontend → "card-mod" | Inline CSS overrides used for threat warnings + a few accent styling cards |
+
+You can skip the dashboard entirely by flipping the **Auto-provision dashboard** option off in the integration's Configure dialog. The integration's entities work fine without the dashboard — you just lose the prebuilt mode-picker / learning-view / post-game review UI.
+
+### You provide
+
+| Requirement | Why |
+|---|---|
+| **HACS** | The integration is distributed via HACS — install HACS itself first, then add this repo as a Custom Repository (or wait for HACS Default once the `brands` PR lands). |
+| **A BLE-capable Bluetooth surface** (built-in or USB dongle or ESPHome Bluetooth proxy) | The Phantom Chess Board is BLE-only — Classic-Bluetooth-only adapters won't work. See **Supported Devices** below for the compatibility matrix. |
+| **Phantom Chess Board with firmware ≥ 0.3.0** | The integration uses firmware-0.3.0's BLE protocol exclusively. Older firmware uses a different characteristic layout and isn't supported. |
+| **(Optional) Lichess account with Board API token** | Only needed for online play. The token scope you need is **Play games with the Board API** (`board:play`). Create one at <https://lichess.org/account/oauth/token>. Skip if you only want offline play against the bundled Stockfish. |
+| **(Optional) TTS service + media player** | If you want spoken move announcements. Otherwise the `phantom_chess_announce` event still fires for automation forwarding — wire it to whatever TTS stack you prefer (see Automation Examples below). |
+
+### Files the integration writes to disk
+
+These persist across restarts. Listed for transparency / backup planning.
+
+| Path | What's there |
+|---|---|
+| `/config/phantom_chess/bin/` | Cached Stockfish binary (~3 MB). Re-downloads if you delete it. |
+| `/config/phantom_chess/debug/` | Developer-debug artifacts (GATT layout dump, BLE matrix log, characteristic values). **Empty by default** — only populated when you turn on the `debug_dump` option for a triage session. |
+| `.storage/lovelace.phantom_chess` | The auto-provisioned dashboard's persisted YAML config. |
+| `.storage/lovelace_dashboards` | One row for the `/phantom-chess` dashboard registration. |
+
+The HA config entry's `data` carries the BLE address, Lichess token (encrypted by HA's standard credential storage), and Lichess username. The `options` carry the TTS service, debug-dump toggle, and auto-provision-dashboard toggle (see **Configuration Options** below).
 
 ---
 

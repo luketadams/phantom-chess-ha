@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha27] — 2026-05-27
+
+README **Dependencies & What Gets Installed** section + 10 more lichess_analysis tests.
+
+### Added (README)
+
+- **Dependencies & What Gets Installed** section. Three tables: (1) automatic — `python-chess` pip install, HA's `bluetooth` component, Stockfish binary auto-download to `/config/phantom_chess/bin/`; (2) highly recommended — Mushroom + layout-card + card-mod HACS frontend plugins for the auto-provisioned dashboard; (3) what the user provides — HACS, BLE-capable Bluetooth surface, firmware-0.3.0+ board, optional Lichess account, optional TTS service.
+- Also documented the **on-disk files** the integration writes: `/config/phantom_chess/bin/` (Stockfish cache), `/config/phantom_chess/debug/` (only when debug_dump option enabled), `.storage/lovelace.phantom_chess`, `.storage/lovelace_dashboards`.
+- Fixed stale HA-floor claim in Hardware Requirements (was 2024.4.0, actually 2024.11.0 since alpha10).
+
+### Added (tests)
+
+- **10 more lichess_analysis tests**:
+  - `_detect_libc` (4 cases) — no musl linker → glibc; each of the three musl linker paths → musl.
+  - `StockfishFallback` init + class defaults (4 cases) — str vs Path bin_dir, initial state flags, conservative class constants.
+  - `LichessAnalysisClient` + Stockfish integration (2 cases) — bin_dir creates fallback, no bin_dir skips it.
+
+Coverage: `lichess_analysis.py` 40% → 43% in minimal env; 203 pure tests total.
+
 ## [0.4.0-alpha26] — 2026-05-27
 
 ruff clean + gating CI step.

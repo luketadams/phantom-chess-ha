@@ -28,6 +28,8 @@ from custom_components.phantom_chess.lichess_analysis import (
     CLASSIFICATION_DISPLAY,
     EvalResult,
     LichessAnalysisClient,
+    StockfishFallback,
+    _detect_libc,
     _safe_fen_for_eval,
     _win_pct_loss_to_accuracy,
     classification_color_glyph,
@@ -564,3 +566,100 @@ def test_ai_level_table_monotonic() -> None:
         skill, _ = table[level]
         assert skill >= prev_skill, f"Skill non-monotonic at level {level}"
         prev_skill = skill
+
+
+# ─── _detect_libc ──────────────────────────────────────────────────────
+
+
+def test_detect_libc_returns_glibc_when_no_musl_linker(monkeypatch) -> None:
+    """No musl dynamic linkers present → defaults to glibc."""
+    import os as _os
+    monkeypatch.setattr(_os.path, "exists", lambda _p: False)
+    assert _detect_libc() == "glibc"
+
+
+def test_detect_libc_returns_musl_when_x86_64_musl_linker_exists(monkeypatch) -> None:
+    """Presence of /lib/ld-musl-x86_64.so.1 → musl (Alpine x86_64)."""
+    import os as _os
+    monkeypatch.setattr(
+        _os.path, "exists",
+        lambda p: p == "/lib/ld-musl-x86_64.so.1",
+    )
+    assert _detect_libc() == "musl"
+
+
+def test_detect_libc_returns_musl_when_aarch64_musl_linker_exists(monkeypatch) -> None:
+    """Presence of /lib/ld-musl-aarch64.so.1 → musl (Alpine ARM64 / Pi on HA OS)."""
+    import os as _os
+    monkeypatch.setattr(
+        _os.path, "exists",
+        lambda p: p == "/lib/ld-musl-aarch64.so.1",
+    )
+    assert _detect_libc() == "musl"
+
+
+def test_detect_libc_returns_musl_when_armhf_musl_linker_exists(monkeypatch) -> None:
+    """Presence of /lib/ld-musl-armhf.so.1 → musl (32-bit ARM Alpine)."""
+    import os as _os
+    monkeypatch.setattr(
+        _os.path, "exists",
+        lambda p: p == "/lib/ld-musl-armhf.so.1",
+    )
+    assert _detect_libc() == "musl"
+
+
+# ─── StockfishFallback init + state flags ─────────────────────────────
+
+
+def test_stockfish_fallback_init_with_string_bin_dir(tmp_path) -> None:
+    """`bin_dir` accepts both str and Path; init wraps as Path."""
+    from unittest.mock import MagicMock
+    from pathlib import Path
+    sf = StockfishFallback(hass=MagicMock(), bin_dir=str(tmp_path))
+    assert isinstance(sf.bin_dir, Path)
+    assert sf.bin_dir == tmp_path
+
+
+def test_stockfish_fallback_init_with_path_bin_dir(tmp_path) -> None:
+    from unittest.mock import MagicMock
+    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
+    assert sf.bin_dir == tmp_path
+
+
+def test_stockfish_fallback_initial_state(tmp_path) -> None:
+    """Fresh init: binary not located, engine not running, available=True
+    (gets flipped False only on permanent failure)."""
+    from unittest.mock import MagicMock
+    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
+    assert sf.binary_path is None
+    assert sf._transport is None
+    assert sf._engine is None
+    assert sf._unsupported_arch_warned is False
+    assert sf._available is True
+
+
+def test_stockfish_fallback_class_defaults() -> None:
+    """The class-level constants are the tuned conservative defaults."""
+    assert StockfishFallback.DEPTH == 18
+    assert StockfishFallback.TIME_LIMIT_SEC == 1.5
+    # Download timeout long enough to handle slow tarball pulls.
+    assert StockfishFallback.DOWNLOAD_TIMEOUT_SEC >= 30
+
+
+# ─── LichessAnalysisClient + StockfishFallback integration ─────────────
+
+
+def test_client_with_stockfish_bin_dir_creates_fallback(tmp_path) -> None:
+    """Passing a bin_dir to the client constructs a StockfishFallback."""
+    from unittest.mock import MagicMock
+    client = LichessAnalysisClient(hass=MagicMock(), stockfish_bin_dir=tmp_path)
+    assert client._stockfish is not None
+    assert isinstance(client._stockfish, StockfishFallback)
+    assert client._stockfish.bin_dir == tmp_path
+
+
+def test_client_without_stockfish_bin_dir_skips_fallback() -> None:
+    """No bin_dir → no Stockfish; client still works for cloud-eval only."""
+    from unittest.mock import MagicMock
+    client = LichessAnalysisClient(hass=MagicMock(), stockfish_bin_dir=None)
+    assert client._stockfish is None
