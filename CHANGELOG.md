@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha28] — 2026-05-27
+
+12 more coordinator tests targeting async BLE-write methods.
+
+### Added (tests)
+
+- `async_set_sound_level` (4 cases) — clamp above 32, clamp below 0, preserve in-range, sounds_bitmask + tutorial defaults preserved in payload.
+- `async_set_mechanism_speed` (1 case) — writes ASCII integer to `UUID_MECHANISM_SPEED`.
+- `async_set_pause` (2 cases) — paused=True → `SELECT_MODE 3` + `game_status = "paused"`; paused=False → `MODE_CHESS_PLAY` + `game_status = "playing"`.
+- `async_play_sound` (5 cases) — `"check"` → opcode 1, `"checkmate"` → opcode 2, case-insensitive normalization, invalid value raises `ValueError`, BLE-not-connected raises `RuntimeError`.
+
+Tests use `asyncio.run()` to avoid the `pytest-asyncio` dep in the matrix-tests minimal env. `_ble_write` is `AsyncMock`-stubbed so payload + UUID can be asserted without touching real BLE.
+
+Coverage: coordinator.py 13.0% → 13.8% local (combined CI higher). 215 pure tests total.
+
 ## [0.4.0-alpha27] — 2026-05-27
 
 README **Dependencies & What Gets Installed** section + 10 more lichess_analysis tests.

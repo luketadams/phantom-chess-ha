@@ -403,3 +403,136 @@ def test_on_battery_charging_off(
     args = coord.hass.loop.call_soon_threadsafe.call_args[0]
     assert args[1] == 42
     assert args[2] is False
+
+
+# ─── async_set_sound_level: clamping + payload format ─────────────────
+
+
+import asyncio  # noqa: E402  - used by the async-method tests below
+
+
+def _run_async(coro):
+    """asyncio.run wrapper — keeps tests sync so they work without
+    pytest-asyncio in the matrix-tests minimal env."""
+    return asyncio.run(coro)
+
+
+@pytest.fixture
+def coord_with_ble(coord: PhantomChessCoordinator):
+    """Coordinator with a mocked _ble_write that captures (uuid, payload)
+    pairs for assertion in tests."""
+    from unittest.mock import AsyncMock
+    coord._ble_write = AsyncMock()
+    coord._ble_connected = True
+    return coord
+
+
+def test_async_set_sound_level_clamps_above_32(coord_with_ble) -> None:
+    """A request for 50 clamps to 32 (firmware max)."""
+    _run_async(coord_with_ble.async_set_sound_level(50))
+    assert coord_with_ble.sound_level == 32
+    uuid_arg, payload = coord_with_ble._ble_write.call_args[0]
+    assert payload == b"32,11110,0"
+
+
+def test_async_set_sound_level_clamps_below_zero(coord_with_ble) -> None:
+    """Negative requests clamp to 0."""
+    _run_async(coord_with_ble.async_set_sound_level(-5))
+    assert coord_with_ble.sound_level == 0
+    _uuid, payload = coord_with_ble._ble_write.call_args[0]
+    assert payload == b"0,11110,0"
+
+
+def test_async_set_sound_level_preserves_in_range(coord_with_ble) -> None:
+    """A value within 0-32 passes through unchanged."""
+    _run_async(coord_with_ble.async_set_sound_level(16))
+    assert coord_with_ble.sound_level == 16
+    _uuid, payload = coord_with_ble._ble_write.call_args[0]
+    assert payload == b"16,11110,0"
+
+
+def test_async_set_sound_level_keeps_sounds_bitmask_and_tutorial_defaults(
+    coord_with_ble,
+) -> None:
+    """Per Efraín's doc, payload is `volume,sounds_bitmask,tutorial` —
+    the integration keeps `11110` (all sounds on) + `0` (no tutorial)
+    as fixed defaults."""
+    _run_async(coord_with_ble.async_set_sound_level(20))
+    _uuid, payload = coord_with_ble._ble_write.call_args[0]
+    assert payload.decode().endswith(",11110,0")
+
+
+# ─── async_set_mechanism_speed ────────────────────────────────────────
+
+
+def test_async_set_mechanism_speed_writes_native_uuid(coord_with_ble) -> None:
+    """Mechanism speed writes to UUID_MECHANISM_SPEED with ASCII integer."""
+    _run_async(coord_with_ble.async_set_mechanism_speed(3))
+    assert coord_with_ble.mechanism_speed == 3
+    _uuid, payload = coord_with_ble._ble_write.call_args[0]
+    assert payload == b"3"
+
+
+# ─── async_set_pause: mode mapping ────────────────────────────────────
+
+
+def test_async_set_pause_true_writes_mode_3(coord_with_ble) -> None:
+    """paused=True → SELECT_MODE 3 (pause); also sets game_status."""
+    from custom_components.phantom_chess.const import STATUS_PAUSED
+    _run_async(coord_with_ble.async_set_pause(True))
+    assert coord_with_ble.paused is True
+    assert coord_with_ble._state["game_status"] == STATUS_PAUSED
+    _uuid, payload = coord_with_ble._ble_write.call_args[0]
+    assert payload == b"3"
+
+
+def test_async_set_pause_false_writes_chess_play_mode(coord_with_ble) -> None:
+    """paused=False → SELECT_MODE 2 (chess play); game_status = playing."""
+    from custom_components.phantom_chess.const import MODE_CHESS_PLAY, STATUS_PLAYING
+    _run_async(coord_with_ble.async_set_pause(False))
+    assert coord_with_ble.paused is False
+    assert coord_with_ble._state["game_status"] == STATUS_PLAYING
+    _uuid, payload = coord_with_ble._ble_write.call_args[0]
+    assert payload == str(MODE_CHESS_PLAY).encode()
+
+
+# ─── async_play_sound: arg-mapping + validation ───────────────────────
+
+
+def test_async_play_sound_check_routes_to_opcode_1(coord_with_ble) -> None:
+    """'check' (any casing) routes to _phantom_send_check_sound('1')."""
+    from unittest.mock import AsyncMock
+    coord_with_ble._phantom_send_check_sound = AsyncMock()
+    _run_async(coord_with_ble.async_play_sound("check"))
+    coord_with_ble._phantom_send_check_sound.assert_called_once_with("1")
+
+
+def test_async_play_sound_checkmate_routes_to_opcode_2(coord_with_ble) -> None:
+    """'checkmate' (and aliases 'mate', '2') route to opcode 2."""
+    from unittest.mock import AsyncMock
+    coord_with_ble._phantom_send_check_sound = AsyncMock()
+    _run_async(coord_with_ble.async_play_sound("checkmate"))
+    coord_with_ble._phantom_send_check_sound.assert_called_once_with("2")
+
+
+def test_async_play_sound_case_insensitive(coord_with_ble) -> None:
+    """'Check' / 'CHECK' / ' check ' all normalize to opcode 1."""
+    from unittest.mock import AsyncMock
+    coord_with_ble._phantom_send_check_sound = AsyncMock()
+    for variant in ("CHECK", "Check", " check "):
+        coord_with_ble._phantom_send_check_sound.reset_mock()
+        _run_async(coord_with_ble.async_play_sound(variant))
+        coord_with_ble._phantom_send_check_sound.assert_called_once_with("1")
+
+
+def test_async_play_sound_invalid_value_raises_value_error(coord_with_ble) -> None:
+    """Anything other than check / checkmate raises ValueError."""
+    with pytest.raises(ValueError, match="check.*checkmate"):
+        _run_async(coord_with_ble.async_play_sound("draw"))
+
+
+def test_async_play_sound_requires_ble_connected(coord: PhantomChessCoordinator) -> None:
+    """If BLE is not connected, raises RuntimeError before any send."""
+    coord._ble_connected = False
+    with pytest.raises(RuntimeError, match="BLE not connected"):
+        _run_async(coord.async_play_sound("check"))
