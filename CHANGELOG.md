@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha29] — 2026-05-27
+
+Fix stale BLE connection when BlueZ tears down GATT objects underneath us.
+
+### Fixed
+
+- **`_handle_gatt_staleness`** now also matches BlueZ's raw `org.freedesktop.DBus.Error.UnknownObject` / `... doesn't exist` family on `org.bluez.GattCharacteristic1` (plus the `ReadValue` / `StartNotify` / `StopNotify` method variants), not just bleak's translated "Characteristic ... not found".
+- **Live symptom this fixes:** an AI-vs-AI repro attempt today sat with `_ble_connected = True` for ~6h while every BLE write returned `UnknownObject` from BlueZ. The integration's `binary_sensor.*_connected` reported "on" but the underlying link was dead at the OS layer. Service calls surfaced in the UI as "Unknown error".
+- Detector now flips `self._ble_connected = False` immediately on detection (doesn't wait for bleak's disconnect callback) so the `connected` binary sensor reflects reality even before the reconnect loop runs.
+- The BlueZ-gone path bypasses the `_discovered_uuids` gate — if the OS says the characteristic object is gone, there is nothing meaningful to gate on.
+
+### Added (tests)
+
+- 7 new `_handle_gatt_staleness` cases — BlueZ `UnknownObject` on a known UUID, BlueZ `UnknownObject` on a never-discovered UUID, bleak "not found" on a known UUID, bleak "not found" on a never-discovered UUID (regression: must NOT detect), an unrelated error (must NOT detect), `ReadValue` / `StartNotify` / `StopNotify` BlueZ variants, and disconnect itself raising. 222 pure tests total.
+
+### Cleanups (test-suite)
+
+- 4 unused-import ruff warnings cleaned up in `tests/` (pre-existing, not in CI's gate path — opportunistic).
+
 ## [0.4.0-alpha28] — 2026-05-27
 
 12 more coordinator tests targeting async BLE-write methods.

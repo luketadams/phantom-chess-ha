@@ -536,3 +536,135 @@ def test_async_play_sound_requires_ble_connected(coord: PhantomChessCoordinator)
     coord._ble_connected = False
     with pytest.raises(RuntimeError, match="BLE not connected"):
         _run_async(coord.async_play_sound("check"))
+
+
+# ─── _handle_gatt_staleness: BlueZ + bleak detection ──────────────────
+#
+# Added in alpha29 (2026-05-27) after an AI-vs-AI repro attempt failed
+# because the integration's `_ble_connected` flag was stuck True for
+# ~6h while BlueZ's underlying GATT objects had been torn down. The
+# detector now matches both the bleak-translated "Characteristic ...
+# not found" family AND the raw BlueZ
+# `org.freedesktop.DBus.Error.UnknownObject` / "doesn't exist" family.
+
+
+@pytest.fixture
+def stale_coord(coord: PhantomChessCoordinator):
+    """Coordinator with the bits `_handle_gatt_staleness` touches."""
+    from unittest.mock import AsyncMock
+    coord._ble_connected = True
+    coord._ble_client = MagicMock()
+    coord._ble_client.disconnect = AsyncMock()
+    # The bleak-cache-miss path consults this set; populate with one
+    # known UUID so we can test both "UUID in discovery" and "UUID was
+    # never discovered" branches.
+    coord._discovered_uuids = {"abc-known"}
+    return coord
+
+
+def test_handle_gatt_staleness_matches_bluez_unknownobject(stale_coord) -> None:
+    """The raw BlueZ `UnknownObject` error on GATT char writes is staleness."""
+    err = Exception(
+        "[org.freedesktop.DBus.Error.UnknownObject] Method \"WriteValue\" "
+        "with signature \"aya{sv}\" on interface "
+        "\"org.bluez.GattCharacteristic1\" doesn't exist"
+    )
+    detected = _run_async(
+        stale_coord._handle_gatt_staleness(err, "abc-unknown", op="write")
+    )
+    assert detected is True
+    # _ble_connected was flipped False so binary_sensor reflects reality.
+    assert stale_coord._ble_connected is False
+    # Disconnect was kicked off so the loop reconnects.
+    stale_coord._ble_client.disconnect.assert_awaited_once()
+
+
+def test_handle_gatt_staleness_bluez_doesnt_need_discovery_gate(
+    stale_coord,
+) -> None:
+    """A BlueZ UnknownObject for a UUID that was never in discovery is
+    still staleness — the OS layer says the characteristic object is
+    gone, so the discovery-gate would be a false negative."""
+    err = Exception(
+        "org.freedesktop.DBus.Error.UnknownObject ... "
+        "org.bluez.GattCharacteristic1 ... doesn't exist"
+    )
+    detected = _run_async(
+        stale_coord._handle_gatt_staleness(err, "never-discovered", op="write")
+    )
+    assert detected is True
+
+
+def test_handle_gatt_staleness_matches_bleak_not_found(stale_coord) -> None:
+    """bleak's translated 'Characteristic ... not found' on a known
+    UUID is staleness (preserves alpha-pre behavior)."""
+    err = Exception("Characteristic abc-known not found")
+    detected = _run_async(
+        stale_coord._handle_gatt_staleness(err, "abc-known", op="write")
+    )
+    assert detected is True
+    assert stale_coord._ble_connected is False
+
+
+def test_handle_gatt_staleness_bleak_not_found_unknown_uuid_skips(
+    stale_coord,
+) -> None:
+    """bleak 'not found' for a UUID that was never in discovery is NOT
+    staleness — that UUID just doesn't exist on this firmware."""
+    err = Exception("Characteristic never-discovered not found")
+    detected = _run_async(
+        stale_coord._handle_gatt_staleness(err, "never-discovered", op="write")
+    )
+    assert detected is False
+    # We did NOT flip the connected flag in this case.
+    assert stale_coord._ble_connected is True
+    stale_coord._ble_client.disconnect.assert_not_awaited()
+
+
+def test_handle_gatt_staleness_unrelated_error_skips(stale_coord) -> None:
+    """A generic error message that matches neither family returns False
+    and leaves the link state untouched."""
+    err = Exception("some other random BLE issue")
+    detected = _run_async(
+        stale_coord._handle_gatt_staleness(err, "abc-known", op="write")
+    )
+    assert detected is False
+    assert stale_coord._ble_connected is True
+    stale_coord._ble_client.disconnect.assert_not_awaited()
+
+
+def test_handle_gatt_staleness_bluez_other_gatt_methods(stale_coord) -> None:
+    """ReadValue / StartNotify / StopNotify variants of the BlueZ
+    UnknownObject error all match — any GATT char op going through the
+    same vanished D-Bus object should count as staleness."""
+    for method in ("ReadValue", "StartNotify", "StopNotify"):
+        # Reset for clean assertions per iteration.
+        stale_coord._ble_connected = True
+        stale_coord._ble_client.disconnect.reset_mock()
+        err = Exception(
+            f"org.freedesktop.DBus.Error.UnknownObject Method \"{method}\" "
+            "on interface \"org.bluez.GattCharacteristic1\" doesn't exist"
+        )
+        detected = _run_async(
+            stale_coord._handle_gatt_staleness(err, "abc-known", op="write")
+        )
+        assert detected is True, f"failed for method {method}"
+        assert stale_coord._ble_connected is False, f"flag for method {method}"
+
+
+def test_handle_gatt_staleness_swallows_disconnect_error(stale_coord) -> None:
+    """If `disconnect()` itself raises, we still return True and the
+    connected flag is still flipped — the caller is told to bail."""
+    from unittest.mock import AsyncMock
+    stale_coord._ble_client.disconnect = AsyncMock(
+        side_effect=Exception("disconnect went sideways")
+    )
+    err = Exception(
+        "org.freedesktop.DBus.Error.UnknownObject ... "
+        "org.bluez.GattCharacteristic1 ... doesn't exist"
+    )
+    detected = _run_async(
+        stale_coord._handle_gatt_staleness(err, "any-uuid", op="write")
+    )
+    assert detected is True
+    assert stale_coord._ble_connected is False

@@ -1431,23 +1431,65 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Returns True if staleness was detected and disconnect was initiated
         (caller should bail), False otherwise (caller handles the error
         normally — typically log + continue).
+
+        Two known BlueZ symptom families are matched:
+
+          1) bleak's translated "Characteristic ... not found" — fires when
+             bleak's service cache misses the UUID on the current
+             connection. Originally the only case this method handled.
+
+          2) Raw BlueZ `org.freedesktop.DBus.Error.UnknownObject` /
+             `... doesn't exist` on the
+             `org.bluez.GattCharacteristic1` interface — happens when
+             BlueZ has torn down the GATT object (link-layer death,
+             adapter reset, peer crash) but bleak's `is_connected`
+             flag is still cached True. Added 2026-05-27 after an
+             AI-vs-AI repro attempt sat in this state for ~6h.
         """
         msg = str(err).lower()
-        if "not found" not in msg or "characteristic" not in msg:
+        looks_like_bleak_cache_miss = (
+            "not found" in msg and "characteristic" in msg
+        )
+        # BlueZ-level GATT object torn down: D-Bus says the GATT
+        # characteristic object literally doesn't exist anymore. The
+        # interface name varies in error formatting but always contains
+        # "gattcharacteristic" or the method name we tried to call.
+        looks_like_bluez_gone = (
+            "unknownobject" in msg
+            or "doesn't exist" in msg
+            or "does not exist" in msg
+        ) and (
+            "gattcharacteristic" in msg
+            or "writevalue" in msg
+            or "readvalue" in msg
+            or "startnotify" in msg
+            or "stopnotify" in msg
+        )
+        if not (looks_like_bleak_cache_miss or looks_like_bluez_gone):
             return False
-        uuid_lc = uuid.lower()
-        if uuid_lc not in self._discovered_uuids:
-            _LOGGER.debug(
-                "%s to %s failed with 'not found' — UUID was never in "
-                "discovery; not treating as staleness.",
-                op.capitalize(), uuid,
-            )
-            return False
+        # The bleak-cache-miss path additionally gates on "was this UUID
+        # ever discovered on this connection?" — if not, disconnecting
+        # would be a regression. BlueZ-gone errors don't need that gate:
+        # the characteristic object is provably absent at the OS layer.
+        if looks_like_bleak_cache_miss and not looks_like_bluez_gone:
+            uuid_lc = uuid.lower()
+            if uuid_lc not in self._discovered_uuids:
+                _LOGGER.debug(
+                    "%s to %s failed with 'not found' — UUID was never in "
+                    "discovery; not treating as staleness.",
+                    op.capitalize(), uuid,
+                )
+                return False
         _LOGGER.warning(
             "GATT cache staleness on %s to %s: %s — forcing BLE reconnect "
             "for fresh service discovery",
             op, uuid, err,
         )
+        # Flip our own connected flag immediately so the binary_sensor
+        # reflects reality even if bleak's disconnect callback is slow.
+        # The reconnect loop will set it back to True on the next
+        # successful connect.
+        self._ble_connected = False
         try:
             if self._ble_client is not None:
                 await self._ble_client.disconnect()

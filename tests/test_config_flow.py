@@ -322,7 +322,7 @@ async def test_user_flow_lichess_network_error_falls_back_to_error(
     """If the Lichess token-validation HTTP call raises, the form returns
     the same `invalid_lichess_token` error as a 401 response would.
     """
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import MagicMock
 
     # Build a session whose .get raises aiohttp.ClientError on entry.
     import aiohttp
