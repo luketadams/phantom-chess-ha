@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha31] — 2026-05-30
+
+Suppress duplicate board during learning-view play (Lichess / Stockfish / AI-vs-AI).
+
+### Fixed
+
+- The "board busy / mid-move" conditional section in `dashboard_template.yaml` (line 859) was rendering a full-width `picture-entity` board alongside the learning view's own embedded board, producing two boards stacked on top of each other during any mode that activates the learning view. Added `binary_sensor.phantom_*_learning_view_active = off` to its condition list so it only fires when the learning view ISN'T already showing the board.
+- The bare-board section is preserved for cases that don't activate the learning view (sculpture playback, snapping-pieces phase, etc.) — that was its original purpose.
+
+### Tests
+
+- 222 pure tests still passing. Dashboard tile/button counts unchanged (this is a one-line conditional addition, not a card change).
+
 ## [0.4.0-alpha30] — 2026-05-28
 
 5th mode tile — Watch AI vs AI. Stockfish plays both sides on the physical board so you can watch as a spectator.

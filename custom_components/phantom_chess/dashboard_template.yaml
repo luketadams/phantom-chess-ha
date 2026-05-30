@@ -856,6 +856,12 @@ views:
           icon: mdi:chip
           color: grey
           hide_state: false
+    # v0.4-alpha31: Suppress this bare-board "during snapping / firmware
+    # busy" view when the learning view is active. Previously this
+    # section rendered alongside the learning view's own embedded
+    # board, producing two boards stacked vertically during AI-vs-AI,
+    # Stockfish, and Lichess play. Keep it for sculpture playback and
+    # other modes that don't activate the learning view.
     - type: conditional
       conditions:
       - condition: state
@@ -866,6 +872,9 @@ views:
         state: 'off'
       - condition: state
         entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
+        state: 'off'
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_learning_view_active
         state: 'off'
       - condition: state
         entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
