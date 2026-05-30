@@ -225,6 +225,15 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.training_wheels: bool = DEFAULT_TRAINING_WHEELS
         self.lichess_clock_minutes: int = DEFAULT_LICHESS_CLOCK_MINUTES
         self.lichess_clock_increment: int = DEFAULT_LICHESS_CLOCK_INCREMENT
+        # v0.4-alpha30: persistent AI-vs-AI spectator-mode config. The
+        # dashboard's 5th mode tile reads these via three RestoreEntity
+        # number entities (white_ai_level, black_ai_level,
+        # ai_vs_ai_move_delay). The service uses these as defaults when
+        # called without explicit args. Defaults match the previous
+        # in-method defaults (level 3 = mid, 1.5s = readable pacing).
+        self.white_ai_level: int = 3
+        self.black_ai_level: int = 3
+        self.ai_vs_ai_move_delay: float = 1.5
         # Mechanism speed on the firmware-native 1..5 scale (3 = NORMAL).
         # Was 50 when the entity exposed 0..100; corrected to the actual
         # firmware range 2026-05-13. See XOUXOU_PROTOCOL.md.

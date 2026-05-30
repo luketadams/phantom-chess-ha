@@ -93,17 +93,23 @@ def _find_strings(node: Any, needle: str) -> list[str]:
 
 
 def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
-    """alpha8 conversion produces 21 buttons + 17 surviving tiles.
+    """Tile→button conversion ground-truth, re-baselined per template
+    structural change.
 
-    These exact counts are the alpha8 ground-truth. A regression here
-    means either the template changed (re-baseline) or the detection
-    logic in ``_convert_action_tiles_to_buttons`` slipped (investigate).
+    Baseline history:
+      - alpha8: 21 buttons + 17 surviving tiles (initial conversion).
+      - alpha30: +3 buttons (Watch-AI-vs-AI mode-picker tile,
+        in-section back-to-modes tile, Start-AI-vs-AI tile) → 24 + 17.
+
+    A regression here means either the template changed (re-baseline)
+    or the detection logic in ``_convert_action_tiles_to_buttons``
+    slipped (investigate).
     """
     cards = list(_walk_cards(rendered_config))
     tiles = [c for c in cards if c.get("type") == "tile"]
     buttons = [c for c in cards if c.get("type") == "button"]
     assert len(tiles) == 17, f"expected 17 surviving tiles, got {len(tiles)}"
-    assert len(buttons) == 21, f"expected 21 buttons, got {len(buttons)}"
+    assert len(buttons) == 24, f"expected 24 buttons, got {len(buttons)}"
 
 
 # ─── "what should be gone" assertions ───────────────────────────────────

@@ -140,6 +140,15 @@ ENTITY_SCULPTURE_GAME  = "sculpture_game"
 ENTITY_TRAINING_WHEELS         = "training_wheels"
 ENTITY_LICHESS_CLOCK_MINUTES   = "lichess_clock_minutes"
 ENTITY_LICHESS_CLOCK_INCREMENT = "lichess_clock_increment"
+# v0.4-alpha30: AI-vs-AI spectator mode. Three integration-owned
+# sliders that the dashboard's 5th mode tile reads when firing
+# `phantom_chess.start_ai_vs_ai_game`. All three are pure-local config
+# storage (no BLE writes); state persists across HA restarts via
+# RestoreEntity. Defaults match the service's own defaults so a fresh
+# install just works.
+ENTITY_WHITE_AI_LEVEL          = "white_ai_level"
+ENTITY_BLACK_AI_LEVEL          = "black_ai_level"
+ENTITY_AI_VS_AI_MOVE_DELAY     = "ai_vs_ai_move_delay"
 # v0.4-alpha3: integration-owned 60s-idle gate. Replaces the template
 # binary_sensor.phantom_chess_board_idle that v0.3 required users to
 # create via the template integration's helper UI. Used by the dashboard
@@ -250,6 +259,11 @@ SETUP_MODE_OPTIONS = [
     "Play with Stockfish",
     "Sculpture Library",
     "2-Player Game",
+    # v0.4-alpha30: AI-vs-AI spectator mode. Stockfish plays both sides
+    # on the physical board so the user can watch. The mode-tile click
+    # sets this option; the conditional-card section reads it to render
+    # the level sliders + Start button.
+    "Watch AI vs AI",
 ]
 DEFAULT_SETUP_MODE = "Choose a mode"
 

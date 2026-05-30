@@ -221,6 +221,15 @@
       },
       "lichess_clock_increment": {
         "name": "Lichess Clock Increment"
+      },
+      "white_ai_level": {
+        "name": "AI vs AI: White Level"
+      },
+      "black_ai_level": {
+        "name": "AI vs AI: Black Level"
+      },
+      "ai_vs_ai_move_delay": {
+        "name": "AI vs AI: Move Delay"
       }
     },
     "binary_sensor": {

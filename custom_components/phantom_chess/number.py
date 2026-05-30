@@ -13,10 +13,13 @@ from .const import (
     CONF_BLE_ADDRESS,
     CONF_DEVICE_NAME,
     DOMAIN,
+    ENTITY_AI_VS_AI_MOVE_DELAY,
+    ENTITY_BLACK_AI_LEVEL,
     ENTITY_LICHESS_CLOCK_INCREMENT,
     ENTITY_LICHESS_CLOCK_MINUTES,
     ENTITY_MECH_SPEED,
     ENTITY_SOUND_LEVEL,
+    ENTITY_WHITE_AI_LEVEL,
 )
 from .coordinator import PhantomChessCoordinator
 
@@ -41,6 +44,12 @@ async def async_setup_entry(
             PhantomSoundLevelNumber(coordinator, entry, address, name),
             PhantomLichessClockMinutesNumber(coordinator, entry, address, name),
             PhantomLichessClockIncrementNumber(coordinator, entry, address, name),
+            # alpha30: AI-vs-AI spectator-mode sliders. Read by the
+            # dashboard's 5th mode tile when firing
+            # `phantom_chess.start_ai_vs_ai_game`.
+            PhantomWhiteAILevelNumber(coordinator, entry, address, name),
+            PhantomBlackAILevelNumber(coordinator, entry, address, name),
+            PhantomAIvsAIMoveDelayNumber(coordinator, entry, address, name),
         ]
     )
 
@@ -162,6 +171,10 @@ class _PhantomRestorableNumber(PhantomBaseNumber, RestoreEntity):
     """
 
     _coord_attr: str  # subclass sets; e.g. "lichess_clock_minutes"
+    # Whether the underlying coordinator field is an int (default,
+    # matches the original Lichess-clock subclasses) or a float (added
+    # alpha30 for ai_vs_ai_move_delay's 0.5-second step).
+    _coord_attr_type: type = int
 
     @property
     def available(self) -> bool:
@@ -174,7 +187,8 @@ class _PhantomRestorableNumber(PhantomBaseNumber, RestoreEntity):
         if last is None or last.state in (None, "unknown", "unavailable"):
             return
         try:
-            setattr(self.coordinator, self._coord_attr, int(float(last.state)))
+            value = self._coord_attr_type(float(last.state))
+            setattr(self.coordinator, self._coord_attr, value)
         except (TypeError, ValueError):
             pass
 
@@ -228,4 +242,85 @@ class PhantomLichessClockIncrementNumber(_PhantomRestorableNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         self.coordinator.lichess_clock_increment = int(value)
+        self.async_write_ha_state()
+
+
+# ─── v0.4-alpha30: AI-vs-AI spectator-mode sliders ───────────────────
+# The dashboard's 5th mode tile reads these when firing
+# `phantom_chess.start_ai_vs_ai_game`. All three are pure-local config
+# storage (no BLE writes); state persists across HA restarts via
+# RestoreEntity (inherited from _PhantomRestorableNumber).
+
+
+class PhantomWhiteAILevelNumber(_PhantomRestorableNumber):
+    """Stockfish skill level for white in AI-vs-AI spectator games.
+
+    Range 1..8 matches the integration's main `number.ai_level` entity
+    so the UX is consistent. Default 3 = mid.
+    """
+    _attr_translation_key = "white_ai_level"
+    _attr_icon = "mdi:chess-king"
+    _attr_native_min_value = 1
+    _attr_native_max_value = 8
+    _attr_native_step = 1
+    _coord_attr = "white_ai_level"
+
+    def __init__(self, coord, entry, address, name):
+        super().__init__(coord, entry, address, name, ENTITY_WHITE_AI_LEVEL)
+
+    @property
+    def native_value(self) -> float:
+        return float(self.coordinator.white_ai_level)
+
+    async def async_set_native_value(self, value: float) -> None:
+        self.coordinator.white_ai_level = int(value)
+        self.async_write_ha_state()
+
+
+class PhantomBlackAILevelNumber(_PhantomRestorableNumber):
+    """Stockfish skill level for black in AI-vs-AI spectator games."""
+    _attr_translation_key = "black_ai_level"
+    _attr_icon = "mdi:chess-king"
+    _attr_native_min_value = 1
+    _attr_native_max_value = 8
+    _attr_native_step = 1
+    _coord_attr = "black_ai_level"
+
+    def __init__(self, coord, entry, address, name):
+        super().__init__(coord, entry, address, name, ENTITY_BLACK_AI_LEVEL)
+
+    @property
+    def native_value(self) -> float:
+        return float(self.coordinator.black_ai_level)
+
+    async def async_set_native_value(self, value: float) -> None:
+        self.coordinator.black_ai_level = int(value)
+        self.async_write_ha_state()
+
+
+class PhantomAIvsAIMoveDelayNumber(_PhantomRestorableNumber):
+    """Seconds to wait between moves in AI-vs-AI spectator games.
+
+    Range 0.5..10s with 0.5s step. Float-valued — the
+    `_coord_attr_type = float` override tells the RestoreEntity loader
+    to preserve fractional seconds across HA restarts.
+    """
+    _attr_translation_key = "ai_vs_ai_move_delay"
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_min_value = 0.5
+    _attr_native_max_value = 10.0
+    _attr_native_step = 0.5
+    _attr_native_unit_of_measurement = "s"
+    _coord_attr = "ai_vs_ai_move_delay"
+    _coord_attr_type = float
+
+    def __init__(self, coord, entry, address, name):
+        super().__init__(coord, entry, address, name, ENTITY_AI_VS_AI_MOVE_DELAY)
+
+    @property
+    def native_value(self) -> float:
+        return float(self.coordinator.ai_vs_ai_move_delay)
+
+    async def async_set_native_value(self, value: float) -> None:
+        self.coordinator.ai_vs_ai_move_delay = float(value)
         self.async_write_ha_state()

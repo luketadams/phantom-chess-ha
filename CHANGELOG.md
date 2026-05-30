@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha30] — 2026-05-28
+
+5th mode tile — Watch AI vs AI. Stockfish plays both sides on the physical board so you can watch as a spectator.
+
+### Added (entities)
+
+- `number.<DEVICE>_white_ai_level` — Stockfish skill 1–8 for white (default 3).
+- `number.<DEVICE>_black_ai_level` — Stockfish skill 1–8 for black (default 3).
+- `number.<DEVICE>_ai_vs_ai_move_delay` — seconds between moves, 0.5–10s slider, 0.5s step (default 1.5s).
+- All three are `EntityCategory.CONFIG`, persist via `RestoreEntity`, and don't require BLE (always-available).
+
+### Added (dashboard)
+
+- 5th mode tile **Watch AI vs AI** (pink, mdi:robot-happy) in the mode picker.
+- Conditional section rendering when the mode is selected: white/black level sliders with ELO-mapping markdown, move-delay slider with pacing label (Frantic/Brisk/Watchable/Leisurely), and a Start button.
+- Start button calls `phantom_chess.start_ai_vs_ai_game` with empty data; the service handler reads the persisted slider values from the coordinator. No JS templating required (vanilla `tile` works).
+
+### Changed (service)
+
+- `phantom_chess.start_ai_vs_ai_game` now falls back to coordinator-stored values when `white_ai_level` / `black_ai_level` / `move_delay_seconds` are omitted. Previously hardcoded 1.5s default. Developer-Tools yaml calls + automations benefit from this default-from-state behavior too.
+
+### Tests
+
+- Tile→button baseline bumped 21 → 24 (3 new action-shaped tiles: 5th mode tile, in-section back-to-modes, Start button). 222 pure tests passing.
+
 ## [0.4.0-alpha29] — 2026-05-27
 
 Fix stale BLE connection when BlueZ tears down GATT objects underneath us.

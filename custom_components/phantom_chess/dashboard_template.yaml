@@ -149,6 +149,20 @@ views:
               data:
                 entity_id: input_select.phantom_chess_setup_mode
                 option: 2-Player Game
+          # v0.4-alpha30: AI-vs-AI spectator mode. Stockfish plays both
+          # sides on the physical board so the user can watch.
+          - type: tile
+            entity: input_select.phantom_chess_setup_mode
+            name: Watch AI vs AI
+            icon: mdi:robot-happy
+            color: pink
+            vertical: true
+            tap_action:
+              action: perform-action
+              perform_action: input_select.select_option
+              data:
+                entity_id: input_select.phantom_chess_setup_mode
+                option: Watch AI vs AI
     - type: conditional
       conditions:
       - condition: or
@@ -535,6 +549,103 @@ views:
           content: "## \U0001F465 2-Player Game\n**Coming soon.** This mode will let two humans play on the board with the integration recording every move into a PGN, then making the recorded game available\
             \ for replay on this dashboard \u2014 same mechanism as the Sculpture Library.\n\n**Planned features:**\n- Live move tracking via the board's sensors (no app needed)\n- Per-side turn timers\n\
             - Automatic PGN export at game end\n- Replay any prior recorded game on the board\n\n_Tracked as task #24._"
+    # v0.4-alpha30: Watch AI vs AI section. Stockfish plays both sides
+    # on the physical board so the user can watch as a spectator.
+    # Three integration-owned sliders configure the levels + pacing
+    # (number.*_white_ai_level, _black_ai_level, _ai_vs_ai_move_delay).
+    # The Start button passes their values explicitly to
+    # phantom_chess.start_ai_vs_ai_game.
+    - type: conditional
+      conditions:
+      - condition: or
+        conditions:
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: HOME
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Waiting Side
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: unknown
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: unavailable
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: BLE Playing
+      - condition: state
+        entity: input_select.phantom_chess_setup_mode
+        state: Watch AI vs AI
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
+        state: 'off'
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
+        state: 'off'
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+        state: 'on'
+      - condition: state
+        entity: binary_sensor.phantom_chess_board_idle
+        state: 'on'
+      card:
+        type: vertical-stack
+        cards:
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: tile
+            entity: script.phantom_back_to_modes
+            name: Back to modes
+            icon: mdi:chevron-left
+            color: grey
+          - type: markdown
+            content: "{% set conn = is_state('binary_sensor.phantom_YOUR_BOARD_MAC_connected', 'on') %}{% set mode = states('sensor.phantom_YOUR_BOARD_MAC_firmware_mode') %}{% set batt = states('sensor.phantom_YOUR_BOARD_MAC_battery')\
+              \ %}{% set last = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{{ '\U0001F7E2' if conn else '\U0001F534' }} &nbsp; Battery: **{{ batt }}%** &nbsp;\u2022&nbsp; Mode: **{{\
+              \ mode }}** &nbsp;\u2022&nbsp; Last: `{{ last }}`"
+        - type: markdown
+          content: "## \U0001F916 Watch AI vs AI\nStockfish plays both sides on the physical board. Configure each side's skill level and the pacing between moves, then press Start. Place pieces in the starting position before launching."
+        - type: markdown
+          content: '### Levels'
+        - type: entities
+          show_header_toggle: false
+          entities:
+          - entity: number.phantom_YOUR_BOARD_MAC_white_ai_level
+            name: White Stockfish level (1\u20138)
+            icon: mdi:chess-king
+          - entity: number.phantom_YOUR_BOARD_MAC_black_ai_level
+            name: Black Stockfish level (1\u20138)
+            icon: mdi:chess-king
+        - type: markdown
+          content: "{% set w = states('number.phantom_YOUR_BOARD_MAC_white_ai_level') | int(default=3) %}{% set b = states('number.phantom_YOUR_BOARD_MAC_black_ai_level') | int(default=3) %}{% set elos = {1: '~400\u2013800', 2: '~800\u20131100', 3: '~1100\u20131400', 4: '~1400\u20131700', 5: '~1700\u20132000', 6: '~2000\u20132300', 7: '~2300\u20132700', 8: '~2800+ (full strength)'} %}\u26aa **White**: Level {{ w }} \u2014 ~{{ elos.get(w, '?') }} ELO\n\u26ab **Black**: Level {{ b }} \u2014 ~{{ elos.get(b, '?') }} ELO\n\n_Lower levels make more mistakes (more dramatic games). Equal levels yield closer games; large gaps usually favor the higher-rated side._"
+        - type: markdown
+          content: '### Pacing'
+        - type: entities
+          show_header_toggle: false
+          entities:
+          - entity: number.phantom_YOUR_BOARD_MAC_ai_vs_ai_move_delay
+            name: Seconds between moves
+            icon: mdi:timer-sand
+        - type: markdown
+          content: "{% set d = states('number.phantom_YOUR_BOARD_MAC_ai_vs_ai_move_delay') | float(default=1.5) %}{% if d < 1 %}{% set pace = 'Frantic' %}{% elif d < 2 %}{% set pace = 'Brisk' %}{% elif d < 4 %}{% set pace = 'Watchable' %}{% else %}{% set pace = 'Leisurely' %}{% endif %}**{{ pace }}** \u2014 {{ d }}s per move. Lower = faster game but harder magnet timing; higher = easier to follow each move."
+        - type: tile
+          entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+          name: Start AI vs AI
+          icon: mdi:play-circle
+          color: pink
+          vertical: true
+          # Service handler reads coordinator.white_ai_level /
+          # coordinator.black_ai_level / coordinator.ai_vs_ai_move_delay
+          # when these args are omitted — those are the persisted values
+          # behind the three sliders above. No dynamic data binding
+          # needed in the dashboard.
+          tap_action:
+            action: perform-action
+            perform_action: phantom_chess.start_ai_vs_ai_game
+            data: {}
+          hide_state: true
     - type: conditional
       conditions:
       - entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode

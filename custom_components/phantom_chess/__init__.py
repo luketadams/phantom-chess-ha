@@ -842,10 +842,22 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_start_ai_vs_ai_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
+        # alpha30: fall back to the integration-owned spectator-mode
+        # sliders (`number.*_white_ai_level`, `_black_ai_level`,
+        # `_ai_vs_ai_move_delay`) when the caller omits args. The
+        # dashboard's 5th mode tile passes explicit args anyway, but
+        # Developer-Tools yaml + automations benefit from
+        # default-from-state behavior.
         await coordinator.async_start_ai_vs_ai_game(
-            white_ai_level=call.data.get("white_ai_level"),
-            black_ai_level=call.data.get("black_ai_level"),
-            move_delay_seconds=call.data.get("move_delay_seconds", 1.5),
+            white_ai_level=call.data.get(
+                "white_ai_level", coordinator.white_ai_level
+            ),
+            black_ai_level=call.data.get(
+                "black_ai_level", coordinator.black_ai_level
+            ),
+            move_delay_seconds=call.data.get(
+                "move_delay_seconds", coordinator.ai_vs_ai_move_delay
+            ),
         )
 
     async def handle_back_to_modes(call: ServiceCall) -> None:
