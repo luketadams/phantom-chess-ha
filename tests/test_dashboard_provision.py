@@ -100,6 +100,11 @@ def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
       - alpha8: 21 buttons + 17 surviving tiles (initial conversion).
       - alpha30: +3 buttons (Watch-AI-vs-AI mode-picker tile,
         in-section back-to-modes tile, Start-AI-vs-AI tile) → 24 + 17.
+      - alpha32: +1 button (Reset-board tile in post-game review) → 25 + 17.
+      - alpha32: the in-game "State" info-tile (raw firmware_mode, which
+        flickered Setting Up↔Board Playing during AI-vs-AI) was replaced by
+        a markdown card showing a steady "AI vs AI — move N", so surviving
+        tiles 17 → 16. Buttons unchanged.
 
     A regression here means either the template changed (re-baseline)
     or the detection logic in ``_convert_action_tiles_to_buttons``
@@ -108,8 +113,8 @@ def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
     cards = list(_walk_cards(rendered_config))
     tiles = [c for c in cards if c.get("type") == "tile"]
     buttons = [c for c in cards if c.get("type") == "button"]
-    assert len(tiles) == 17, f"expected 17 surviving tiles, got {len(tiles)}"
-    assert len(buttons) == 24, f"expected 24 buttons, got {len(buttons)}"
+    assert len(tiles) == 16, f"expected 16 surviving tiles, got {len(tiles)}"
+    assert len(buttons) == 25, f"expected 25 buttons, got {len(buttons)}"
 
 
 # ─── "what should be gone" assertions ───────────────────────────────────
@@ -537,3 +542,94 @@ def test_helper_to_native_covers_every_template_input_helper() -> None:
     assert missing_from_map == set(), (
         f"template references helpers with no mapping: {missing_from_map}"
     )
+
+
+def _find_eval_bar_card(config):
+    """Return the single markdown card that drives the eval bar (reads eval_cp)."""
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "markdown" and "eval_cp" in repr(node.get("card_mod", "")):
+                yield node
+            for value in node.values():
+                yield from walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                yield from walk(item)
+
+    cards = list(walk(config))
+    assert len(cards) == 1, f"expected exactly one eval-bar card, found {len(cards)}"
+    return cards[0]
+
+
+def test_eval_bar_is_card_mod_not_inline_html(rendered_config) -> None:
+    """The eval bar must be drawn with card-mod CSS, not inline-styled HTML.
+
+    HA's markdown card sanitizes its body with js-xss, whose default
+    whitelist allows <div>/<span> as tags but with *zero* attributes, so
+    every inline ``style="..."`` is stripped and an inline-HTML bar renders
+    blank. The eval bar is therefore drawn by a card-mod ``style:`` block
+    (gradient fill + ::before/::after labels) injected into the shadow DOM,
+    which bypasses the sanitizer. This locks the shape in so a future edit
+    can't regress to inline HTML. See memory ha-markdown-card-strips-inline-css.
+    """
+    card = _find_eval_bar_card(rendered_config)
+    style = card["card_mod"]["style"]
+
+    # The markdown body carries no styled HTML; the bar lives entirely in CSS.
+    assert "<div" not in repr(card.get("content", ""))
+    # card-mod CSS draws the bar: gradient fill + pseudo-element labels.
+    assert "linear-gradient" in style
+    assert "ha-card::before" in style
+    assert "ha-card::after" in style
+    # The body markdown is hidden so only the styled ha-card shows.
+    assert "ha-markdown" in style and "display: none" in style
+    # Eval entities resolve to the board's real entity_ids (MAC-slug fallback here).
+    assert "sensor.phantom_c8_c9_a3_f2_7c_0a_eval_cp" in style
+    assert "sensor.phantom_c8_c9_a3_f2_7c_0a_eval_mate" in style
+    # No placeholder leaked into the CSS.
+    assert "YOUR_BOARD_MAC" not in style
+
+
+def test_no_inline_style_colors_use_font_tag(rendered_config) -> None:
+    """No card may carry inline ``style=`` HTML; colored markup uses <font>.
+
+    HA's markdown card sanitizes its body with js-xss, whose default
+    whitelist allows <div>/<span> as tags but with zero attributes, so an
+    inline ``style="color:..."`` is silently stripped and the color is lost.
+    The moves table, last-move status, and game-review cards therefore carry
+    their per-item colors via ``<font color="...">`` (which js-xss keeps:
+    ``font`` whitelists ``color``/``size``/``face``). This guards the whole
+    rendered config against a regression back to inline style. See memory
+    ha-markdown-card-strips-inline-css.
+    """
+    # Collect every markdown card's content from the rendered config.
+    contents = [
+        str(c.get("content", ""))
+        for c in _walk_cards(rendered_config)
+        if c.get("type") == "markdown"
+    ]
+    blob = "\n".join(contents)
+
+    # No card carries inline style= (js-xss would strip it, losing the color).
+    assert "<span style=" not in blob, "inline <span style= leaked into a card"
+    assert "<div style=" not in blob, "inline <div style= leaked into a card"
+    # Colored markup is carried by <font color=...> instead, which survives.
+    assert "<font color=" in blob, "expected <font color=...> for colored markup"
+
+    # Each of the three colored cards is present and uses <font>, not span/div.
+    # (identify by a stable substring unique to each card's content)
+    def _card(needle: str) -> str:
+        hits = [c for c in contents if needle in c]
+        assert len(hits) == 1, f"expected 1 card containing {needle!r}, found {len(hits)}"
+        return hits[0]
+
+    # "num_pairs" is unique to the moves-table card (move_history is also
+    # referenced by the AI-vs-AI status card, so don't key on that).
+    moves = _card("num_pairs")
+    assert "<font color=" in moves and "<span" not in moves and "<div" not in moves
+
+    last_move = _card("last_move_classification")
+    assert "<font color=" in last_move and "<span" not in last_move
+
+    review = _card("biggest mistakes")
+    assert "<font color=" in review and "<span" not in review and "<div" not in review

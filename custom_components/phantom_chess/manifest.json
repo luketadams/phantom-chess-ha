@@ -1,13 +1,19 @@
 {
   "domain": "phantom_chess",
   "name": "Phantom Chess Board",
-  "version": "0.4.0a31",
+  "version": "0.4.0a32",
   "documentation": "https://github.com/luketadams/phantom-chess-ha",
   "issue_tracker": "https://github.com/luketadams/phantom-chess-ha/issues",
-  "codeowners": ["@luketadams"],
+  "codeowners": [
+    "@luketadams"
+  ],
   "integration_type": "device",
-  "dependencies": ["bluetooth"],
-  "requirements": ["chess>=1.10.0,<2.0"],
+  "dependencies": [
+    "bluetooth"
+  ],
+  "requirements": [
+    "chess>=1.10.0,<2.0"
+  ],
   "bluetooth": [
     {
       "service_uuid": "fd31a840-22e7-11eb-adc1-0242ac120002",

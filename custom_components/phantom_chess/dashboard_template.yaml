@@ -65,6 +65,13 @@ views:
         - condition: state
           entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
           state: BLE Playing
+        # alpha32 fix: firmware actually reports "Board Playing" (not
+        # "BLE Playing"); keep both for forward+backward compat across
+        # firmware revisions. Dashboard was rendering empty post-game
+        # because the original "BLE Playing" string never matched.
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Board Playing
       - condition: state
         entity: input_select.phantom_chess_setup_mode
         state: Choose a mode
@@ -182,6 +189,13 @@ views:
         - condition: state
           entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
           state: BLE Playing
+        # alpha32 fix: firmware actually reports "Board Playing" (not
+        # "BLE Playing"); keep both for forward+backward compat across
+        # firmware revisions. Dashboard was rendering empty post-game
+        # because the original "BLE Playing" string never matched.
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Board Playing
       - condition: state
         entity: input_select.phantom_chess_setup_mode
         state: Play with Lichess
@@ -292,6 +306,13 @@ views:
         - condition: state
           entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
           state: BLE Playing
+        # alpha32 fix: firmware actually reports "Board Playing" (not
+        # "BLE Playing"); keep both for forward+backward compat across
+        # firmware revisions. Dashboard was rendering empty post-game
+        # because the original "BLE Playing" string never matched.
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Board Playing
       - condition: state
         entity: input_select.phantom_chess_setup_mode
         state: Play with Stockfish
@@ -387,6 +408,13 @@ views:
         - condition: state
           entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
           state: BLE Playing
+        # alpha32 fix: firmware actually reports "Board Playing" (not
+        # "BLE Playing"); keep both for forward+backward compat across
+        # firmware revisions. Dashboard was rendering empty post-game
+        # because the original "BLE Playing" string never matched.
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Board Playing
       - condition: state
         entity: input_select.phantom_chess_setup_mode
         state: Sculpture Library
@@ -514,6 +542,13 @@ views:
         - condition: state
           entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
           state: BLE Playing
+        # alpha32 fix: firmware actually reports "Board Playing" (not
+        # "BLE Playing"); keep both for forward+backward compat across
+        # firmware revisions. Dashboard was rendering empty post-game
+        # because the original "BLE Playing" string never matched.
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Board Playing
       - condition: state
         entity: input_select.phantom_chess_setup_mode
         state: 2-Player Game
@@ -574,6 +609,13 @@ views:
         - condition: state
           entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
           state: BLE Playing
+        # alpha32 fix: firmware actually reports "Board Playing" (not
+        # "BLE Playing"); keep both for forward+backward compat across
+        # firmware revisions. Dashboard was rendering empty post-game
+        # because the original "BLE Playing" string never matched.
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Board Playing
       - condition: state
         entity: input_select.phantom_chess_setup_mode
         state: Watch AI vs AI
@@ -905,11 +947,12 @@ views:
             name: Pieces
             icon: mdi:chess-pawn
             color: grey
-          - type: tile
-            entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
-            name: State
-            icon: mdi:chip
-            color: purple
+          # alpha32: during AI-vs-AI the raw firmware_mode flickers Setting Up<->
+          # Board Playing every few sec. Show a steady 'AI vs AI - move N' there
+          # (N from move_history plies); other game types keep the raw mode.
+          - type: markdown
+            content: >-
+              {% set m = states('sensor.phantom_YOUR_BOARD_MAC_firmware_mode') %}{% set sm = states('select.phantom_YOUR_BOARD_MAC_setup_mode') %}{% if sm == 'Watch AI vs AI' %}{% set plies = state_attr('sensor.phantom_YOUR_BOARD_MAC_move_history', 'moves') | count %}**🤖 AI vs AI** — move {{ (plies + 1) // 2 }}{% else %}**State:** {{ m }}{% endif %}
         - type: markdown
           content: "### Timers\n*Per-side PvP timers pending \u2014 need `timer.phantom_chess_white` and `timer.phantom_chess_black` helpers wired to move events. Will surface here when a recorded PvP game\
             \ is detected.*"
@@ -1003,24 +1046,40 @@ views:
             grid-gap: 10px
             grid-template-rows: auto
           cards:
+          # Vertical eval bar - drawn with card-mod CSS (gradient fill + ::before/::after
+          # labels) instead of inline-HTML <div>s. HA's markdown card sanitizes its body
+          # with js-xss, whose whitelist allows <div>/<span> as tags but with no
+          # attributes - so inline style= is stripped and an inline-HTML bar renders
+          # blank. card-mod CSS is injected into the shadow DOM and bypasses that
+          # sanitizer. pct + labels are computed by a Jinja template in the style,
+          # re-evaluated whenever eval_cp / eval_mate change; the markdown body is hidden.
           - type: markdown
+            content: ' '
             card_mod:
-              style: 'ha-card { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
-
-                ha-markdown { padding: 0 !important; height: 100%; }
-
-                ha-markdown p { margin: 0 !important; height: 100%; }
-
-                '
-            content: '{% set cp_raw = states(''sensor.phantom_YOUR_BOARD_MAC_eval_cp'') %}{% set mate_raw = states(''sensor.phantom_YOUR_BOARD_MAC_eval_mate'') %}{% set has_mate = mate_raw not in
-              ['''', ''unknown'', ''unavailable''] %}{% set has_cp = cp_raw not in ['''', ''unknown'', ''unavailable''] %}{% if has_mate %}  {% set mate = mate_raw | int %}  {% set pct = 98 if mate > 0
-              else 2 %}  {% set label_top = ''M'' + (mate|abs|string) if mate < 0 else '''' %}  {% set label_bot = ''M'' + (mate|abs|string) if mate >= 0 else '''' %}{% elif has_cp %}  {% set cp = cp_raw
-              | int %}  {% set logistic = (cp / 4.0) | round(0) %}  {% set pct = (logistic + 50) | int %}  {% if pct < 3 %}{% set pct = 3 %}{% elif pct > 97 %}{% set pct = 97 %}{% endif %}  {% set cp_str
-              = (''+'' if cp >= 0 else '''') + ((cp/100.0) | round(1) | string) %}  {% set label_top = cp_str if cp < 0 else '''' %}  {% set label_bot = cp_str if cp >= 0 else '''' %}{% else %}  {% set
-              pct = 50 %}  {% set label_top = '''' %}  {% set label_bot = ''0.0'' %}{% endif %}<div style="position: relative; width: 100%; height: 480px; background: #2b2b2b; border-radius: 4px; overflow:
-              hidden; border: 1px solid #444;"><div style="position: absolute; bottom: 0; width: 100%; background: linear-gradient(to top, #f8f8f8, #ddd); height: {{ pct }}%; transition: height 0.5s ease;"></div><div
-              style="position: absolute; top: 6px; width: 100%; text-align: center; color: #f0f0f0; font-size: 11px; font-weight: 700; font-family: monospace;">{{ label_top }}</div><div style="position:
-              absolute; bottom: 6px; width: 100%; text-align: center; color: #222; font-size: 11px; font-weight: 700; font-family: monospace;">{{ label_bot }}</div></div>'
+              style: |
+                {% set cp_raw = states('sensor.phantom_YOUR_BOARD_MAC_eval_cp') %}{% set mate_raw = states('sensor.phantom_YOUR_BOARD_MAC_eval_mate') %}{% set has_mate = mate_raw not in ['', 'unknown', 'unavailable'] %}{% set has_cp = cp_raw not in ['', 'unknown', 'unavailable'] %}{% if has_mate %}{% set mate = mate_raw | int %}{% set pct = 98 if mate > 0 else 2 %}{% set label_top = 'M' + (mate|abs|string) if mate < 0 else '' %}{% set label_bot = 'M' + (mate|abs|string) if mate >= 0 else '' %}{% elif has_cp %}{% set cp = cp_raw | int %}{% set pct = ((cp / 4.0) + 50) | round(0) | int %}{% if pct < 3 %}{% set pct = 3 %}{% elif pct > 97 %}{% set pct = 97 %}{% endif %}{% set cp_str = ('+' if cp >= 0 else '') + ((cp/100.0) | round(1) | string) %}{% set label_top = cp_str if cp < 0 else '' %}{% set label_bot = cp_str if cp >= 0 else '' %}{% else %}{% set pct = 50 %}{% set label_top = '' %}{% set label_bot = '0.0' %}{% endif %}
+                ha-card {
+                  background: linear-gradient(to top, #f0f0f0 {{ pct }}%, #2b2b2b {{ pct }}%) !important;
+                  border: 1px solid #444 !important;
+                  border-radius: 4px !important;
+                  height: 480px !important;
+                  position: relative !important;
+                  overflow: hidden !important;
+                  box-shadow: none !important;
+                }
+                ha-card::before {
+                  content: "{{ label_top }}";
+                  position: absolute; top: 6px; left: 0; right: 0;
+                  text-align: center; color: #f0f0f0;
+                  font-family: monospace; font-size: 11px; font-weight: 700;
+                }
+                ha-card::after {
+                  content: "{{ label_bot }}";
+                  position: absolute; bottom: 6px; left: 0; right: 0;
+                  text-align: center; color: #222;
+                  font-family: monospace; font-size: 11px; font-weight: 700;
+                }
+                ha-markdown { display: none !important; }
           - type: picture-entity
             entity: image.phantom_YOUR_BOARD_MAC_board
             show_name: false
@@ -1063,8 +1122,8 @@ views:
               {%- set num_pairs = (moves | length + 1) // 2 %}{%- for i in range(num_pairs) %}{%- set w = moves[i*2] if (i*2) < (moves | length) else none %}{%- set b = moves[i*2+1] if (i*2+1) < (moves
               | length) else none %}
 
-              | {{ i+1 }} | {% if w %}{{ w.san }} <span style=''color:{{ w.color }};font-size:10px''>{{ w.glyph }}</span>{% endif %} | {% if b %}{{ b.san }} <span style=''color:{{ b.color }};font-size:10px''>{{
-              b.glyph }}</span>{% endif %} |{%- endfor %}{% endif %}'
+              | {{ i+1 }} | {% if w %}{{ w.san }} <font color=''{{ w.color }}''>{{ w.glyph }}</font>{% endif %} | {% if b %}{{ b.san }} <font color=''{{ b.color }}''>{{
+              b.glyph }}</font>{% endif %} |{%- endfor %}{% endif %}'
         - type: markdown
           card_mod:
             style: 'ha-card { background: #1a1a1a !important; border: 1px solid #333 !important; border-radius: 4px !important; padding: 0 !important; }
@@ -1074,16 +1133,9 @@ views:
               ha-markdown p { margin: 0 !important; font-size: 13px; }
 
               '
-          content: "{% set mv = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{% set cls = states('sensor.phantom_YOUR_BOARD_MAC_last_move_classification') %}{% set cpl = states('sensor.phantom_YOUR_BOARD_MAC_last_move_cpl')\
-            \ %}{% set motif = states('sensor.phantom_YOUR_BOARD_MAC_last_move_motif') %}{% set cp = states('sensor.phantom_YOUR_BOARD_MAC_eval_cp') %}{% set best = states('sensor.phantom_YOUR_BOARD_MAC_best_move_san')\
-            \ %}{% set src = states('sensor.phantom_YOUR_BOARD_MAC_eval_source') %}{% set color_map = {'brilliant':'#00bcd4','best':'#4caf50','good':'#8bc34a','book':'#795548','inaccuracy':'#ffc107','mistake':'#ff9800','blunder':'#f44336','unknown':'#9e9e9e'}\
-            \ %}{% set glyph_map = {'brilliant':'!!','best':'\u2713','good':'!','book':'\U0001F4D6','inaccuracy':'?!','mistake':'?','blunder':'??','unknown':'\u2026'} %}{% set color = color_map.get(cls,\
-            \ '#9e9e9e') %}{% set glyph = glyph_map.get(cls, '\u2026') %}{% if mv not in ['', 'unknown'] %}Last move: **{{ mv }}** {% if cls not in ['', 'unknown', 'unavailable'] %}&nbsp;&nbsp;<span style='color:{{\
-            \ color }};font-weight:700;'>{{ glyph }} {{ cls | title }}</span>{% endif %}{% if cpl not in ['', 'unknown', 'unavailable'] %}&nbsp;&nbsp;CPL: {{ cpl }}{% endif %}{% if motif not in ['', 'unknown',\
-            \ 'unavailable', 'none'] %}&nbsp;&nbsp;<span style='color:#80cbc4;'>({{ motif | title }})</span>{% endif %}{% if cp not in ['', 'unknown', 'unavailable'] %}{% set cp_i = cp | int(0) %}&nbsp;&nbsp;Eval:\
-            \ **{{ '+' if cp_i >= 0 else '' }}{{ (cp_i/100.0) | round(1) }}**{% endif %}{% else %}*Waiting for first move\u2026*{% endif %}  \n{% if is_state('input_boolean.phantom_chess_training_wheels',\
-            \ 'on') and best not in ['', 'unknown', 'unavailable'] %}<span style='color:#80cbc4;'>\U0001F4A1 Engine recommends: **{{ best }}**</span>{% if src not in ['', 'unknown'] %} <span style='opacity:0.5;font-size:11px;'>({{\
-            \ src }})</span>{% endif %}{% endif %}"
+          content: |-
+            {% set mv = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{% set cls = states('sensor.phantom_YOUR_BOARD_MAC_last_move_classification') %}{% set cpl = states('sensor.phantom_YOUR_BOARD_MAC_last_move_cpl') %}{% set motif = states('sensor.phantom_YOUR_BOARD_MAC_last_move_motif') %}{% set cp = states('sensor.phantom_YOUR_BOARD_MAC_eval_cp') %}{% set best = states('sensor.phantom_YOUR_BOARD_MAC_best_move_san') %}{% set src = states('sensor.phantom_YOUR_BOARD_MAC_eval_source') %}{% set color_map = {'brilliant':'#00bcd4','best':'#4caf50','good':'#8bc34a','book':'#795548','inaccuracy':'#ffc107','mistake':'#ff9800','blunder':'#f44336','unknown':'#9e9e9e'} %}{% set glyph_map = {'brilliant':'!!','best':'✓','good':'!','book':'📖','inaccuracy':'?!','mistake':'?','blunder':'??','unknown':'…'} %}{% set color = color_map.get(cls, '#9e9e9e') %}{% set glyph = glyph_map.get(cls, '…') %}{% if mv not in ['', 'unknown'] %}Last move: **{{ mv }}** {% if cls not in ['', 'unknown', 'unavailable'] %}&nbsp;&nbsp;<font color='{{ color }}'><b>{{ glyph }} {{ cls | title }}</b></font>{% endif %}{% if cpl not in ['', 'unknown', 'unavailable'] %}&nbsp;&nbsp;CPL: {{ cpl }}{% endif %}{% if motif not in ['', 'unknown', 'unavailable', 'none'] %}&nbsp;&nbsp;<font color='#80cbc4'>({{ motif | title }})</font>{% endif %}{% if cp not in ['', 'unknown', 'unavailable'] %}{% set cp_i = cp | int(0) %}&nbsp;&nbsp;Eval: **{{ '+' if cp_i >= 0 else '' }}{{ (cp_i/100.0) | round(1) }}**{% endif %}{% else %}*Waiting for first move…*{% endif %}  
+            {% if is_state('input_boolean.phantom_chess_training_wheels', 'on') and best not in ['', 'unknown', 'unavailable'] %}<font color='#80cbc4'>💡 Engine recommends: **{{ best }}**</font>{% if src not in ['', 'unknown'] %} ({{ src }}){% endif %}{% endif %}
         - type: grid
           columns: 4
           square: false
@@ -1165,15 +1217,34 @@ views:
               ha-markdown { padding: 12px 16px !important; }
 
               '
-          content: "**Your three biggest mistakes**\n\n{% set mistakes = state_attr('sensor.phantom_YOUR_BOARD_MAC_last_game_review', 'top_mistakes') or [] %}{% if mistakes | length == 0 %}\n*No analysis\
-            \ yet for this game.*\n{% else %}\n{% set color_map = {'inaccuracy':'#ffc107','mistake':'#ff9800','blunder':'#f44336'} %}{% for m in mistakes %}{% set c = color_map.get(m.classification, '#9e9e9e')\
-            \ %}<div style='border-left: 3px solid {{ c }}; padding: 8px 12px; margin: 8px 0; background: #222;'><div style='font-weight:700; color: {{ c }};'>Move {{ m.move_num }}. {{ m.san }} \u2014 {{\
-            \ m.classification | title }} <span style='opacity:0.7;font-size:12px;'>(lost {{ (m.cpl/100.0) | round(1) }} pawns)</span></div><div style='margin-top:4px;font-size:13px;'>Best was <b>{{ m.best_san\
-            \ }}</b>{% if m.description %} \u2014 {{ m.description }}{% endif %}</div></div>{% endfor %}{% endif %}"
+          content: |-
+            **Your three biggest mistakes**
+            
+            {% set mistakes = state_attr('sensor.phantom_YOUR_BOARD_MAC_last_game_review', 'top_mistakes') or [] %}{% if mistakes | length == 0 %}
+            *No analysis yet for this game.*
+            {% else %}
+            {% set color_map = {'inaccuracy':'#ffc107','mistake':'#ff9800','blunder':'#f44336'} %}{% for m in mistakes %}{% set c = color_map.get(m.classification, '#9e9e9e') %}<font color='{{ c }}'>▎ <b>Move {{ m.move_num }}. {{ m.san }} — {{ m.classification | title }}</b></font> (lost {{ (m.cpl/100.0) | round(1) }} pawns)<br>Best was <b>{{ m.best_san }}</b>{% if m.description %} — {{ m.description }}{% endif %}<br><br>{% endfor %}{% endif %}
+        # v0.4-alpha32: 4-action grid (was 3). Added "Reset board" so
+        # the user can return the physical magnet board to the starting
+        # position without picking through pieces by hand. Calls
+        # `phantom_chess.reset_position` which drives the magnet from
+        # the current position back to the start (uses the same
+        # snapshot-protocol path as a normal AI move, but with the
+        # starting FEN as target).
         - type: grid
-          columns: 3
+          columns: 2
           square: false
           cards:
+          - type: tile
+            entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+            name: Reset board
+            icon: mdi:restart
+            color: orange
+            hide_state: true
+            tap_action:
+              action: perform-action
+              perform_action: phantom_chess.reset_position
+              data: {}
           - type: tile
             entity: input_select.phantom_chess_setup_mode
             name: New game

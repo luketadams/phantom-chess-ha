@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha32] — 2026-05-31
+
+Dashboard polish: eval bar + per-item colors survive the markdown sanitizer, a Reset board button, the `Board Playing` firmware state, and a steady AI-vs-AI status line.
+
+### Added
+
+- **Reset board** tile in the post-game review controls — drives the magnet back to the starting position via `phantom_chess.reset_position` instead of rearranging pieces by hand.
+
+### Fixed
+
+- **Eval bar rendered blank.** It was built from inline-styled HTML `<div>`s, but HA's markdown card sanitizes its body with js-xss, whose default whitelist allows `<div>`/`<span>` as tags with *zero* attributes — so every inline `style=` was stripped. Redrawn with a card-mod `style:` block (a two-stop `linear-gradient` fill on `ha-card` plus `::before`/`::after` labels), which is injected into the shadow DOM and bypasses the sanitizer.
+- **Move colors stripped.** Same root cause: the moves table glyphs, last-move classification/motif/engine-hint, and the game-review "biggest mistakes" cards used inline `style="color:…"`. Migrated to `<font color="…">` (which js-xss keeps via `font: color/size/face`), so the colors render again.
+- **Mode picker went blank mid-game.** Added the firmware's `Board Playing` state alongside `BLE Playing` to every mode-section condition, so the dashboard no longer empties when firmware reports `Board Playing`.
+
+### Changed
+
+- **AI-vs-AI status.** During spectator games the in-game "State" tile showed the raw firmware mode, which flickered between "Setting Up" and "Board Playing" every few seconds. Replaced it with a markdown card showing a steady "AI vs AI — move N" (full-move count from move history); other game types keep the raw state.
+
+### Tests
+
+- Dashboard renderer suite re-baselined: surviving tiles 17 → 16 (the in-game State tile became a markdown card). New `test_no_inline_style_colors_use_font_tag` locks the moves/last-move/review cards to `<font color>` (no inline `style=`); `test_eval_bar_is_card_mod_not_inline_html` (added with the eval-bar fix) locks the eval bar to card-mod CSS. Full minimal-env suite: 161 passed.
+
 ## [0.4.0-alpha31] — 2026-05-30
 
 Suppress duplicate board during learning-view play (Lichess / Stockfish / AI-vs-AI).
