@@ -57,9 +57,13 @@ async def async_setup_entry(
 class PhantomBaseNumber(CoordinatorEntity[PhantomChessCoordinator], NumberEntity):
     _attr_has_entity_name = True
     _attr_mode = NumberMode.SLIDER
-    _attr_native_min_value = 0
-    _attr_native_max_value = 100
-    _attr_native_step = 1
+    # Annotated as float (not int) to match HA's own NumberEntity typing and
+    # to allow float-valued subclasses (e.g. PhantomAIvsAIMoveDelayNumber's
+    # 0.5s step) to override these without a mypy [assignment] error. Integer
+    # sliders remain valid since int is assignable to float.
+    _attr_native_min_value: float = 0
+    _attr_native_max_value: float = 100
+    _attr_native_step: float = 1
     # Gold quality scale rule `entity-category`: every number on this
     # integration is user-tunable configuration (mechanism speed, sound
     # level, Lichess clock minutes / increment).

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha34] — 2026-06-01
+
+CI is green across all six jobs for the first time since alpha29. Two long-standing red jobs are fixed; there is no change to the integration's runtime behavior.
+
+### Fixed
+
+- **`typecheck` (mypy) job had been red since alpha30.** `PhantomBaseNumber` inferred its `_attr_native_min_value` / `_attr_native_max_value` / `_attr_native_step` class attributes as `int`, but `PhantomAIvsAIMoveDelayNumber` (added in alpha30) overrides them with floats (a 0.5 s step), producing three `[assignment]` errors. The base attributes are now explicitly annotated `float`, matching Home Assistant's own `NumberEntity` typing; integer sliders stay valid since `int` is assignable to `float`.
+- **`matrix-tests` job went red in alpha33.** The new `tests/test_ai_vs_ai_resilience.py` uses `async def` tests, but the matrix-tests job installed only `pytest` (no `pytest-asyncio`), so `asyncio_mode = "auto"` was ignored and the four tests errored with "async def functions are not natively supported." `pytest-asyncio` is now in the matrix-tests install step. (These tests already passed in the `ha-tests` job, which bundles the plugin.)
+
+### Notes
+
+- alpha32 and alpha33 shipped on a red CI because the pre-ship gate only ran pytest locally. The gate now runs the full gating set — `pytest` + `mypy` + `ruff` + `compileall` — before tagging.
+
 ## [0.4.0-alpha33] — 2026-05-31
 
 AI-vs-AI resilience: a transient BLE disconnect mid-game is now recovered instead of ending the spectator game.
