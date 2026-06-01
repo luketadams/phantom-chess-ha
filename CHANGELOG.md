@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-alpha33] — 2026-05-31
+
+AI-vs-AI resilience: a transient BLE disconnect mid-game is now recovered instead of ending the spectator game.
+
+### Fixed
+
+- **AI-vs-AI game died on the first BLE blip.** Under sustained stepper load (a full board snapshot every ply) the board's BLE link occasionally drops mid-game; the loop used to `break` permanently on the first failed move. It now waits for the background maintain loop to reconnect (bounded ~30s) and re-drives the current position, so the game continues. If the board never comes back it still stops gracefully.
+  - The recovery re-drives the already-applied position via the snapshot primitive (`_phantom_execute_position` with the current board FEN) rather than re-calling `apply_ai_move` — the latter pushes the move onto the internal board *before* the BLE write and doesn't roll back on failure, so re-calling it would no-op and leave the physical board a move behind.
+
+### Tests
+
+- New `tests/test_ai_vs_ai_resilience.py` (4 tests): transient-drop → reconnect → re-drive → game continues; never-reconnect → graceful stop; the `_ai_vs_ai_await_reconnect` helper returns True once the link is restored and bails when the game is stopped. Added to the CI matrix-tests job. Full minimal-env suite: 228 passed, 1 skipped.
+
+### Known limitations
+
+- The recovery is verified in software but not yet proven against a real hardware disconnect. If the drop turns out to be a physical radio brownout under stepper current (rather than a software staleness false-positive), reducing mechanism speed or adding an inter-move settle may matter more than the retry.
+
 ## [0.4.0-alpha32] — 2026-05-31
 
 Dashboard polish: eval bar + per-item colors survive the markdown sanitizer, a Reset board button, the `Board Playing` firmware state, and a steady AI-vs-AI status line.

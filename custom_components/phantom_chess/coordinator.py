@@ -4499,6 +4499,32 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._ai_vs_ai_loop(), name=f"{DOMAIN}_ai_vs_ai_loop",
         )
 
+    async def _ai_vs_ai_await_reconnect(self, timeout: float = 30.0) -> bool:
+        """Block (bounded) until the BLE maintain loop restores the link.
+
+        AI-vs-AI pushes a full GAME_START snapshot every ply, keeping the
+        steppers near-continuously active; under that load the board's BLE
+        link occasionally drops mid-game (observed ply-9 disconnect,
+        2026-05-31). ``_ble_loop`` reconnects on its own; this helper just
+        waits for ``_ble_connected`` to come back so the spectator game can
+        resume instead of dying on the first transient blip.
+
+        Honors ``_ai_vs_ai_active`` for prompt shutdown. On reconnect it
+        waits a short settle so the board can finish connect-time service
+        discovery before the caller writes the re-drive snapshot. Returns
+        True once reconnected (and still active), False on timeout or if the
+        game was stopped while waiting.
+        """
+        deadline = self.hass.loop.time() + timeout
+        while self.hass.loop.time() < deadline:
+            if not self._ai_vs_ai_active:
+                return False
+            if self._ble_connected:
+                await asyncio.sleep(2.0)
+                return self._ble_connected and self._ai_vs_ai_active
+            await asyncio.sleep(1.0)
+        return False
+
     async def _ai_vs_ai_loop(self) -> None:
         """Background loop that plays both sides via local Stockfish.
 
@@ -4547,11 +4573,48 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     await self.async_phantom_apply_ai_move(uci)
                 except Exception as err:
+                    # A transient BLE drop (common under sustained stepper
+                    # load) shouldn't kill the whole spectator game. Wait for
+                    # the maintain loop to reconnect, then RE-DRIVE the current
+                    # position. We must NOT re-call apply_ai_move: it already
+                    # pushed this move onto self._board before the failed write
+                    # and does not roll back (see its docstring), so a second
+                    # call would find the move illegal-because-already-played
+                    # and no-op, leaving the physical board a move behind.
+                    # _phantom_execute_position drives the magnet to an
+                    # absolute target FEN (snapshot model, idempotent), so
+                    # re-driving self._board.fen() reproduces exactly what the
+                    # failed apply_ai_move would have done.
                     _LOGGER.warning(
                         "AI-vs-AI: apply_ai_move raised %s at ply %d; "
-                        "stopping loop", err, len(self._board.move_stack),
+                        "waiting for reconnect to re-drive",
+                        err, len(self._board.move_stack),
                     )
-                    break
+                    if not await self._ai_vs_ai_await_reconnect():
+                        _LOGGER.warning(
+                            "AI-vs-AI: board did not reconnect; stopping loop"
+                        )
+                        break
+                    try:
+                        ok = await self._phantom_execute_position(
+                            fen=self._board.fen(),
+                            side="W" if self._our_color == chess.WHITE else "B",
+                            timeout_s=30.0,
+                            side_opcode="1",
+                        )
+                        if not ok:
+                            _LOGGER.warning(
+                                "AI-vs-AI: re-drive after reconnect timed out "
+                                "at ply %d; continuing",
+                                len(self._board.move_stack),
+                            )
+                    except Exception as err2:
+                        _LOGGER.warning(
+                            "AI-vs-AI: re-drive after reconnect failed (%s) at "
+                            "ply %d; stopping loop",
+                            err2, len(self._board.move_stack),
+                        )
+                        break
 
                 # Fire the analysis pipeline for the move just played so
                 # the rich learning view's history populates. We pass
