@@ -58,6 +58,7 @@ SERVICE_STOP_LOCAL_GAME  = "stop_local_game"
 # Useful for autonomous protocol testing (e.g., castle handling) and
 # as a "watch the AI play itself" demo. Added 2026-05-25.
 SERVICE_START_AI_VS_AI_GAME = "start_ai_vs_ai_game"
+SERVICE_START_TWO_PLAYER_GAME = "start_two_player_game"
 SERVICE_SEND_MOVE        = "send_move"
 SERVICE_RESIGN           = "resign"
 SERVICE_TAKEBACK         = "takeback"
@@ -840,6 +841,10 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(call)
         await coordinator.async_stop_local_game()
 
+    async def handle_start_two_player_game(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(call)
+        await coordinator.async_start_two_player_game()
+
     async def handle_start_ai_vs_ai_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
         # alpha30: fall back to the integration-owned spectator-mode
@@ -943,6 +948,9 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_START_AI_VS_AI_GAME, handle_start_ai_vs_ai_game,
         schema=START_AI_VS_AI_GAME_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_START_TWO_PLAYER_GAME, handle_start_two_player_game
     )
     # v0.4-alpha3 service wrappers — replace user-side scripts.
     hass.services.async_register(DOMAIN, SERVICE_BACK_TO_MODES, handle_back_to_modes)

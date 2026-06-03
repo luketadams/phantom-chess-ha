@@ -124,10 +124,10 @@ views:
 
                   '
             - type: markdown
-              content: Lichess
+              content: Play with Lichess
               card_mod:
                 style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; }
+                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
 
                   '
           - type: vertical-stack
@@ -146,10 +146,10 @@ views:
 
                   '
             - type: markdown
-              content: Stockfish
+              content: Play with Stockfish
               card_mod:
                 style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; }
+                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
 
                   '
           - type: vertical-stack
@@ -168,10 +168,10 @@ views:
 
                   '
             - type: markdown
-              content: Historic Games
+              content: Watch historic games
               card_mod:
                 style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; }
+                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
 
                   '
         - type: grid
@@ -194,10 +194,10 @@ views:
 
                   '
             - type: markdown
-              content: 2-Player
+              content: Two-player recording
               card_mod:
                 style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; }
+                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
 
                   '
           - type: vertical-stack
@@ -216,10 +216,10 @@ views:
 
                   '
             - type: markdown
-              content: AI vs AI
+              content: AI vs. AI
               card_mod:
                 style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; }
+                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
 
                   '
     - type: conditional
@@ -633,9 +633,29 @@ views:
               \ %}{% set last = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{{ '\U0001F7E2' if conn else '\U0001F534' }} &nbsp; Battery: **{{ batt }}%** &nbsp;\u2022&nbsp; Mode: **{{\
               \ mode }}** &nbsp;\u2022&nbsp; Last: `{{ last }}`"
         - type: markdown
-          content: "## \U0001F465 2-Player Game\n**Coming soon.** This mode will let two humans play on the board with the integration recording every move into a PGN, then making the recorded game available\
-            \ for replay on this dashboard \u2014 same mechanism as Historic Games.\n\n**Planned features:**\n- Live move tracking via the board's sensors (no app needed)\n- Per-side turn timers\n\
-            - Automatic PGN export at game end\n- Replay any prior recorded game on the board\n\n_Tracked as task #24._"
+          content: "## \U0001F465 Two-Player Recording\nSet up the pieces, press **Start recording**, and play \u2014 both sides are human. Every move is tracked live with Stockfish evaluation, the strength meter on the left, move classification and full history. Turn on **Training wheels** for visual and spoken coaching. The game is saved as a PGN when it ends; press the board\u2019s Reset button to end early."
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: tile
+            entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+            name: Start recording
+            icon: mdi:record-circle
+            color: green
+            vertical: true
+            tap_action:
+              action: perform-action
+              perform_action: phantom_chess.start_two_player_game
+              data: {}
+            hide_state: true
+          - type: tile
+            entity: input_boolean.phantom_chess_training_wheels
+            name: Training wheels
+            icon: mdi:school
+            color: amber
+            tap_action:
+              action: toggle
     # v0.4-alpha30: Watch AI vs AI section. Stockfish plays both sides
     # on the physical board so the user can watch as a spectator.
     # Three integration-owned sliders configure the levels + pacing

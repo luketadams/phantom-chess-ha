@@ -113,12 +113,13 @@ def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
     cards = list(_walk_cards(rendered_config))
     tiles = [c for c in cards if c.get("type") == "tile"]
     buttons = [c for c in cards if c.get("type") == "button"]
-    assert len(tiles) == 16, f"expected 16 surviving tiles, got {len(tiles)}"
+    assert len(tiles) == 17, f"expected 17 surviving tiles, got {len(tiles)}"
     # beta1: the 5 mode-picker tiles became custom ghost-mascot picture
     # buttons (type: picture, not action-tiles), so they no longer convert
-    # to `button` cards: 25 → 20. The launcher is asserted separately in
+    # to `button` cards: 25 → 20. beta2 added the 2-player Start button (+1 button)
+    # and the training-wheels toggle tile (+1 tile). Launcher asserted in
     # test_mode_picker_buttons_target_setup_mode_select.
-    assert len(buttons) == 20, f"expected 20 buttons, got {len(buttons)}"
+    assert len(buttons) == 21, f"expected 21 buttons, got {len(buttons)}"
 
 
 # ─── "what should be gone" assertions ───────────────────────────────────

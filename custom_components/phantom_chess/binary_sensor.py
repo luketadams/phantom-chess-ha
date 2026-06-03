@@ -160,7 +160,11 @@ class PhantomLearningViewActiveSensor(PhantomBaseBinary):
         data = self.coordinator.data or {}
         # Lichess path uses the state-dict flag; local-game path mirrors its
         # instance attribute into the same dict via coordinator updates.
-        return bool(data.get("lichess_active") or data.get("local_game_active"))
+        return bool(
+            data.get("lichess_active")
+            or data.get("local_game_active")
+            or data.get("two_player_active")
+        )
 
 
 # ── v0.4-alpha3: integration-owned 60s-idle gate ──────────────────────────

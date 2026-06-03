@@ -258,6 +258,8 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Local AI mode (no Lichess required)
         self._local_game_active: bool = False
+        # v0.4-beta2: two-human recording mode (board in SIDE-0 2-local-player).
+        self._two_player_active: bool = False
         self._local_game_task: asyncio.Task | None = None
         # AI-vs-AI mode: Stockfish plays both sides via the same snapshot
         # protocol used for normal AI moves. Useful for autonomous testing
@@ -631,6 +633,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # dashboard. Set True by async_start_local_game, False by
             # game-end or async_stop_local_game. (Task #9, 2026-05-16)
             "local_game_active": False,
+            "two_player_active": False,
             "lichess_white_name": None,
             "lichess_black_name": None,
             "lichess_white_clock": None,
@@ -1195,6 +1198,22 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                                         name=f"{DOMAIN}_local_ai_replace_after_human",
                                                     )
                                                 )
+                                            elif self._two_player_active:
+                                                # v0.4-beta2 two-player recording: analyze the just-pushed move
+                                                # (eval meter, classification glyphs, move history via the shared
+                                                # learning-view pipeline) and check for game end. No AI or Lichess
+                                                # response — both sides are humans moving the physical pieces.
+                                                _mover_white = (self._board.turn == chess.BLACK)
+                                                self.hass.loop.call_soon_threadsafe(
+                                                    self._record_and_analyze_local_move, mv, _mover_white
+                                                )
+                                                if self._board.is_game_over():
+                                                    self.hass.loop.call_soon_threadsafe(
+                                                        lambda: self.hass.loop.create_task(
+                                                            self._finalize_two_player_game(),
+                                                            name=f"{DOMAIN}_two_player_finalize",
+                                                        )
+                                                    )
                                             elif self._game_id:
                                                 self.hass.loop.call_soon_threadsafe(
                                                     self._physical_move_queue.put_nowait, uci
@@ -2908,6 +2927,12 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self._ble_connected:
             raise RuntimeError("BLE not connected")
 
+        # v0.4-beta2: a manual reset during a two-player recording ends and
+        # saves the game first (the dashboard Reset action doubles as
+        # "end recording").
+        if self._two_player_active:
+            await self._finalize_two_player_game()
+
         # Reset internal python-chess state.
         self._board = chess.Board()
         self._state["live_fen"] = self._board.board_fen()
@@ -3712,13 +3737,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             CLASSIFICATION_BLUNDER, CLASSIFICATION_MISTAKE,
             CLASSIFICATION_INACCURACY,
         )
-        verbose = False
-        try:
-            tw = self.hass.states.get("input_boolean.phantom_chess_training_wheels")
-            if tw is not None and tw.state == "on":
-                verbose = True
-        except Exception:
-            pass
+        verbose = bool(self.training_wheels)
 
         # Mate-transition handling: classify_move clamps loss to 9999 cp,
         # which divided by 100 yields up to ~100 pawns — absurd as a real
@@ -4072,6 +4091,149 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # via the serialized replacement helper (audit §1.4).
         if self._our_color == chess.BLACK:
             await self._replace_local_game_task(name=f"{DOMAIN}_local_ai_first")
+
+    async def async_start_two_player_game(self) -> None:
+        """Start a two-human recording game on the physical board.
+
+        Both players move the physical pieces; the board's sensors report each
+        move (SIDE-0 "2-local-player" firmware mode, no AI/Lichess opponent).
+        Every detected move is funneled through the same analysis pipeline as
+        the local/AI games, so the rich learning view lights up live: the eval
+        meter, per-move classification glyphs and the move history. On game end
+        the PGN is saved under <config>/phantom_chess/recordings/. v0.4-beta2.
+        """
+        if not self._ble_connected:
+            raise RuntimeError("Board not connected via Bluetooth")
+        if self._lichess_task and not self._lichess_task.done():
+            self._lichess_task.cancel()
+        _lt = getattr(self, "_local_game_task", None)
+        if _lt is not None and not _lt.done():
+            _lt.cancel()
+
+        self._board = chess.Board()
+        self._game_id = None
+        self._our_color = chess.WHITE
+        self._processed_moves = 0
+        self._local_game_active = False
+        self._ai_vs_ai_active = False
+        self._two_player_active = True
+        self._state["game_status"] = STATUS_PLAYING
+        self._state["last_move"] = None
+        self._state["lichess_game_id"] = "two_player"
+        self._state["live_fen"] = self._board.board_fen()
+        self._state["local_game_active"] = False
+        self._state["two_player_active"] = True
+        self._state["lichess_active"] = False
+        self._state["lichess_review_ready"] = False
+        self._state["move_history_moves"] = []
+        self._state["opening_name"] = None
+        self._state["opening_eco"] = None
+        self._state["eval_cp"] = None
+        self._state["eval_mate"] = None
+        self._state["eval_source"] = None
+        self._state["eval_depth"] = None
+        self._state["best_move_san"] = None
+        self._state["threat_san"] = None
+        self._state["last_move_classification"] = None
+        self._state["last_move_cpl"] = None
+        self._state["last_move_motif"] = None
+        self._state["last_game_result"] = None
+        self._state["last_game_accuracy_white"] = None
+        self._state["last_game_accuracy_black"] = None
+        self._state["last_game_top_mistakes"] = []
+        self._analysis_board = chess.Board()
+        self._state["lichess_white_name"] = "White"
+        self._state["lichess_black_name"] = "Black"
+        self.hass.async_create_task(self._analyze_starting_position())
+        self.paused = False
+
+        try:
+            await self._phantom_send_game_assistance(
+                auto_castling=True, auto_en_passant=True, auto_snap_to_center=True,
+                auto_correct_wrong_move=True, advanced_capture=True, strict_gameplay=False,
+            )
+        except Exception as _ga_err:
+            _LOGGER.warning("Two-player: GAME_ASSISTANCE write failed: %s", _ga_err)
+
+        self.hass.async_create_task(self._announce_via_tts(
+            "Two-player recording started. White to move."
+        ))
+
+        # SIDE opcode "0" = 2-local-player: the board detects both players'
+        # physical moves and never waits for a BLE/AI reply.
+        await self.async_phantom_start_game(side="W", side_opcode="0")
+        self.async_set_updated_data(dict(self._state))
+        _LOGGER.info("Two-player recording started (SIDE-0 2-local-player)")
+
+    async def _finalize_two_player_game(self) -> None:
+        """End a two-player recording: set result, build review, save PGN."""
+        if not self._two_player_active:
+            return
+        if self._board.is_checkmate():
+            self._state["game_status"] = STATUS_CHECKMATE
+            winner = "0-1" if self._board.turn == chess.WHITE else "1-0"
+            self._state["last_game_result"] = winner + " (checkmate)"
+        elif self._board.is_stalemate():
+            self._state["game_status"] = STATUS_STALEMATE
+            self._state["last_game_result"] = "1/2-1/2 (stalemate)"
+        elif self._board.is_insufficient_material():
+            self._state["game_status"] = STATUS_DRAW
+            self._state["last_game_result"] = "1/2-1/2 (insufficient material)"
+        elif self._board.is_seventyfive_moves() or self._board.is_fivefold_repetition():
+            self._state["game_status"] = STATUS_DRAW
+            self._state["last_game_result"] = "1/2-1/2 (75-move/repetition)"
+        else:
+            self._state["game_status"] = STATUS_IDLE
+            self._state["last_game_result"] = "* (ended early)"
+
+        self._two_player_active = False
+        self._state["two_player_active"] = False
+        self._state["lichess_review_ready"] = True
+        self.async_set_updated_data(dict(self._state))
+
+        try:
+            await self.hass.async_add_executor_job(self._save_two_player_pgn)
+        except Exception as err:
+            _LOGGER.warning("Two-player: PGN save failed: %s", err)
+
+        self.hass.async_create_task(self._build_post_game_review())
+        _LOGGER.info(
+            "Two-player recording ended: result=%s after %d plies",
+            self._state.get("last_game_result"), len(self._board.move_stack),
+        )
+
+    def _save_two_player_pgn(self):
+        """Write the recorded game to <config>/phantom_chess/recordings/<ts>.pgn.
+
+        Runs in the executor (blocking file IO). Returns the path or None.
+        """
+        import os
+        import datetime
+        import chess.pgn
+
+        game = chess.pgn.Game.from_board(self._board)
+        game.headers["Event"] = "Phantom Chess two-player recording"
+        game.headers["Site"] = "Phantom Chess Board"
+        game.headers["Date"] = datetime.datetime.now().strftime("%Y.%m.%d")
+        game.headers["White"] = "White"
+        game.headers["Black"] = "Black"
+        lr = self._state.get("last_game_result") or ""
+        result = "*"
+        for r in ("1/2-1/2", "1-0", "0-1"):
+            if lr.startswith(r):
+                result = r
+                break
+        game.headers["Result"] = result
+
+        rec_dir = self.hass.config.path("phantom_chess", "recordings")
+        os.makedirs(rec_dir, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        path = os.path.join(rec_dir, "two_player_" + ts + ".pgn")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(str(game) + "\n")
+        self._state["last_recording_pgn"] = path
+        _LOGGER.info("Two-player PGN saved: %s", path)
+        return path
 
     def _record_and_analyze_local_move(self, move: chess.Move, mover_is_white: bool) -> None:
         """Fire the analysis pipeline for a single local-game move.

@@ -163,11 +163,7 @@ class PhantomChessBoardImage(CoordinatorEntity[PhantomChessCoordinator], ImageEn
         haven't created the input_boolean yet). Always-fail-closed: if there
         is any doubt, don't show the glyph overlay.
         """
-        try:
-            st = self.hass.states.get(_TRAINING_WHEELS_ENTITY)
-            return st is not None and st.state == "on"
-        except Exception:
-            return False
+        return bool(getattr(self.coordinator, "training_wheels", False))
 
     # ── HA hooks ─────────────────────────────────────────────────────────────
 
