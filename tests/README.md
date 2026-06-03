@@ -1,16 +1,24 @@
 # Phantom Chess — test suite
 
-Initial test coverage. Currently a small but representative set; will grow.
+Test suite spanning two CI jobs: a fast minimal-env `matrix-tests` group (no
+Home Assistant installed) and a full `ha-tests` group via
+`pytest-homeassistant-custom-component`. See the Layout section for the split.
 
 ## Running
 
 ### Pure-function tests (no HA scaffolding needed)
 
 ```bash
-pip install pytest
-cd custom_components/phantom_chess
+pip install pytest pytest-asyncio
 PYTHONPATH=. pytest tests/test_matrix.py -v
 ```
+
+`pytest-asyncio` is required because the minimal-env suite now includes
+async tests (e.g. `test_ai_vs_ai_resilience.py`); `asyncio_mode = "auto"`
+(in `pyproject.toml`) only takes effect when the plugin is installed. This
+mirrors the CI `matrix-tests` job — any new `async def` test added to that
+job's file list needs `pytest-asyncio` present or it errors with "async def
+functions are not natively supported."
 
 Or, since the matrix module is a pure standalone, even simpler:
 
@@ -39,12 +47,33 @@ the tests can drive.
 
 ## Layout
 
-- `test_matrix.py` — pure-function tests covering FEN ↔ matrix conversion,
-  sensor consistency checks, mismatch diffing, and piece-name mapping.
-  Runs in milliseconds, no HA scaffolding.
+Two groups, matching the CI jobs:
+
+**Minimal-env (CI `matrix-tests` job — no HA install, needs only
+`pytest pytest-asyncio chess pyyaml aiohttp`):**
+
+- `test_matrix.py` — FEN ↔ matrix conversion, sensor consistency, mismatch
+  diffing, piece-name mapping.
+- `test_dashboard_provision.py` — dashboard template rendering / sanitizer-safe
+  markup.
+- `test_lichess_analysis.py` — Lichess analysis client parse + cache + AI-level
+  table.
+- `test_coordinator_helpers.py`, `test_coordinator_state.py` — pure coordinator
+  helpers and state transitions.
+- `test_diagnostics.py` — diagnostics payload shape.
+- `test_ai_vs_ai_resilience.py` — AI-vs-AI BLE-drop recovery loop (async;
+  needs `pytest-asyncio`).
+
+**Full HA-integration (CI `ha-tests` job — needs
+`pytest-homeassistant-custom-component`):**
+
 - `test_config_flow.py` — Bluetooth discovery, token validation, reauth,
-  options flow. Requires the full HA test plugin.
-- `conftest.py` — shared fixtures (mock Lichess responses, mock BLE device).
+  options flow. Gated by `pytest.importorskip` so it skips cleanly in the
+  minimal env.
+
+`conftest.py` — shared fixtures plus the minimal-env stub that stages
+`matrix.py` / `dashboard_provision.py` into `sys.modules` with stubbed
+`homeassistant.*` so the pure-function tests import naturally in both envs.
 
 ## Adding tests
 
