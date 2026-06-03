@@ -25,13 +25,14 @@ rules:
       interval applies.
 
   brands:
-    status: todo
+    status: done
     comment: |
-      Brand assets PR to home-assistant/brands not yet submitted. Tracked
-      as a v0.4 follow-up — the integration currently uses the default
-      HA placeholder icon. Submitting requires icon.png + icon@2x.png +
-      logo.png + logo@2x.png in the right dimensions; see
-      https://developers.home-assistant.io/docs/creating_integration_brand
+      Brand assets ship locally in custom_components/phantom_chess/brand/
+      (icon.png 256x256 + icon@2x.png 512x512, transparent, trimmed) using
+      the HA 2026.3+ local brand-images mechanism, which takes precedence
+      over the home-assistant/brands repo and needs no external PR. The art
+      is square, so the icon doubles as the logo per the brands spec.
+      Verified rendering on the live integration card after an HA restart.
 
   common-modules:
     status: done
