@@ -67,10 +67,30 @@ resign:
 back_to_modes:
   name: Back to Modes
   description: >
-    Reset the dashboard to its mode-picker state: dismisses the post-game
-    review and resets `select.<device>_setup_mode` to "Choose a mode".
-    Replaces the v0.3 `script.phantom_back_to_modes` so the bundled
-    dashboard can call this service directly.
+    Return to the mode picker AND re-home the board. Dismisses the post-game
+    review, resets `select.<device>_setup_mode` to "Choose a mode", and drives
+    the physical pieces back to the starting position (also finalizes and saves
+    a two-player recording if one is active). The board re-home is best-effort —
+    a disconnected board still returns the dashboard to the picker. Replaces the
+    v0.3 `script.phantom_back_to_modes` so the bundled dashboard can call this
+    service directly.
+
+start_two_player_game:
+  name: Start Two-Player Recording
+  description: >
+    Start a two-human recording game on the physical board (SIDE-0
+    2-local-player firmware mode, no AI/Lichess opponent). Each detected move is
+    run through the analysis pipeline so the live learning view populates, and a
+    PGN is saved under `<config>/phantom_chess/recordings/` when the game ends.
+
+resync_two_player:
+  name: Resync Two-Player Board
+  description: >
+    Recovery action for a two-player recording that has gone out of sync (for
+    example after an illegal physical move was rejected). Re-drives the physical
+    pieces back to the last recorded position so the board and the dashboard
+    agree again; the recorded move history is left untouched. EXPERIMENTAL —
+    behaviour in 2-local-player mode still needs live-hardware verification.
 
 start_lichess_configured:
   name: Start Lichess Game (Configured)

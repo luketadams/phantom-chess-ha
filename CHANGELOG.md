@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-beta2] — 2026-06-03
+
+Second public beta. Two-player recording robustness, "Back to modes" now re-homes the board, a faithful PGN export, and a polished public README.
+
+### Added
+
+- **"Resync board" action for two-player recording.** A new `phantom_chess.resync_two_player` service (and a one-tap dashboard tile) re-drives the physical pieces back to the last recorded position when the board and the model have drifted apart — for example after an illegal move was rejected. The recorded move history is untouched. _Experimental: behaviour in 2-local-player mode still needs live-hardware verification._
+- **Out-of-sync feedback in two-player recording.** When a physical move is illegal in the current position it was previously dropped silently (so a later checkmate never registered). The integration now posts a notification and speaks a prompt ("that move isn't legal — put the piece back"), and clears it automatically once a legal move is played.
+
+### Changed
+
+- **"Back to modes" now re-homes the board.** Returning to the mode picker drives the pieces back to the starting position (and finalizes + saves a two-player recording if one is active), leaving the board clean for the next mode. The board re-home is best-effort, so a disconnected board still returns the dashboard to the picker.
+- **Two-player PGN is rebuilt from the displayed move history** rather than directly from the internal board, so the saved game always matches what was shown on the dashboard. A divergence between the two is logged (with both ply counts and FENs) to help root-cause the underlying drift. Fixes a case where a saved PGN had fewer moves than the dashboard showed.
+- **README rewritten for the public beta** — accurate five-mode launcher, the auto-provisioned dashboard flow (no more copy/paste of helpers/scripts), an honest account of historic-games playback, and removal of the now-fixed AI-vs-AI hang from Known Limitations.
+
 ## [0.4.0-beta1] — 2026-06-03
 
 First public beta. Bronze quality scale, a full ghost-mascot visual identity, the AI-vs-AI capture freeze fixed, and a speaker picker for spoken play-by-play.

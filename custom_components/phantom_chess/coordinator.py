@@ -634,6 +634,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # game-end or async_stop_local_game. (Task #9, 2026-05-16)
             "local_game_active": False,
             "two_player_active": False,
+            "two_player_out_of_sync": False,
             "lichess_white_name": None,
             "lichess_black_name": None,
             "lichess_white_clock": None,
@@ -1229,6 +1230,18 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                                 "DISCOVERY: neither raw=%s nor rotated=%s is legal in current position; recording firmware_last_move only — NOT queuing to Lichess",
                                                 raw_uci, rotated_uci,
                                             )
+                                            # v0.4-beta2: in two-player recording an
+                                            # illegal physical move was silently dropped
+                                            # (2026-06-03 live-test gap — the player's
+                                            # later checkmate never registered because
+                                            # self._board had stalled). Surface it so the
+                                            # player knows to undo the piece, and offer
+                                            # the resync action.
+                                            if self._two_player_active:
+                                                self.hass.loop.call_soon_threadsafe(
+                                                    self._flag_two_player_out_of_sync,
+                                                    raw_uci, rotated_uci,
+                                                )
                                 except Exception as conv_err:
                                     _LOGGER.debug("DISCOVERY: move-decode failed: %s", conv_err)
 
@@ -2519,17 +2532,35 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.info("resume_from_phone: sync complete")
 
     async def async_back_to_modes(self) -> None:
-        """Reset the dashboard to its mode-picker state.
+        """Reset the dashboard to its mode-picker state AND re-home the board.
 
-        Replaces the v0.3 script `phantom_back_to_modes`. Two effects:
+        Replaces the v0.3 script `phantom_back_to_modes`. Effects:
         clear the post-game review flag (so the "review" conditional
-        card hides), and reset `setup_mode` to "Choose a mode" (so the
-        mode picker re-renders). Added 2026-05-26 (v0.4-alpha3).
+        card hides), reset `setup_mode` to "Choose a mode" (so the mode
+        picker re-renders), and drive the physical board back to the
+        starting position.
+
+        The board re-home was added 2026-06-03 (v0.4-beta2) per Luke's
+        request that "Back to modes should always reset the board" — so
+        returning to the picker leaves the physical board clean for the
+        next mode. `async_reset_position` also finalizes and saves a
+        two-player recording if one is active. The UI reset always
+        happens first; the physical re-home is best-effort so a
+        disconnected board can never trap the dashboard in a game view.
+        Added 2026-05-26 (v0.4-alpha3).
         """
         from .const import DEFAULT_SETUP_MODE
         self.setup_mode = DEFAULT_SETUP_MODE
         self._state["lichess_review_ready"] = False
         self.async_set_updated_data(dict(self._state))
+
+        # Re-home the physical board (drives to the starting FEN via the
+        # snapshot protocol — a no-op of motion if pieces are already
+        # home). Best-effort: a BLE failure must not block the UI return.
+        try:
+            await self.async_reset_position()
+        except Exception as err:  # noqa: BLE001 — re-home is best-effort
+            _LOGGER.warning("back_to_modes: board re-home skipped (%s)", err)
 
     async def async_start_lichess_configured(self) -> None:
         """Start a Lichess game using the clock controls + ai_level +
@@ -4123,6 +4154,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._state["live_fen"] = self._board.board_fen()
         self._state["local_game_active"] = False
         self._state["two_player_active"] = True
+        self._state["two_player_out_of_sync"] = False
         self._state["lichess_active"] = False
         self._state["lichess_review_ready"] = False
         self._state["move_history_moves"] = []
@@ -4165,6 +4197,99 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(dict(self._state))
         _LOGGER.info("Two-player recording started (SIDE-0 2-local-player)")
 
+    def _flag_two_player_out_of_sync(self, raw_uci: str, rotated_uci: str) -> None:
+        """Surface a rejected (illegal) physical move during a two-player game.
+
+        Runs on the event loop (scheduled via call_soon_threadsafe from the
+        BLE callback). Sets a dashboard flag, posts a persistent notification,
+        and announces once per desync episode (re-fires only after a legal
+        move clears the flag) so repeated sensor wiggles don't spam.
+        v0.4-beta2 — fixes the silent-rejection gap found 2026-06-03.
+        """
+        if self._state.get("two_player_out_of_sync"):
+            return  # already flagged; don't re-notify until a legal move clears it
+        self._state["two_player_out_of_sync"] = True
+        self.async_set_updated_data(dict(self._state))
+        _LOGGER.info(
+            "Two-player out-of-sync: rejected illegal move (raw=%s rotated=%s)",
+            raw_uci, rotated_uci,
+        )
+        try:
+            self.hass.async_create_task(self.hass.services.async_call(
+                "persistent_notification", "create",
+                {
+                    "title": "Phantom Chess — move not legal",
+                    "message": (
+                        "That move isn't legal in the current position, so it "
+                        "wasn't recorded. Put the piece back where it was and "
+                        "play a legal move to continue. If the pieces and the "
+                        "dashboard still disagree, run the "
+                        "**phantom_chess.resync_two_player** action to drive the "
+                        "board back to the last recorded position."
+                    ),
+                    "notification_id": "phantom_chess_two_player_sync",
+                },
+            ))
+        except Exception as err:
+            _LOGGER.debug("two-player sync notification failed: %s", err)
+        if self._should_announce_active_game():
+            self.hass.async_create_task(self._announce_via_tts(
+                "That move isn't legal. Please put the piece back and try again."
+            ))
+
+    def _clear_two_player_out_of_sync(self) -> None:
+        """Clear the two-player out-of-sync flag + dismiss its notification."""
+        self._state["two_player_out_of_sync"] = False
+        try:
+            self.hass.async_create_task(self.hass.services.async_call(
+                "persistent_notification", "dismiss",
+                {"notification_id": "phantom_chess_two_player_sync"},
+            ))
+        except Exception as err:
+            _LOGGER.debug("two-player sync dismiss failed: %s", err)
+
+    async def async_resync_two_player(self) -> None:
+        """Re-drive the physical board to the last recorded (model) position.
+
+        Conservative recovery for the two-player out-of-sync case. Rather than
+        guessing the physical layout from sensors, it re-asserts self._board
+        (the last legal recorded position) onto the board via the snapshot
+        protocol, keeping SIDE-0 2-local-player mode, so the pieces and the
+        dashboard agree again and play can continue. The recorded move history
+        (and therefore the saved PGN) is untouched.
+
+        EXPERIMENTAL (v0.4-beta2) — the snapshot drive is proven for AI moves
+        but its behaviour while the firmware is in SIDE-0 2-local-player mode
+        still needs live-hardware verification. Best-effort: a drive timeout is
+        logged, not raised.
+        """
+        if not self._two_player_active:
+            raise RuntimeError("No two-player recording is active.")
+        if not self._ble_connected:
+            raise RuntimeError("Board not connected via Bluetooth")
+        fen = self._board.fen()
+        side_letter = "W" if self._board.turn == chess.WHITE else "B"
+        _LOGGER.info(
+            "Two-player resync: re-driving board to model FEN %s (side=%s)",
+            fen, side_letter,
+        )
+        # Re-send the snapshot from the current model position; side_opcode="0"
+        # keeps the firmware in 2-local-player mode after the drive.
+        self._phantom_session_initialized = False
+        ok = await self._phantom_execute_position(
+            fen=fen, side=side_letter, timeout_s=60.0, side_opcode="0",
+        )
+        self._clear_two_player_out_of_sync()
+        self.async_set_updated_data(dict(self._state))
+        if not ok:
+            _LOGGER.warning(
+                "Two-player resync: BLE_MOVE_DONE timed out — board may still "
+                "be settling. Model FEN: %s", fen,
+            )
+        self.hass.async_create_task(self._announce_via_tts(
+            "Board re-synced to the last recorded position. Continue playing."
+        ))
+
     async def _finalize_two_player_game(self) -> None:
         """End a two-player recording: set result, build review, save PGN."""
         if not self._two_player_active:
@@ -4206,12 +4331,65 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Write the recorded game to <config>/phantom_chess/recordings/<ts>.pgn.
 
         Runs in the executor (blocking file IO). Returns the path or None.
+
+        The PGN is rebuilt from the *displayed* move history
+        (``move_history_moves``, each entry carrying its UCI) rather than
+        directly from ``self._board``. ``self._board`` is mutated inline by
+        the discovery callback and can drift from the analysis/history
+        pipeline that feeds the dashboard (observed 2026-06-03: a saved PGN
+        had 7 plies while the dashboard showed 9). Rebuilding from the
+        history guarantees the saved game matches what the user actually saw.
+        ``self._board`` is used only as a fallback when the history is empty
+        or doesn't replay cleanly. A divergence is logged (with both ply
+        counts and FENs) to root-cause the underlying self._board drift.
         """
         import os
         import datetime
         import chess.pgn
 
-        game = chess.pgn.Game.from_board(self._board)
+        history = self._state.get("move_history_moves") or []
+        hist_ucis = [h.get("uci") for h in history if h.get("uci")]
+
+        pgn_board = chess.Board()
+        replayed = 0
+        replay_clean = True
+        for uci in hist_ucis:
+            try:
+                mv = chess.Move.from_uci(uci)
+            except ValueError:
+                replay_clean = False
+                break
+            if mv not in pgn_board.legal_moves:
+                replay_clean = False
+                break
+            pgn_board.push(mv)
+            replayed += 1
+
+        board_plies = len(self._board.move_stack)
+        if replayed != board_plies:
+            _LOGGER.warning(
+                "Two-player PGN: displayed history has %d plies (%d replayed) "
+                "but self._board has %d — root-cause the drift. "
+                "history_fen=%s board_fen=%s",
+                len(hist_ucis), replayed, board_plies,
+                pgn_board.fen(), self._board.fen(),
+            )
+
+        # Prefer the faithfully-replayed history (matches the dashboard);
+        # fall back to self._board only if the history was empty or the
+        # replay hit an illegal/garbled UCI partway through.
+        if replay_clean and replayed == len(hist_ucis) and replayed > 0:
+            source_board = pgn_board
+        else:
+            if hist_ucis and not replay_clean:
+                _LOGGER.warning(
+                    "Two-player PGN: displayed-history replay failed after %d "
+                    "plies (ucis=%s) — falling back to self._board",
+                    replayed, hist_ucis,
+                )
+            source_board = self._board
+
+        game = chess.pgn.Game.from_board(source_board)
         game.headers["Event"] = "Phantom Chess two-player recording"
         game.headers["Site"] = "Phantom Chess Board"
         game.headers["Date"] = datetime.datetime.now().strftime("%Y.%m.%d")
@@ -4245,6 +4423,10 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         move history stays blank, eval bar stays null, classifications
         never fire. Added 2026-05-16 (Task #9).
         """
+        # A legal move was recorded → the model and the physical board agree
+        # again, so clear any prior two-player out-of-sync warning.
+        if self._two_player_active and self._state.get("two_player_out_of_sync"):
+            self._clear_two_player_out_of_sync()
         mover_color = chess.WHITE if mover_is_white else chess.BLACK
         try:
             ply_index = self._record_history_stub(move, mover_color)

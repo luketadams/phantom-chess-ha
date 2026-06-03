@@ -656,6 +656,20 @@ views:
             color: amber
             tap_action:
               action: toggle
+          # v0.4-beta2: one-tap recovery when an illegal physical move
+          # has knocked the board model out of sync with the pieces.
+          # Re-drives the pieces back to the last recorded position.
+          - type: tile
+            entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+            name: Resync board
+            icon: mdi:sync-alert
+            color: orange
+            vertical: true
+            hide_state: true
+            tap_action:
+              action: perform-action
+              perform_action: phantom_chess.resync_two_player
+              data: {}
     # v0.4-alpha30: Watch AI vs AI section. Stockfish plays both sides
     # on the physical board so the user can watch as a spectator.
     # Three integration-owned sliders configure the levels + pacing

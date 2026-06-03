@@ -668,3 +668,43 @@ def test_handle_gatt_staleness_swallows_disconnect_error(stale_coord) -> None:
     )
     assert detected is True
     assert stale_coord._ble_connected is False
+
+
+# ─── async_back_to_modes (re-homes the board, v0.4-beta2) ───────────────
+
+
+def test_back_to_modes_resets_ui_and_rehomes(coord) -> None:
+    """Back to modes resets the picker + review flag AND drives the
+    board re-home via async_reset_position (Luke's "always reset the
+    board" request)."""
+    from unittest.mock import AsyncMock
+    from custom_components.phantom_chess.const import DEFAULT_SETUP_MODE
+
+    coord.setup_mode = "Play with Lichess"
+    coord._state["lichess_review_ready"] = True
+    coord.async_reset_position = AsyncMock()
+
+    _run_async(coord.async_back_to_modes())
+
+    assert coord.setup_mode == DEFAULT_SETUP_MODE
+    assert coord._state["lichess_review_ready"] is False
+    coord.async_reset_position.assert_awaited_once()
+
+
+def test_back_to_modes_survives_rehome_failure(coord) -> None:
+    """If the board is disconnected, the re-home raises but the UI reset
+    still completes — the dashboard must never be trapped in a game view
+    by an offline board."""
+    from unittest.mock import AsyncMock
+    from custom_components.phantom_chess.const import DEFAULT_SETUP_MODE
+
+    coord.setup_mode = "Watch AI vs AI"
+    coord.async_reset_position = AsyncMock(
+        side_effect=RuntimeError("BLE not connected")
+    )
+
+    # Must not raise despite the re-home failing.
+    _run_async(coord.async_back_to_modes())
+
+    assert coord.setup_mode == DEFAULT_SETUP_MODE
+    coord.async_reset_position.assert_awaited_once()

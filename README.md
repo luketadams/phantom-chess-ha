@@ -1,6 +1,6 @@
 # Phantom Chess Board — Home Assistant Integration
 
-Turn your [Phantom Chess Board](https://www.thephantomchess.com/) into a Home Assistant device. Play against [Lichess](https://lichess.org/)'s AI or a locally-bundled Stockfish, watch eval bar and move classifications in real time, get post-game review with your top mistakes, and trigger games by voice via Home Assistant's Assist.
+Turn your [Phantom Chess Board](https://www.thephantomchess.com/) into a Home Assistant device. Play [Lichess](https://lichess.org/) or a locally-bundled Stockfish, record a two-human game, watch Stockfish play itself, or replay famous historic games — all on the physical board, with a live eval bar, move classifications, and post-game review. The integration auto-provisions a polished mascot-button dashboard on setup; there's no YAML to paste.
 
 This is an unofficial community integration — not produced by Phantom Technology.
 
@@ -11,9 +11,12 @@ This is an unofficial community integration — not produced by Phantom Technolo
 
 ## Features
 
-- **Two play modes:**
-  - **Lichess** — challenge Lichess's Stockfish AI, full Board API integration, games appear in your Lichess profile.
-  - **Local Stockfish** — bundled offline engine, no internet required after first run, no Lichess account needed.
+- **Five play modes**, chosen from a ghost-mascot button launcher:
+  - **Play with Lichess** — challenge Lichess's Stockfish AI over the Board API; games appear in your Lichess profile.
+  - **Play with Stockfish** — bundled offline engine, no internet or Lichess account needed.
+  - **Watch historic games** — switch the board into its sculpture display mode, where it plays famous games (the Immortal Game, Kasparov-Deep Blue, the Game of the Century...) as a kinetic display. _(Choosing a specific game from the dashboard is still in progress - see Known Limitations.)_
+  - **Two-player recording** — two humans play on the board; every move is detected and recorded with live Stockfish evaluation + classification, and a PGN is saved at game end. _(New this beta - see Known Limitations.)_
+  - **AI vs AI** — Stockfish plays both sides on the board while you watch the eval swing.
 - **In-game learning dashboard:**
   - Vertical eval bar (lichess.org style)
   - Per-move classification: best / good / inaccuracy / mistake / blunder, with centipawn loss
@@ -21,8 +24,8 @@ This is an unofficial community integration — not produced by Phantom Technolo
   - Threat warnings — surfaced when the AI has a capture or mate-in-N ready
   - Tactical motif detection (forks; pin/skewer in progress)
   - Post-game review with top mistakes per side and Lichess-style accuracy scores
-- **Sculpture mode** — play famous historical games on the physical board for display / education.
-- **Voice control via Assist** — "Okay Nabu, let's play chess" triggers the configured game start.
+- **Auto-provisioned dashboard** — a mascot mode launcher, a live learning view (eval bar, move classification, move history), and a post-game review, all created on setup. No YAML, helpers, or scripts to paste.
+- **Speaker picker for spoken play-by-play** — choose a text-to-speech engine and any speaker (HomePod, Alexa, Sonos, a Voice assistant) in the integration options to hear move announcements and coaching; the `phantom_chess_announce` event is also available for your own automations.
 - **Per-side TTS announcements** — fired as Home Assistant events; wire to any TTS service.
 - **Hardware-error recovery:**
   - Transparent retry on transient BLE errors
@@ -131,48 +134,32 @@ The setup flow asks for the following fields. Both are optional in the bluetooth
 
 ## First Game
 
-### Via the dashboard
+After setup, open the **Phantom Chess** dashboard from the sidebar. The mode launcher shows five mascot buttons:
 
-The integration provides entities you can wire into your own Lovelace dashboard. The recommended starting point: a single panel-mode view with these key entities:
+1. **Play with Lichess** — pick color + AI level, then start, and play your moves on the board.
+2. **Play with Stockfish** — same, fully offline.
+3. **Watch historic games** — put the board into sculpture display mode (it plays famous games on its own).
+4. **Two-player recording** — tap *Start recording*, then two people play on the board; the dashboard tracks every move with live evaluation and saves a PGN at the end.
+5. **AI vs AI** — Stockfish plays itself on the board.
 
-- `image.phantom_*_board` — live SVG of the position
-- `binary_sensor.phantom_*_learning_view_active` — true while a game is in progress
-- `select.phantom_*_ai_level` — 1 to 8
-- `select.phantom_*_player_color` — white / black / random
-- `sensor.phantom_*_eval_cp` — current centipawn evaluation
-- `sensor.phantom_*_move_history_moves` — JSON list of moves with classifications
+During a game the learning view shows the eval bar, the current opening, move classifications, and (optionally) training-wheels glyphs on the board image. When the game ends, the review pane lists each side's biggest mistakes.
 
-A starter dashboard YAML is shipped as `examples/dashboard.yaml` in the repo.
-
-### Via voice
-
-If you exposed the included `script.phantom_chess_play` script to Assist (it ships pre-exposed), say:
-
-> "Okay Nabu, let's play chess."
-
-The Conversation assistant will ask you for color and difficulty if you haven't specified them.
+You can also drive everything from the `phantom_chess.*` services (see **Services** below) if you'd rather trigger games from your own automations.
 
 ---
 
 <a id="chess-dashboard-frontend-dependencies"></a>
 ## The Chess Dashboard
 
-The Phantom Chess Board is a single-purpose device with one sensible UI: a mode-picker that walks you through Lichess / Stockfish / Sculpture / 2-Player, contextual cards for each, live-game view with eval bar and move classifications, post-game review with top mistakes, and an embedded drag-drop interactive board. **The dashboard isn't a nice-to-have add-on — it's the user-facing surface of the integration.** A bare entity-list view doesn't show what this thing can do.
+The Phantom Chess Board is a single-purpose device with one sensible UI, and the integration **builds it for you automatically.** On setup it creates a **Phantom Chess** dashboard in your sidebar: a mascot-button mode launcher, contextual controls for each mode, a live-game view with eval bar and move classifications, a post-game review pane, and an embedded interactive board. There is no YAML to paste and no helpers or scripts to create — the integration provisions everything, including the launcher artwork. **The dashboard isn't a nice-to-have add-on — it's the user-facing surface of the integration.**
 
-This beta ships the full dashboard as YAML in `examples/` that you copy/paste into HA. A future release will auto-create everything during integration setup — see the "Roadmap" note at the end of this section.
+The dashboard relies on three HACS **frontend** plugins for styling. **Without them it still loads but renders visually broken** (unstyled buttons, no rounded cards, no eval-bar styling). The integration raises a Settings → Repairs entry naming any that are missing, so install these from HACS → Frontend:
 
-**Setup is ~5 minutes of copy/paste, in four steps:**
+- **Mushroom** — tile/card styling (`custom:mushroom-template-card`)
+- **layout-card** — the grid layout (`custom:layout-card`)
+- **card-mod** — accent styling: eval bar, threat highlights, launcher button sizing
 
-1. **Install two HACS frontend plugins.** In HACS → Frontend:
-   - **Mushroom** (provides `custom:mushroom-template-card`)
-   - **layout-card** (provides `custom:layout-card`)
-2. **Helpers.** Paste `examples/helpers.yaml` into your `configuration.yaml` (input_selects for the mode + sculpture-game pickers, input_boolean for training-wheels, input_numbers for Lichess clock controls, template binary sensor for the 60s-idle gate that prevents UI flicker during sculpture playback). Restart Home Assistant.
-3. **Scripts.** Paste `examples/scripts.yaml` into your `scripts.yaml` (7 control scripts the dashboard's tiles invoke). Reload Scripts from Developer Tools → YAML → Scripts, or restart again.
-4. **The dashboard itself.** Settings → Dashboards → **+ Add Dashboard** → "New dashboard from scratch" → name it "Chess" → open it → Edit Dashboard → **⋮ → Raw configuration editor** → paste `examples/dashboard-rich.yaml`. Save.
-
-**Find/replace required.** All three example files reference `YOUR_BOARD_MAC` as a placeholder for your board's MAC slug. After pasting each, find/replace `YOUR_BOARD_MAC` with your actual MAC slug — find it by looking at any phantom_chess entity_id (e.g. `sensor.phantom_c8_c9_a3_f2_7c_0a_battery` → your slug is `c8_c9_a3_f2_7c_0a`).
-
-**Roadmap.** v0.4 will replace this section with "install Mushroom + layout-card, done." The integration will auto-provision the helpers (or replace them with integration-owned `select`/`switch` entities), expose the scripts as native services, and create the dashboard via HA's frontend API during initial setup. The current copy/paste flow is the stepping-stone, not the destination.
+Prefer to build your own dashboard? Turn off **Auto-provision dashboard** in the integration's Configure dialog (see **Configuration Options**); the provisioned dashboard is removed on the next reload and all entities keep working.
 
 ---
 
@@ -265,9 +252,9 @@ The `phantom_chess.start_ai_vs_ai_game` service runs a Stockfish-vs-Stockfish ga
 
 Set up a Lichess correspondence game. The integration's `phantom_chess_announce` event fires when your opponent moves, even when you're not in the room — wire it to your TTS stack to get spoken alerts ("Your move — opponent played Nf6").
 
-### Sculpture mode for guests
+### Historic games for guests
 
-Trigger sculpture mode via voice or automation when guests arrive. The board plays out a famous historical game (Kasparov vs Deep Blue, the Immortal Game, the Game of the Century, etc.) as kinetic display. The integration ships an 18-game catalog; the dashboard's Sculpture Library tile picks which to play.
+Trigger sculpture mode via voice or automation when guests arrive. The board enters its sculpture display mode and plays famous games as a kinetic display. The integration ships an 18-game catalog; the **Watch historic games** launcher enters the mode (per-game selection from the dashboard is a work in progress — see Known Limitations).
 
 ### Post-game accuracy tracking
 
@@ -474,8 +461,8 @@ Not bugs — design or platform constraints to set the right expectations.
 
 - **One physical board per HA install at a time** is the primary tested configuration. Multi-board is supported architecturally (`entry_id` parameter on every service, per-board coordinators) but Luke only owns one board so the multi-board paths haven't been stress-tested. File an issue if you hit problems.
 - **The `phantom_chess.move_piece` service bypasses chess.Board validation.** It drives the magnet directly without checking move legality. Useful for setting up arbitrary positions and recovering from state-mismatch — but you can put the physical board into states python-chess can't represent. Use `phantom_chess.execute_move` for normal gameplay.
-- **Sculpture playback isn't fully driven by the integration yet** (alpha10). The dashboard's Sculpture Library tile enters firmware sculpture mode and fires a notification naming the selected game, but per-game move-sequence playback currently relies on the v0.3 setup-pack scripts. Auto-driving the playback from the integration is tracked as a v0.4 follow-up.
-- **AI-vs-AI long games occasionally hang around move ~45** (Task #40, observed during an overnight stress test 2026-05-26). Root cause not yet diagnosed — reproduces only with sustained BLE traffic on the magnet. The integration retries on transient errors but a deeper hang requires a `phantom_chess.stop_local_game` + restart.
+- **Historic-games playback is firmware-driven, not yet integration-selected.** "Watch historic games" switches the board into its sculpture mode, where the firmware plays its built-in famous games as a kinetic display. Choosing a *specific* catalog entry from the dashboard isn't wired up yet (the per-game playlist push is a follow-up); the `select.<id>_sculpture_game` picker and `phantom_chess.play_selected_sculpture` service currently enter sculpture mode and notify, rather than driving the chosen game move-by-move.
+- **Two-player recording is new in this beta.** Move detection, live evaluation, and PGN export work; but if you make an *illegal* physical move the board model can desync from the physical board and subsequent moves may be rejected. Correct the board back to the recorded position (or re-home it) to recover. Please file feedback on any edge cases.
 - **The Lichess cloud-eval endpoint is unauthenticated and rate-limited.** During long games the eval can briefly become stale (the integration falls back to local Stockfish when available, otherwise to a `stub` source that just preserves the last reading).
 - **Stockfish download is one-shot, ~3 MB.** First evaluate() call after a fresh install pulls the appropriate binary from official Stockfish releases (glibc) or Alpine apk (musl). Subsequent restarts reuse the cached binary at `/config/phantom_chess/bin/`. If the download fails (e.g. firewall blocking GitHub), the integration falls back to Lichess cloud-eval only.
 - **The board's BLE GATT cache can go stale** after firmware-side power cycles. The integration detects this (writes fail with a specific bleak error pattern) and forces a fresh-discovery reconnect; you may briefly see entities go unavailable during the recovery window.
