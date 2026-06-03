@@ -1327,7 +1327,7 @@ views:
               target:
                 entity_id: input_select.phantom_chess_setup_mode
               data:
-                option: Play with Lichess
+                option: Choose a mode
           - type: tile
             entity: script.phantom_back_to_modes
             name: Back to modes
