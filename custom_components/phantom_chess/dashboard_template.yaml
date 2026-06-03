@@ -111,7 +111,7 @@ views:
           - type: vertical-stack
             cards:
             - type: picture
-              image: /local/phantom_chess/buttons/lichess.png
+              image: /local/phantom_chess/buttons/lichess.png?v=2
               tap_action:
                 action: perform-action
                 perform_action: input_select.select_option
