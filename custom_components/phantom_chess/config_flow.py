@@ -20,6 +20,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_BLE_ADDRESS,
@@ -429,13 +430,17 @@ class PhantomChessOptionsFlow(OptionsFlow):
                 vol.Optional(
                     "tts_service",
                     description={"suggested_value": current.get("tts_service", "")},
-                ): str,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="tts")
+                ),
                 vol.Optional(
                     "tts_media_player_entity_id",
                     description={
                         "suggested_value": current.get("tts_media_player_entity_id", "")
                     },
-                ): str,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="media_player")
+                ),
                 vol.Optional(
                     "debug_dump",
                     default=bool(current.get("debug_dump", False)),

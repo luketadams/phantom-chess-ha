@@ -13,9 +13,9 @@
 #  - All helpers from `helpers.yaml` in this folder
 #  - All scripts from `scripts.yaml` in this folder
 
-title: Chess
+title: Phantom Chess
 views:
-- title: Chess
+- title: Phantom Chess
   path: main
   type: panel
   theme: Frosted Glass Dark Lite
@@ -105,71 +105,123 @@ views:
 
             Pick a mode. Each shows its own controls and explainer.'
         - type: grid
+          columns: 3
+          square: false
+          cards:
+          - type: vertical-stack
+            cards:
+            - type: picture
+              image: /local/phantom_chess/buttons/lichess.png
+              tap_action:
+                action: perform-action
+                perform_action: input_select.select_option
+                data:
+                  entity_id: input_select.phantom_chess_setup_mode
+                  option: Play with Lichess
+              card_mod:
+                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
+                  none; box-shadow: none; }
+
+                  '
+            - type: markdown
+              content: Lichess
+              card_mod:
+                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
+                  none; padding: 4px 0 2px; font-weight: 500; }
+
+                  '
+          - type: vertical-stack
+            cards:
+            - type: picture
+              image: /local/phantom_chess/buttons/stockfish.png
+              tap_action:
+                action: perform-action
+                perform_action: input_select.select_option
+                data:
+                  entity_id: input_select.phantom_chess_setup_mode
+                  option: Play with Stockfish
+              card_mod:
+                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
+                  none; box-shadow: none; }
+
+                  '
+            - type: markdown
+              content: Stockfish
+              card_mod:
+                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
+                  none; padding: 4px 0 2px; font-weight: 500; }
+
+                  '
+          - type: vertical-stack
+            cards:
+            - type: picture
+              image: /local/phantom_chess/buttons/historic.png
+              tap_action:
+                action: perform-action
+                perform_action: input_select.select_option
+                data:
+                  entity_id: input_select.phantom_chess_setup_mode
+                  option: Sculpture Library
+              card_mod:
+                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
+                  none; box-shadow: none; }
+
+                  '
+            - type: markdown
+              content: Historic Games
+              card_mod:
+                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
+                  none; padding: 4px 0 2px; font-weight: 500; }
+
+                  '
+        - type: grid
           columns: 2
           square: false
           cards:
-          - type: tile
-            entity: input_select.phantom_chess_setup_mode
-            name: Play with Lichess
-            icon: mdi:web
-            color: purple
-            vertical: true
-            tap_action:
-              action: perform-action
-              perform_action: input_select.select_option
-              data:
-                entity_id: input_select.phantom_chess_setup_mode
-                option: Play with Lichess
-          - type: tile
-            entity: input_select.phantom_chess_setup_mode
-            name: Play with Stockfish
-            icon: mdi:chip
-            color: blue
-            vertical: true
-            tap_action:
-              action: perform-action
-              perform_action: input_select.select_option
-              data:
-                entity_id: input_select.phantom_chess_setup_mode
-                option: Play with Stockfish
-          - type: tile
-            entity: input_select.phantom_chess_setup_mode
-            name: Sculpture Library
-            icon: mdi:auto-fix
-            color: amber
-            vertical: true
-            tap_action:
-              action: perform-action
-              perform_action: input_select.select_option
-              data:
-                entity_id: input_select.phantom_chess_setup_mode
-                option: Sculpture Library
-          - type: tile
-            entity: input_select.phantom_chess_setup_mode
-            name: 2-Player Game
-            icon: mdi:account-multiple
-            color: green
-            vertical: true
-            tap_action:
-              action: perform-action
-              perform_action: input_select.select_option
-              data:
-                entity_id: input_select.phantom_chess_setup_mode
-                option: 2-Player Game
-          # v0.4-alpha30: AI-vs-AI spectator mode. Stockfish plays both
-          # sides on the physical board so the user can watch.
-          - type: tile
-            entity: input_select.phantom_chess_setup_mode
-            name: Watch AI vs AI
-            icon: mdi:robot-happy
-            color: pink
-            vertical: true
-            tap_action:
-              action: perform-action
-              perform_action: input_select.select_option
-              data:
-                entity_id: input_select.phantom_chess_setup_mode
-                option: Watch AI vs AI
+          - type: vertical-stack
+            cards:
+            - type: picture
+              image: /local/phantom_chess/buttons/two_player.png
+              tap_action:
+                action: perform-action
+                perform_action: input_select.select_option
+                data:
+                  entity_id: input_select.phantom_chess_setup_mode
+                  option: 2-Player Game
+              card_mod:
+                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
+                  none; box-shadow: none; }
+
+                  '
+            - type: markdown
+              content: 2-Player
+              card_mod:
+                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
+                  none; padding: 4px 0 2px; font-weight: 500; }
+
+                  '
+          - type: vertical-stack
+            cards:
+            - type: picture
+              image: /local/phantom_chess/buttons/ai_vs_ai.png
+              tap_action:
+                action: perform-action
+                perform_action: input_select.select_option
+                data:
+                  entity_id: input_select.phantom_chess_setup_mode
+                  option: Watch AI vs AI
+              card_mod:
+                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
+                  none; box-shadow: none; }
+
+                  '
+            - type: markdown
+              content: AI vs AI
+              card_mod:
+                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
+                  none; padding: 4px 0 2px; font-weight: 500; }
+
+                  '
     - type: conditional
       conditions:
       - condition: or
@@ -447,7 +499,7 @@ views:
               \ %}{% set last = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{{ '\U0001F7E2' if conn else '\U0001F534' }} &nbsp; Battery: **{{ batt }}%** &nbsp;\u2022&nbsp; Mode: **{{\
               \ mode }}** &nbsp;\u2022&nbsp; Last: `{{ last }}`"
         - type: markdown
-          content: "## \U0001F3DB Sculpture Library\nChoose a historic chess game; the board plays it out before your eyes."
+          content: "## \U0001F3DB Historic Games\nChoose a historic chess game; the board plays it out before your eyes."
         - type: tile
           entity: input_select.phantom_chess_sculpture_game
           name: Choose a game
@@ -582,7 +634,7 @@ views:
               \ mode }}** &nbsp;\u2022&nbsp; Last: `{{ last }}`"
         - type: markdown
           content: "## \U0001F465 2-Player Game\n**Coming soon.** This mode will let two humans play on the board with the integration recording every move into a PGN, then making the recorded game available\
-            \ for replay on this dashboard \u2014 same mechanism as the Sculpture Library.\n\n**Planned features:**\n- Live move tracking via the board's sensors (no app needed)\n- Per-side turn timers\n\
+            \ for replay on this dashboard \u2014 same mechanism as Historic Games.\n\n**Planned features:**\n- Live move tracking via the board's sensors (no app needed)\n- Per-side turn timers\n\
             - Automatic PGN export at game end\n- Replay any prior recorded game on the board\n\n_Tracked as task #24._"
     # v0.4-alpha30: Watch AI vs AI section. Stockfish plays both sides
     # on the physical board so the user can watch as a spectator.

@@ -114,7 +114,11 @@ def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
     tiles = [c for c in cards if c.get("type") == "tile"]
     buttons = [c for c in cards if c.get("type") == "button"]
     assert len(tiles) == 16, f"expected 16 surviving tiles, got {len(tiles)}"
-    assert len(buttons) == 25, f"expected 25 buttons, got {len(buttons)}"
+    # beta1: the 5 mode-picker tiles became custom ghost-mascot picture
+    # buttons (type: picture, not action-tiles), so they no longer convert
+    # to `button` cards: 25 → 20. The launcher is asserted separately in
+    # test_mode_picker_buttons_target_setup_mode_select.
+    assert len(buttons) == 20, f"expected 20 buttons, got {len(buttons)}"
 
 
 # ─── "what should be gone" assertions ───────────────────────────────────
@@ -279,29 +283,39 @@ def test_resign_button_preserves_confirmation(
 def test_mode_picker_buttons_target_setup_mode_select(
     rendered_config: dict[str, Any],
 ) -> None:
-    """The four mode-picker buttons should all call select.select_option on
-    the setup_mode select with their respective option.
+    """beta1: the mode picker is now custom ghost-mascot picture buttons.
+    Each picture card's tap_action must call select.select_option on the
+    setup_mode select with its respective option (the AI-vs-AI button was
+    added to the picker in beta1).
     """
     expected = {
-        "Play with Lichess": "Play with Lichess",
-        "Play with Stockfish": "Play with Stockfish",
-        "Sculpture Library": "Sculpture Library",
-        "2-Player Game": "2-Player Game",
+        "lichess.png": "Play with Lichess",
+        "stockfish.png": "Play with Stockfish",
+        "historic.png": "Sculpture Library",
+        "two_player.png": "2-Player Game",
+        "ai_vs_ai.png": "Watch AI vs AI",
     }
-    for name, option in expected.items():
-        button = _button_named(rendered_config, name)
-        assert button is not None, f"mode-picker button {name!r} not found"
-        tap = button["tap_action"]
+    pics = {
+        c["image"].rsplit("/", 1)[-1]: c
+        for c in _walk_cards(rendered_config)
+        if c.get("type") == "picture"
+        and isinstance(c.get("image"), str)
+        and "/phantom_chess/buttons/" in c["image"]
+    }
+    for img, option in expected.items():
+        card = pics.get(img)
+        assert card is not None, f"mode-picker picture button {img!r} not found"
+        tap = card["tap_action"]
         assert tap.get("perform_action") == "select.select_option", (
-            f"{name!r} doesn't call select.select_option"
+            f"{img!r} doesn't call select.select_option"
         )
         data = tap.get("data", {})
         assert data.get("option") == option, (
-            f"{name!r} sets option={data.get('option')!r}, expected {option!r}"
+            f"{img!r} sets option={data.get('option')!r}, expected {option!r}"
         )
         # entity_id should point at the resolved setup_mode select
         assert "setup_mode" in data.get("entity_id", ""), (
-            f"{name!r} entity_id {data.get('entity_id')!r} doesn't reference setup_mode"
+            f"{img!r} entity_id {data.get('entity_id')!r} doesn't reference setup_mode"
         )
 
 

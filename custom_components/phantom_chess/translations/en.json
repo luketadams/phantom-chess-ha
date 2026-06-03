@@ -75,13 +75,13 @@
         "title": "Phantom Chess Board options",
         "description": "Fine-tune integration behavior. Leave fields blank for defaults.",
         "data": {
-          "tts_service": "TTS service (e.g. tts.google_ai_tts)",
-          "tts_media_player_entity_id": "TTS media player entity",
+          "tts_service": "Text-to-speech engine",
+          "tts_media_player_entity_id": "Speaker for play-by-play",
           "debug_dump": "Write developer-debug artifacts to <config>/phantom_chess/debug/"
         },
         "data_description": {
-          "tts_service": "Optional. When set, the integration calls this TTS service for announcements in addition to firing the `phantom_chess_announce` event.",
-          "tts_media_player_entity_id": "Required if TTS service is set.",
+          "tts_service": "Optional. Pick a text-to-speech entity to speak move announcements and coaching aloud. Leave blank to only fire the `phantom_chess_announce` event for your own automation.",
+          "tts_media_player_entity_id": "The speaker to play announcements on (HomePod, Alexa, Sonos, a Voice assistant, any media player). Required if a text-to-speech engine is set.",
           "debug_dump": "Off by default. Only enable when troubleshooting an issue."
         }
       }

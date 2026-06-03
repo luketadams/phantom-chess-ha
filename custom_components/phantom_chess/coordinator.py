@@ -58,6 +58,14 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# AI-vs-AI: minimum inter-move settle (seconds) AFTER a two-step physical
+# move (capture or castle). The board reports BLE_MOVE_DONE on CLEAN: Match,
+# which only validates the 8x8 playing area — the captured piece (or the
+# rook) may still be moving to its square. A short gap fires the next
+# snapshot into the moving magnet and the board wedges. Proven on hardware:
+# a ~3s gap clears captures that froze at 0.5s. See [[phantom-chess-aivai-capture-rootcause]].
+AI_VS_AI_TWO_STEP_SETTLE_S: float = 3.0
+
 # Lazy import bleak — HA installs it as part of the bluetooth stack
 try:
     from bleak import BleakClient, BleakError
@@ -2203,7 +2211,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # subsequent human-move detection. W=1 lets the firmware auto-
                 # correct small placement offsets, completing the AI move cleanly.
                 auto_castling=True, auto_en_passant=True, auto_snap_to_center=True,
-                auto_correct_wrong_move=True, advanced_capture=False, strict_gameplay=False,
+                auto_correct_wrong_move=True, advanced_capture=True, strict_gameplay=False,
             )
         except Exception as _ga_err:
             _LOGGER.warning("Lichess game: GAME_ASSISTANCE write failed: %s", _ga_err)
@@ -4034,7 +4042,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # subsequent human-move detection. W=1 lets the firmware auto-
                 # correct small placement offsets, completing the AI move cleanly.
                 auto_castling=True, auto_en_passant=True, auto_snap_to_center=True,
-                auto_correct_wrong_move=True, advanced_capture=False, strict_gameplay=False,
+                auto_correct_wrong_move=True, advanced_capture=True, strict_gameplay=False,
             )
         except Exception as _ga_err:
             _LOGGER.warning("Local game: GAME_ASSISTANCE write failed: %s", _ga_err)
@@ -4467,7 +4475,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._phantom_send_game_assistance(
                 auto_castling=True, auto_en_passant=True,
                 auto_snap_to_center=True, auto_correct_wrong_move=True,
-                advanced_capture=False, strict_gameplay=False,
+                advanced_capture=True, strict_gameplay=False,
             )
         except Exception as _ga_err:
             _LOGGER.warning(
@@ -4567,6 +4575,19 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # External stop arrived while Stockfish was computing.
                     break
 
+                # Detect a two-step physical move (capture or castle): the
+                # board keeps moving the captured piece to the graveyard (or
+                # the rook) AFTER reporting BLE_MOVE_DONE, so a short gap fires
+                # the next snapshot into the moving magnet and wedges the
+                # board. We widen the settle for these moves below.
+                try:
+                    _mv = chess.Move.from_uci(uci)
+                    is_two_step_move = (
+                        self._board.is_capture(_mv) or self._board.is_castling(_mv)
+                    )
+                except Exception:  # noqa: BLE001
+                    is_two_step_move = False
+
                 # Apply via the canonical AI-move path so the snapshot
                 # protocol + echo suppression + analysis pipeline all
                 # behave identically to a normal local game.
@@ -4630,8 +4651,14 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         len(self._board.move_stack), err,
                     )
 
-                # Brief settle gap before the next move.
-                await asyncio.sleep(self._ai_vs_ai_move_delay)
+                # Brief settle gap before the next move. Captures and castles
+                # are two-step physical moves whose second operation completes
+                # after BLE_MOVE_DONE, so they need a longer settle or the next
+                # snapshot collides with the still-moving magnet.
+                settle = self._ai_vs_ai_move_delay
+                if is_two_step_move:
+                    settle = max(settle, AI_VS_AI_TWO_STEP_SETTLE_S)
+                await asyncio.sleep(settle)
 
             # Terminal handling.
             if self._board.is_checkmate():

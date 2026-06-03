@@ -92,7 +92,7 @@ CONFIG_STORAGE_VERSION: Final = 1
 # per-dashboard config file lands at .storage/lovelace.<url_path>.
 DASHBOARD_URL_PATH: Final = "phantom-chess"
 DASHBOARD_ID: Final = "phantom_chess"
-DASHBOARD_TITLE: Final = "Chess"
+DASHBOARD_TITLE: Final = "Phantom Chess"
 DASHBOARD_ICON: Final = "mdi:chess-knight"
 
 # Frontend dependencies the auto-provisioned dashboard uses. If any of

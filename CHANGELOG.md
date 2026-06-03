@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-beta1] — 2026-06-03
+
+First public beta. Bronze quality scale, a full ghost-mascot visual identity, the AI-vs-AI capture freeze fixed, and a speaker picker for spoken play-by-play.
+
+### Added
+
+- **Mascot mode launcher.** The dashboard mode picker is now a compact set of custom ghost-mascot picture buttons — Lichess, Stockfish, Historic Games, 2-Player, AI vs AI — in a 3-then-2 layout, replacing the oversized stretched tiles. Button art is served from `/local/phantom_chess/buttons/`.
+- **Integration icon** (a ghost holding a knight) via the HA 2026.3+ local `brand/` mechanism — no brands-repo PR required.
+- **Speaker picker for voice play-by-play.** The options flow now has entity-picker dropdowns for a text-to-speech engine and the speaker to use (HomePod, Alexa, Sonos, a Voice assistant — any `media_player`), so announcements and coaching aren't tied to one user's setup. The `phantom_chess_announce` event remains for fully custom routing, and everything is a graceful no-op when unset.
+
+### Fixed
+
+- **AI-vs-AI no longer freezes on captures.** Two parts: the firmware's `advancedCapture` is now enabled so a captured piece is routed to the graveyard, and a capture/castle-aware inter-move settle waits for that second physical operation to finish before the next board snapshot (the move-done signal fires before the graveyard move completes, so a short gap collided with the still-moving magnet).
+- Carries the alpha34 CI fixes (mypy float annotations on the number entities; `pytest-asyncio` in the matrix-tests job).
+
+### Changed
+
+- Dashboard renamed to **Phantom Chess**; the "Sculpture Library" mode is now shown as **Historic Games** (display text only — the internal mode value is unchanged).
+- Declared `"quality_scale": "bronze"` in the manifest.
+
+### Known limitations
+
+- The capture/castle settle is logic-tested; a full live AI-vs-AI spectator game on hardware is the immediate post-beta verification.
+
 ## [0.4.0-alpha34] — 2026-06-01
 
 CI is green across all six jobs for the first time since alpha29. Two long-standing red jobs are fixed; there is no change to the integration's runtime behavior.
