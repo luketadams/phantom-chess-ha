@@ -297,7 +297,7 @@ def test_mode_picker_buttons_target_setup_mode_select(
         "ai_vs_ai.png": "Watch AI vs AI",
     }
     pics = {
-        c["image"].rsplit("/", 1)[-1]: c
+        c["image"].rsplit("/", 1)[-1].split("?")[0]: c
         for c in _walk_cards(rendered_config)
         if c.get("type") == "picture"
         and isinstance(c.get("image"), str)
@@ -648,3 +648,20 @@ def test_no_inline_style_colors_use_font_tag(rendered_config) -> None:
 
     review = _card("biggest mistakes")
     assert "<font color=" in review and "<span" not in review and "<div" not in review
+
+
+def test_copy_button_assets_provisions_pngs(tmp_path):
+    """The 5 bundled mascot button PNGs copy into <config>/www/phantom_chess/buttons/."""
+    import types
+    from custom_components.phantom_chess.dashboard_provision import _copy_button_assets
+
+    hass = types.SimpleNamespace(
+        config=types.SimpleNamespace(path=lambda *a: str(tmp_path.joinpath(*a)))
+    )
+    _copy_button_assets(hass)
+    dest = tmp_path / "www" / "phantom_chess" / "buttons"
+    names = {p.name for p in dest.glob("*.png")}
+    assert {
+        "lichess.png", "stockfish.png", "historic.png",
+        "two_player.png", "ai_vs_ai.png",
+    } <= names

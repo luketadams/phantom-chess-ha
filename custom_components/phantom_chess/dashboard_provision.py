@@ -171,6 +171,11 @@ _SERVICE_DOMAIN_REWRITES: Final[dict[str, str]] = {
 
 _TEMPLATE_PATH: Final = Path(__file__).parent / "dashboard_template.yaml"
 
+# v0.4-beta2: bundled mascot button images. Provisioned to
+# <config>/www/phantom_chess/buttons/ on setup so the dashboard's
+# /local/phantom_chess/buttons/*.png references resolve for fresh installs.
+_BUTTON_ASSETS_SRC: Final = Path(__file__).parent / "dashboard_assets" / "buttons"
+
 
 # --------------------------------------------------------------------------- #
 # Template rendering                                                          #
@@ -624,6 +629,34 @@ def _sync_frontend_deps_issue(hass: HomeAssistant) -> None:
         ir.async_delete_issue(hass, DOMAIN, MISSING_DEPS_ISSUE_ID)
 
 
+def _copy_button_assets(hass: HomeAssistant) -> None:
+    """Copy the bundled mascot button PNGs into <config>/www/phantom_chess/buttons/.
+
+    The dashboard launcher references them as /local/phantom_chess/buttons/*.png,
+    which HA serves from the config `www` folder. Bundling + copying them here
+    means a fresh install gets the full mascot launcher with no manual asset
+    placement. Runs in the executor (blocking file IO); idempotent — overwrites
+    on each setup so art updates propagate.
+    """
+    import os
+    import shutil
+
+    if not _BUTTON_ASSETS_SRC.is_dir():
+        _LOGGER.warning(
+            "Phantom Chess: bundled button assets missing at %s", _BUTTON_ASSETS_SRC
+        )
+        return
+    dest = hass.config.path("www", "phantom_chess", "buttons")
+    try:
+        os.makedirs(dest, exist_ok=True)
+        for png in _BUTTON_ASSETS_SRC.glob("*.png"):
+            shutil.copyfile(str(png), os.path.join(dest, png.name))
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Phantom Chess: failed provisioning button assets: %s", err)
+        return
+    _LOGGER.debug("Phantom Chess: button assets provisioned to %s", dest)
+
+
 async def async_provision_dashboard(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
@@ -634,6 +667,9 @@ async def async_provision_dashboard(
     persisted row), this function just refreshes the storage config so the
     panel always reflects the current MAC.
     """
+    # Make the launcher's mascot button images available at /local/.
+    await hass.async_add_executor_job(_copy_button_assets, hass)
+
     ble_address = entry.data.get(CONF_BLE_ADDRESS)
     if not ble_address:
         _LOGGER.warning(
