@@ -138,6 +138,23 @@ def test_parse_matrix_notification_rejects_garbage() -> None:
     assert parse_matrix_notification(b"CLEAN: Match.,,") is None
 
 
+def test_parse_matrix_notification_surfaces_error_without_grid() -> None:
+    """The 'matrix do not match' wedge sometimes arrives with no usable
+    trailing grid. We must still surface status='Error' + the message
+    (piece_grid/sensor_bitmap None) so the coordinator can report it,
+    rather than dropping the whole payload (v0.4-beta3, C2)."""
+    parsed = parse_matrix_notification(
+        b"ERROR: Chessboard and sensor matrix do not match."
+    )
+    assert parsed is not None
+    assert parsed["status"] == "Error"
+    assert parsed["piece_grid"] is None
+    assert parsed["sensor_bitmap"] is None
+    assert "do not match" in (parsed["status_message"] or "")
+    # A non-error payload with no grid is still discarded.
+    assert parse_matrix_notification(b"Managing Mismatch.,,") is None
+
+
 # ─── check_consistency ──────────────────────────────────────────────────
 
 

@@ -113,15 +113,25 @@ def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
     cards = list(_walk_cards(rendered_config))
     tiles = [c for c in cards if c.get("type") == "tile"]
     buttons = [c for c in cards if c.get("type") == "button"]
-    assert len(tiles) == 17, f"expected 17 surviving tiles, got {len(tiles)}"
+    # beta3: +1 surviving tile — the always-visible "Voice announcements"
+    # master-mute toggle (tap_action: toggle, same shape as the
+    # training-wheels toggle, so it stays a tile): 17 → 18.
+    assert len(tiles) == 18, f"expected 18 surviving tiles, got {len(tiles)}"
     # beta1: the 5 mode-picker tiles became custom ghost-mascot picture
     # buttons (type: picture, not action-tiles), so they no longer convert
     # to `button` cards: 25 → 20. beta2 added the 2-player Start button (+1 button)
     # and the training-wheels toggle tile (+1 tile). beta2 also added the
     # 2-player "Resync board" tile — Case-C shape (binary_sensor connected +
     # hide_state + phantom_chess.* action) so it converts to a button: 21 → 22.
+    # beta3: +4 "Back to modes" buttons added to the firmware-state
+    # interstitials (Snapping Pieces, Snap to Center, Calibrating, Setting
+    # Up) — these `script.phantom_back_to_modes` tiles convert to buttons so
+    # the user can always escape a stand-by screen: 22 → 26.
+    # beta3: +2 "Re-sync board detection" recovery buttons on the two
+    # Snapping-Pieces cards (the wedge state) calling
+    # phantom_chess.resync_detection: 26 → 28.
     # Launcher asserted in test_mode_picker_buttons_target_setup_mode_select.
-    assert len(buttons) == 22, f"expected 22 buttons, got {len(buttons)}"
+    assert len(buttons) == 28, f"expected 28 buttons, got {len(buttons)}"
 
 
 # ─── "what should be gone" assertions ───────────────────────────────────

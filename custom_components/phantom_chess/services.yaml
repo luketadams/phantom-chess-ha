@@ -25,6 +25,33 @@ start_game:
             - white
             - black
             - random
+    clock_limit_seconds:
+      name: Clock limit (seconds)
+      description: >
+        Optional time control. Initial clock per side in seconds (60–10800,
+        i.e. 1 minute to 3 hours). Omit for an unlimited (correspondence-style)
+        game. Must be paired with a valid increment.
+      required: false
+      selector:
+        number:
+          min: 60
+          max: 10800
+          step: 60
+          unit_of_measurement: s
+          mode: box
+    clock_increment_seconds:
+      name: Clock increment (seconds)
+      description: >
+        Optional Fischer increment added per move, in seconds (0–180). Only
+        used when a clock limit is set.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 180
+          step: 1
+          unit_of_measurement: s
+          mode: box
 
 send_move:
   name: Send Move
@@ -83,6 +110,17 @@ start_two_player_game:
     run through the analysis pipeline so the live learning view populates, and a
     PGN is saved under `<config>/phantom_chess/recordings/` when the game ends.
 
+resync_detection:
+  name: Re-sync Board Detection (wedge recovery)
+  description: >
+    Recovery for a board stuck in "Snapping Pieces" / "Chessboard and sensor
+    matrix do not match" even though the pieces are correctly placed. Sends
+    RESET_DETECTION (opcode 14) to re-seed the firmware's internal expected
+    matrix to the integration's current position (the standard start position
+    when idle), telling the firmware to accept the board as-is. This is a data
+    re-sync — it does NOT drive the magnet/pieces — so it's safe to run while
+    the board is wedged. Requires the board to be connected via Bluetooth.
+
 resync_two_player:
   name: Resync Two-Player Board
   description: >
@@ -105,11 +143,11 @@ start_lichess_configured:
 play_selected_sculpture:
   name: Play Selected Sculpture (Stub)
   description: >
-    v0.4-alpha3 STUB. Enters sculpture mode on the firmware and fires a
-    persistent notification telling the user which game is selected.
-    Per-game move-sequence playback will land in a later alpha; users
-    with v0.3's `examples/scripts.yaml` installed can call the specific
-    `script.phantom_sculpture_*` script directly in the meantime.
+    STUB. Enters the firmware's sculpture mode and fires a persistent
+    notification telling the user which game is selected. Per-game
+    move-sequence playback inside the integration is not yet implemented
+    (planned). For now the historic game is played out by the board's
+    own firmware after you put the pieces in the start position.
 
 start_ai_vs_ai_game:
   name: Start AI-vs-AI Game
@@ -218,6 +256,30 @@ debug_ble_write:
       required: true
       selector:
         text:
+
+diagnose_game_start:
+  name: Diagnose Game Start (fw0.3.2)
+  description: >
+    Diagnostic for the firmware 0.3.2 GAME_START length rejection. Logs the
+    negotiated ATT MTU and the UUID_GAME characteristic's write limits, then
+    runs a non-destructive RESET_DETECTION (opcode 14) size probe to localise
+    the firmware's accepted write length. Read the "0.3.2 diag" / "diagnose_
+    game_start" lines in the HA log after calling. With experimental enabled it
+    also A/B-tests the candidate GAME_START write variants on the live board —
+    a variant the firmware accepts will start a game.
+  fields:
+    experimental:
+      name: Experimental — try GAME_START write variants live
+      description: >
+        If on, after the safe probe the action attempts the real GAME_START
+        write variants (doc-compliant 103-byte, experimental 101-byte no-suffix,
+        then write-without-response), stopping at the first the firmware
+        accepts. A successful variant starts a game; rejected writes have no
+        effect. Leave off for a purely non-destructive diagnosis.
+      required: false
+      default: false
+      selector:
+        boolean:
 
 phantom_start_game:
   name: Phantom Start Game (confirmed protocol)
@@ -331,9 +393,10 @@ start_sculpture:
     Switch the firmware to sculpture mode (SELECT_MODE = 1). In this mode
     the board plays out famous historical games as a kinetic display
     without expecting human input. Pair with select.<device>_sculpture_game
-    to choose which game to play. Sculpture playback itself currently runs
-    via the official phone app or the v0.3 setup-pack scripts; per-game
-    automation in the integration is tracked in play_selected_sculpture.
+    to choose which game to play. The playback is driven by the board's own
+    firmware once the pieces are in the start position; per-game selection
+    from inside the integration is not yet implemented (tracked in
+    play_selected_sculpture).
 
 reset_position:
   name: Reset Position

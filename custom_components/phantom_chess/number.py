@@ -191,10 +191,16 @@ class _PhantomRestorableNumber(PhantomBaseNumber, RestoreEntity):
         if last is None or last.state in (None, "unknown", "unavailable"):
             return
         try:
-            value = self._coord_attr_type(float(last.state))
-            setattr(self.coordinator, self._coord_attr, value)
+            value = float(last.state)
         except (TypeError, ValueError):
-            pass
+            return
+        # Clamp the restored value into the entity's current range before
+        # applying it. A release that narrows a slider's range (e.g.
+        # mechanism speed went 0..100 → 1..5) would otherwise persist a
+        # stale out-of-range value that HA then flags as invalid.
+        lo, hi = self.native_min_value, self.native_max_value
+        value = min(max(value, lo), hi)
+        setattr(self.coordinator, self._coord_attr, self._coord_attr_type(value))
 
 
 class PhantomLichessClockMinutesNumber(_PhantomRestorableNumber):

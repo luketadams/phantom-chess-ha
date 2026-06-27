@@ -77,11 +77,15 @@
         "data": {
           "tts_service": "Text-to-speech engine",
           "tts_media_player_entity_id": "Speaker for play-by-play",
+          "tts_language": "Voice language",
+          "tts_voice": "Voice",
           "debug_dump": "Write developer-debug artifacts to <config>/phantom_chess/debug/"
         },
         "data_description": {
           "tts_service": "Optional. Pick a text-to-speech entity to speak move announcements and coaching aloud. Leave blank to only fire the `phantom_chess_announce` event for your own automation.",
           "tts_media_player_entity_id": "The speaker to play announcements on (HomePod, Alexa, Sonos, a Voice assistant, any media player). Required if a text-to-speech engine is set.",
+          "tts_language": "Optional. Force a language for the chosen engine. For Home Assistant Cloud use a locale like en-GB. Leave blank for the engine default.",
+          "tts_voice": "Optional. Force a specific voice. For Home Assistant Cloud use a short neural voice name like RyanNeural. Leave blank for the engine default.",
           "debug_dump": "Off by default. Only enable when troubleshooting an issue."
         }
       }
@@ -107,6 +111,9 @@
       },
       "training_wheels": {
         "name": "Training Wheels"
+      },
+      "voice_announcements": {
+        "name": "Voice announcements"
       }
     },
     "select": {

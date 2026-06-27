@@ -15,6 +15,7 @@ from .const import (
     DOMAIN,
     ENTITY_PAUSE,
     ENTITY_TRAINING_WHEELS,
+    ENTITY_VOICE_ANNOUNCEMENTS,
 )
 from .coordinator import PhantomChessCoordinator
 
@@ -38,6 +39,7 @@ async def async_setup_entry(
     async_add_entities([
         PhantomPauseSwitch(coordinator, entry, address, name),
         PhantomTrainingWheelsSwitch(coordinator, entry, address, name),
+        PhantomVoiceAnnouncementsSwitch(coordinator, entry, address, name),
     ])
 
 
@@ -138,4 +140,63 @@ class PhantomTrainingWheelsSwitch(
 
     async def async_turn_off(self, **kwargs) -> None:
         self.coordinator.training_wheels = False
+        self.async_write_ha_state()
+
+
+class PhantomVoiceAnnouncementsSwitch(
+    CoordinatorEntity[PhantomChessCoordinator], SwitchEntity, RestoreEntity
+):
+    """Master mute for the HA-side spoken play-by-play (TTS voiceover).
+
+    When ON (default), the integration speaks move announcements and
+    coaching aloud via the configured TTS engine. When OFF, the spoken
+    voiceover is suppressed across every mode — AI, Stockfish, Lichess,
+    2-player, and historic games — because all of them reach TTS through
+    the coordinator's single ``_announce_via_tts`` method, which this flag
+    gates. The ``phantom_chess_announce`` event still fires (carrying a
+    ``voice_enabled`` flag) so event-driven automations are unaffected.
+
+    Pure-local config storage (no BLE write), so it works whether or not
+    the board is connected. State persists across HA restarts via
+    ``RestoreEntity``. v0.4-beta3.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "voice_announcements"
+    _attr_icon = "mdi:account-voice"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: PhantomChessCoordinator,
+        entry: ConfigEntry,
+        address: str,
+        device_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{address}_{ENTITY_VOICE_ANNOUNCEMENTS}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, address)},
+            "name": device_name,
+            "manufacturer": "Phantom",
+            "model": "Phantom Chess Board",
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is None or last.state in (None, "unknown", "unavailable"):
+            return
+        self.coordinator.voice_announcements = last.state == "on"
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self.coordinator.voice_announcements)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self.coordinator.voice_announcements = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self.coordinator.voice_announcements = False
         self.async_write_ha_state()

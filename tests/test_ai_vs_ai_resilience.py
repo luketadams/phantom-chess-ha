@@ -189,7 +189,6 @@ async def test_await_reconnect_returns_true_when_link_restored():
     stub._ble_connected = False
 
     calls = {"n": 0}
-    real_sleep_patched = asyncio.sleep  # already no-op via fixture
 
     async def _flip(_seconds):
         calls["n"] += 1

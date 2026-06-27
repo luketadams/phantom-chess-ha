@@ -107,7 +107,7 @@ async def async_get_config_entry_diagnostics(
             "last_game_result",
             "last_game_accuracy_white",
             "last_game_accuracy_black",
-            "battery_level",
+            "battery_percent",
         )
         runtime = {
             "loaded": True,
@@ -143,24 +143,45 @@ async def async_get_config_entry_diagnostics(
         getattr(coordinator, "_analysis_client", None) if coordinator else None
     )
     if analysis_client is not None:
-        sf = analysis_client._stockfish
+        sf = getattr(analysis_client, "_stockfish", None)
         if sf is not None:
-            stockfish = {
-                "client_initialized": True,
-                "available": sf._available,
-                "binary_path": str(sf.binary_path) if sf.binary_path else None,
-                "binary_path_exists": (
-                    sf.binary_path is not None and os.path.exists(sf.binary_path)
-                ),
-                "engine_running": sf._engine is not None,
-                "unsupported_arch_warned": sf._unsupported_arch_warned,
-                "bin_dir": str(sf.bin_dir),
-            }
+            # Defensive getattr throughout: these are private attrs of the
+            # Stockfish helper, so a future rename must degrade the dump
+            # gracefully rather than 500 the whole diagnostics download.
+            binary_path = getattr(sf, "binary_path", None)
+            try:
+                stockfish = {
+                    "client_initialized": True,
+                    "available": getattr(sf, "_available", None),
+                    "binary_path": str(binary_path) if binary_path else None,
+                    "binary_path_exists": (
+                        binary_path is not None and os.path.exists(binary_path)
+                    ),
+                    "engine_running": getattr(sf, "_engine", None) is not None,
+                    "unsupported_arch_warned": getattr(
+                        sf, "_unsupported_arch_warned", None
+                    ),
+                    "bin_dir": str(getattr(sf, "bin_dir", "")) or None,
+                }
+            except Exception as err:  # noqa: BLE001 — diagnostics must never raise
+                stockfish = {"client_initialized": True, "introspect_error": str(err)}
+
+    # Resolve the real integration version from the loaded manifest rather
+    # than a hardcoded literal (which had drifted to a stale "0.2.0" and
+    # misreported every dump). Defensive: never let version lookup break the
+    # diagnostics download.
+    try:
+        from homeassistant.loader import async_get_integration
+
+        integration = await async_get_integration(hass, DOMAIN)
+        version = str(integration.version) if integration.version else "unknown"
+    except Exception:  # noqa: BLE001
+        version = "unknown"
 
     return {
         "integration": {
             "domain": DOMAIN,
-            "version": "0.2.0",  # mirror manifest.version
+            "version": version,
             "entry_id": entry.entry_id,
             "entry_title": entry.title,
             "entry_options": dict(entry.options or {}),

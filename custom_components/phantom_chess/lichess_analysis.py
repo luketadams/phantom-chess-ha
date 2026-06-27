@@ -268,7 +268,10 @@ class LichessAnalysisClient:
 
         # Lichess returns cp/mate from the side-to-move's perspective.
         # Normalize to white-positive: flip sign when black is to move.
-        white_to_move = " w " in fen or fen.split(" ")[1] == "w"
+        # Parse the side-to-move robustly — a board-only FEN (no fields)
+        # would IndexError on a naive split, so fall back to "white".
+        fen_fields = fen.split(" ")
+        white_to_move = len(fen_fields) < 2 or fen_fields[1] != "b"
         cp = top.get("cp")
         mate = top.get("mate")
         if cp is not None and not white_to_move:

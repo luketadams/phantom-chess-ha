@@ -64,6 +64,10 @@ SERVICE_SEND_MOVE        = "send_move"
 SERVICE_RESIGN           = "resign"
 SERVICE_TAKEBACK         = "takeback"
 SERVICE_DEBUG_BLE_WRITE  = "debug_ble_write"
+# fw0.3.2 GAME_START length-rejection diagnostic (added 2026-06-14). Logs the
+# negotiated MTU + UUID_GAME write limits and runs a non-destructive size probe;
+# experimental=true also A/B-tests the candidate GAME_START write variants live.
+SERVICE_DIAGNOSE_GAME_START = "diagnose_game_start"
 # Confirmed-protocol services (added 2026-05-09 after HCI capture)
 SERVICE_PHANTOM_START_GAME    = "phantom_start_game"
 SERVICE_PHANTOM_APPLY_AI_MOVE = "phantom_apply_ai_move"
@@ -94,6 +98,7 @@ SERVICE_EXECUTE_MOVE            = "execute_move"
 # examples/scripts.yaml so the dashboard can call services directly
 # without users having to install those scripts.
 SERVICE_BACK_TO_MODES           = "back_to_modes"
+SERVICE_RESYNC_DETECTION        = "resync_detection"
 SERVICE_START_LICHESS_CONFIGURED = "start_lichess_configured"
 SERVICE_PLAY_SELECTED_SCULPTURE  = "play_selected_sculpture"
 
@@ -117,6 +122,14 @@ DEBUG_BLE_WRITE_SCHEMA = vol.Schema(
     {
         vol.Required("uuid"): cv.string,
         vol.Required("data"): cv.string,
+    }
+)
+
+DIAGNOSE_GAME_START_SCHEMA = vol.Schema(
+    {
+        # experimental=true additionally A/B-tests the candidate GAME_START
+        # write variants on the live board (a successful variant starts a game).
+        vol.Optional("experimental", default=False): cv.boolean,
     }
 )
 
@@ -874,6 +887,10 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(call)
         await coordinator.async_back_to_modes()
 
+    async def handle_resync_detection(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(call)
+        await coordinator.async_resync_detection()
+
     async def handle_start_lichess_configured(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
         await coordinator.async_start_lichess_configured()
@@ -885,6 +902,12 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_debug_ble_write(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
         await coordinator.async_debug_ble_write(call.data["uuid"], call.data["data"])
+
+    async def handle_diagnose_game_start(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(call)
+        await coordinator.async_diagnose_game_start(
+            experimental=call.data.get("experimental", False)
+        )
 
     async def handle_phantom_start_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
@@ -963,6 +986,9 @@ def _register_services(hass: HomeAssistant) -> None:
     # v0.4-alpha3 service wrappers — replace user-side scripts.
     hass.services.async_register(DOMAIN, SERVICE_BACK_TO_MODES, handle_back_to_modes)
     hass.services.async_register(
+        DOMAIN, SERVICE_RESYNC_DETECTION, handle_resync_detection
+    )
+    hass.services.async_register(
         DOMAIN, SERVICE_START_LICHESS_CONFIGURED, handle_start_lichess_configured,
     )
     hass.services.async_register(
@@ -978,6 +1004,10 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_DEBUG_BLE_WRITE, handle_debug_ble_write,
         schema=DEBUG_BLE_WRITE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_DIAGNOSE_GAME_START, handle_diagnose_game_start,
+        schema=DIAGNOSE_GAME_START_SCHEMA,
     )
     hass.services.async_register(
         DOMAIN, SERVICE_PHANTOM_START_GAME, handle_phantom_start_game,

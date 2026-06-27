@@ -40,7 +40,8 @@
           "Play with Lichess": "mdi:web",
           "Play with Stockfish": "mdi:chip",
           "Sculpture Library": "mdi:auto-fix",
-          "2-Player Game": "mdi:account-multiple"
+          "2-Player Game": "mdi:account-multiple",
+          "Watch AI vs AI": "mdi:robot-excited"
         }
       },
       "player_color": {
@@ -70,6 +71,12 @@
         "state": {
           "on": "mdi:school"
         }
+      },
+      "voice_announcements": {
+        "default": "mdi:account-voice",
+        "state": {
+          "off": "mdi:account-voice-off"
+        }
       }
     },
     "sensor": {
@@ -79,7 +86,11 @@
           "Running": "mdi:play-circle",
           "Paused": "mdi:pause-circle",
           "HOME": "mdi:home",
+          "Waiting Side": "mdi:account-clock",
+          "Board Playing": "mdi:play-circle",
           "Snap to Center": "mdi:magnet",
+          "Snapping Pieces": "mdi:magnet",
+          "Calibrating": "mdi:tune-vertical",
           "Setting Up": "mdi:cog",
           "Managing Mismatch": "mdi:alert-circle",
           "Sculpture Playback": "mdi:auto-fix"

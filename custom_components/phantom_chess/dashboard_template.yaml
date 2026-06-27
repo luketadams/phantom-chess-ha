@@ -24,6 +24,16 @@ views:
   cards:
   - type: vertical-stack
     cards:
+    # Always-visible master mute for the spoken play-by-play (TTS). Works
+    # in every mode and whether or not the board is connected (pure-local
+    # config switch). Tap to toggle the voiceover on/off.
+    - type: tile
+      entity: switch.phantom_YOUR_BOARD_MAC_voice_announcements
+      name: Voice announcements
+      icon: mdi:account-voice
+      color: blue
+      tap_action:
+        action: toggle
     - type: conditional
       conditions:
       - condition: state
@@ -72,6 +82,23 @@ views:
         - condition: state
           entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
           state: Board Playing
+        # beta3: also show the picker during the transient/stand-by firmware
+        # states so "Back to modes" always returns to the picker even when
+        # the board is mid-snap or its firmware-mode sensor is wedged on one
+        # of these (the interstitials below now yield when setup_mode is
+        # "Choose a mode", so there's no double-render).
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Snapping Pieces
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Snap to Center
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Calibrating
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          state: Setting Up
       - condition: state
         entity: input_select.phantom_chess_setup_mode
         state: Choose a mode
@@ -778,6 +805,11 @@ views:
       conditions:
       - entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
         state: Snapping Pieces
+      - condition: not
+        conditions:
+        - condition: state
+          entity: input_select.phantom_chess_setup_mode
+          state: Choose a mode
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -791,6 +823,21 @@ views:
       card:
         type: vertical-stack
         cards:
+        - type: tile
+          entity: script.phantom_back_to_modes
+          name: Back to modes
+          icon: mdi:chevron-left
+          color: grey
+        - type: tile
+          entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+          name: Re-sync board detection
+          icon: mdi:sync-alert
+          color: orange
+          hide_state: true
+          tap_action:
+            action: perform-action
+            perform_action: phantom_chess.resync_detection
+            data: {}
         - type: custom:mushroom-template-card
           primary: Snapping Pieces
           secondary: "Centering pieces on their squares. Please stand by \u2014 usually 30 to 60 seconds."
@@ -813,6 +860,11 @@ views:
       conditions:
       - entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
         state: Snap to Center
+      - condition: not
+        conditions:
+        - condition: state
+          entity: input_select.phantom_chess_setup_mode
+          state: Choose a mode
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -826,6 +878,21 @@ views:
       card:
         type: vertical-stack
         cards:
+        - type: tile
+          entity: script.phantom_back_to_modes
+          name: Back to modes
+          icon: mdi:chevron-left
+          color: grey
+        - type: tile
+          entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+          name: Re-sync board detection
+          icon: mdi:sync-alert
+          color: orange
+          hide_state: true
+          tap_action:
+            action: perform-action
+            perform_action: phantom_chess.resync_detection
+            data: {}
         - type: custom:mushroom-template-card
           primary: Snapping Pieces
           secondary: "Centering pieces on their squares. Please stand by \u2014 usually 30 to 60 seconds."
@@ -848,6 +915,11 @@ views:
       conditions:
       - entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
         state: Calibrating
+      - condition: not
+        conditions:
+        - condition: state
+          entity: input_select.phantom_chess_setup_mode
+          state: Choose a mode
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -861,6 +933,11 @@ views:
       card:
         type: vertical-stack
         cards:
+        - type: tile
+          entity: script.phantom_back_to_modes
+          name: Back to modes
+          icon: mdi:chevron-left
+          color: grey
         - type: custom:mushroom-template-card
           primary: Calibrating
           secondary: Calibrating the magnet mechanism. Please don't move any pieces while this runs.
@@ -883,6 +960,11 @@ views:
       conditions:
       - entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
         state: Setting Up
+      - condition: not
+        conditions:
+        - condition: state
+          entity: input_select.phantom_chess_setup_mode
+          state: Choose a mode
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -896,6 +978,11 @@ views:
       card:
         type: vertical-stack
         cards:
+        - type: tile
+          entity: script.phantom_back_to_modes
+          name: Back to modes
+          icon: mdi:chevron-left
+          color: grey
         - type: custom:mushroom-template-card
           primary: Setting Up
           secondary: Setting up the board for a new game. Please don't move pieces while the magnet arranges them.

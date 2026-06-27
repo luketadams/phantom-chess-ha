@@ -147,7 +147,7 @@ def grid_to_fen(grid: str) -> str | None:
 # ─── BLE matrix-notification parsing ────────────────────────────────────
 
 
-def parse_matrix_notification(data: bytes) -> dict[str, str] | None:
+def parse_matrix_notification(data: bytes) -> dict[str, str | None] | None:
     """Parse a UUID_SEND_MATRIX notification or read value.
 
     The firmware emits two distinct payload shapes on this channel:
@@ -158,8 +158,12 @@ def parse_matrix_notification(data: bytes) -> dict[str, str] | None:
     separated by commas. We accept both shapes and surface the prefix
     as `status`.
 
-    Returns None for malformed input. On success: dict with keys
-      raw, piece_grid, sensor_bitmap, status, status_message.
+    Returns None for malformed/empty input or a CLEAN payload with no
+    parseable grid. On success: dict with keys raw, piece_grid,
+    sensor_bitmap, status, status_message. NOTE: for an ERROR/OTHER payload
+    that carries no usable trailing matrix, piece_grid and sensor_bitmap are
+    None (status/status_message are still populated) — callers MUST guard
+    for the None grid case.
     """
     try:
         decoded = data.decode("utf-8", errors="replace").strip()
@@ -185,14 +189,31 @@ def parse_matrix_notification(data: bytes) -> dict[str, str] | None:
         (p for p in parts if len(p) == 100 and all(c in "01" for c in p)),
         None,
     )
-    if grid is None or bitmap is None:
-        return None
 
     head = decoded.split(",", 1)[0]
     if ":" in head:
         message = head.split(":", 1)[1].strip().rstrip(".").strip()
     else:
         message = ""
+
+    if grid is None or bitmap is None:
+        # No usable trailing matrix. Previously the WHOLE payload was
+        # dropped here — which silently hid the firmware's
+        # "ERROR: Chessboard and sensor matrix do not match." wedge, because
+        # that error sometimes arrives with no (or a malformed) trailing
+        # grid. Still surface a genuine ERROR/OTHER status so the coordinator
+        # can set matrix_status and the user sees what's wrong; grid/bitmap
+        # are None and consumers must guard for that. A bare "CLEAN" with no
+        # grid is meaningless and is still discarded.
+        if status == "Error":
+            return {
+                "raw": decoded,
+                "piece_grid": None,
+                "sensor_bitmap": None,
+                "status": status,
+                "status_message": message,
+            }
+        return None
 
     return {
         "raw": decoded,

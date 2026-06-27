@@ -138,6 +138,12 @@ ENTITY_SCULPTURE_GAME  = "sculpture_game"
 # input_number.phantom_chess_lichess_clock_minutes / _increment helpers
 # that v0.3's examples/helpers.yaml required.
 ENTITY_TRAINING_WHEELS         = "training_wheels"
+# v0.4-beta3: integration-owned master mute for the HA-side play-by-play
+# TTS (the spoken narration/coaching). Pure-local config storage (no BLE);
+# state persists across HA restarts via RestoreEntity. Default ON so a
+# fresh install keeps the existing announce behaviour.
+ENTITY_VOICE_ANNOUNCEMENTS      = "voice_announcements"
+DEFAULT_VOICE_ANNOUNCEMENTS     = True
 ENTITY_LICHESS_CLOCK_MINUTES   = "lichess_clock_minutes"
 ENTITY_LICHESS_CLOCK_INCREMENT = "lichess_clock_increment"
 # v0.4-alpha30: AI-vs-AI spectator mode. Three integration-owned

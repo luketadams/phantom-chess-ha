@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0-beta3] — 2026-06-27
+
+Third public beta. Ships the **fw0.3.2/0.3.3 diagnostics + a root-cause investigation** of the game-start breakage, plus the robustness, recovery, and diagnostics batch staged since beta2. **Game start is still broken on fw0.3.2/0.3.3** (firmware-side) — see Known limitations; this release does not claim to fix it.
+
+### Added
+
+- **`phantom_chess.diagnose_game_start` service** — logs the negotiated MTU and `UUID_GAME` write limits and (with `experimental: true`) A/B-tests the GAME_START write variants on the live board. This localised the fw0.3.2/0.3.3 root cause (see Known limitations).
+- **`phantom_chess.resync_detection` recovery + dashboard tile** for a board wedged in "Snapping Pieces" / "Chessboard and sensor matrix do not match" with the pieces correctly placed. Sends RESET_DETECTION (opcode 14) to re-seed the firmware's expected matrix without driving the magnet.
+- **Matrix `ERROR:` payloads are surfaced** to `matrix_status` even when the frame carries no parseable grid (previously dropped), so a firmware wedge is visible.
+- Graceful, quiet degradation on firmware 0.3.2/0.3.3 for characteristics it no longer permits/exposes (CCCD-disallowed `SEND_MATRIX`/`BATTERY` notify subscribes, and the now-absent `ERROR_MSG`/`STATUS_BOARD` characteristics), with a battery read-poll fallback, so reconnects don't log-spam.
+- **`start_game` exposes its clock fields** (`clock_limit_seconds`/`clock_increment_seconds`) in `services.yaml`; `icons.json` gains the `Watch AI vs AI` mode and `voice_announcements` switch.
+
+### Fixed
+
+- The `GAME_START`/`GAME_ASSISTANCE` 0x0D rejection now raises a **descriptive, actionable error** (with the firmware/MTU diagnostics) instead of a bare stack trace.
+- **Diagnostics dump** now reports the live integration version (was hardcoded `0.2.0`) and populates the battery field (`battery_percent`); private-attribute and Stockfish introspection are guarded so a rename can no longer 500 the whole dump.
+- **`white_to_move`** no longer raises on a board-only FEN; **`resign`** no longer marks a game resigned if the Lichess POST failed.
+- **Restored `number` entity values are clamped** to the entity's current min/max, so a narrowed slider range can't persist an out-of-range value.
+
+### Known limitations
+
+- **Game start does not work on firmware 0.3.2 / 0.3.3** (the current public firmware). The board's GATT server rejects ATT write-with-response on the gameplay characteristic (`UUID_GAME`) with `INVALID_ATTRIBUTE_VALUE_LENGTH` (ATT 0x0D) for any payload size, and silently drops write-without-response. HCI captures show the official app used plain write-with-response (no bonding) on 0.3.0, so a 0.3.x firmware change introduced this — likely a new bonding/encryption or handshake requirement, still under investigation (see `FW032_GAME_START_FINDINGS.md`). Until resolved, `start_*` services fail with a descriptive error on 0.3.2/0.3.3. The 0.3.0 path is unaffected.
+
 ## [0.4.0-beta2] — 2026-06-03
 
 Second public beta. Two-player recording robustness, "Back to modes" now re-homes the board, a faithful PGN export, and a polished public README.

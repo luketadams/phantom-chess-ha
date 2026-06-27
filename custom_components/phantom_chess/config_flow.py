@@ -441,6 +441,20 @@ class PhantomChessOptionsFlow(OptionsFlow):
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="media_player")
                 ),
+                # Optional voice pinning for the direct TTS call. Both are
+                # free-text because valid values depend on the chosen TTS
+                # engine. For Home Assistant Cloud, language is a locale like
+                # "en-GB" and voice is a short Azure neural name like
+                # "RyanNeural" (see hass-nabucasa TTS_VOICES). Leave blank to
+                # use the engine's default voice/language.
+                vol.Optional(
+                    "tts_language",
+                    description={"suggested_value": current.get("tts_language", "")},
+                ): selector.TextSelector(),
+                vol.Optional(
+                    "tts_voice",
+                    description={"suggested_value": current.get("tts_voice", "")},
+                ): selector.TextSelector(),
                 vol.Optional(
                     "debug_dump",
                     default=bool(current.get("debug_dump", False)),

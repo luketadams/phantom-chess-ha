@@ -130,12 +130,16 @@ def _rotate_uci_180(uci: str) -> str:
 # ── Matrix-state notification parsing (UUID_SEND_MATRIX, firmware 0.3.0) ──────
 # The board emits notifications on 1b034927 in the form:
 #   "CLEAN: Match.,<100-char piece grid>,<100-char binary bitmap>"
-# - Piece grid: 10×10 row-major, '.' = empty, uppercase = white piece
-#   (P/N/B/R/Q/K), lowercase = black. Rows 0 and 9 are gutter rows for
-#   captured pieces; rows 1–8 are the playing area; cols 0 and 9 are
-#   borders, cols 1–8 are files a–h.
+# - Piece grid: 10×10, '.' = empty, uppercase = white piece (P/N/B/R/Q/K),
+#   lowercase = black. The wire layout is COLUMN-MAJOR (each consecutive
+#   10-char block is one file column, not a rank row) — the firmware matrix
+#   is 90°-rotated relative to a human board. Index 0/9 rows+cols are the
+#   gutter/graveyard border; the inner 8×8 is the playing area. See the
+#   authoritative encode/decode (`grid_index_to_square`, `grid_to_fen`,
+#   `build_matrix_from_fen`) in matrix.py and XOUXOU_PROTOCOL.md.
 # - Bitmap: 10×10 of '0'/'1' representing raw hall-effect sensor state.
-# Source: live capture 2026-05-09 + setupBoard asm.
+# Source: live capture 2026-05-09 + setupBoard asm; orientation reconfirmed
+# 2026-06-09 against matrix.py + XOUXOU_PROTOCOL.
 
 # Matrix parsing, FEN conversion, and mismatch diff helpers extracted to
 # `matrix.py` as the first step of the Task #21 coordinator split
@@ -215,6 +219,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             DEFAULT_SETUP_MODE,
             DEFAULT_SCULPTURE_GAME,
             DEFAULT_TRAINING_WHEELS,
+            DEFAULT_VOICE_ANNOUNCEMENTS,
             DEFAULT_LICHESS_CLOCK_MINUTES,
             DEFAULT_LICHESS_CLOCK_INCREMENT,
         )
@@ -231,6 +236,11 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # directly — see start_game_configured in services.yaml once
         # added).
         self.training_wheels: bool = DEFAULT_TRAINING_WHEELS
+        # v0.4-beta3: master mute for the HA-side play-by-play TTS. When
+        # False, _announce_via_tts skips the direct tts.speak call (the
+        # spoken voiceover) while still firing the phantom_chess_announce
+        # event so event-driven automations can decide for themselves.
+        self.voice_announcements: bool = DEFAULT_VOICE_ANNOUNCEMENTS
         self.lichess_clock_minutes: int = DEFAULT_LICHESS_CLOCK_MINUTES
         self.lichess_clock_increment: int = DEFAULT_LICHESS_CLOCK_INCREMENT
         # v0.4-alpha30: persistent AI-vs-AI spectator-mode config. The
@@ -365,6 +375,14 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Added 2026-05-17 after a false-positive force-reconnect aborted
         # Lichess game activation when writing the legacy UUID_MATRIX_INIT_GAME.
         self._discovered_uuids: set[str] = set()
+        # One-shot guard so the "0.3.2 diag" line (negotiated MTU + UUID_GAME
+        # write limits) is emitted at INFO once per BLE session on the first
+        # GAME_START, then at DEBUG thereafter. Reset on each connect. Added
+        # 2026-06-14 to disambiguate the fw0.3.2 GAME_START length rejection.
+        self._game_start_diag_logged: bool = False
+        # One-shot guard so the fw0.3.2 "CCCD subscribe disallowed; using poll
+        # fallback" note is logged once (not on every reconnect).
+        self._subscribe_degraded_logged: set[str] = set()
 
     # ── Public state helpers ──────────────────────────────────────────────────
 
@@ -424,13 +442,32 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         event loop thread; do NOT call directly from a notify callback —
         go through _handle_matrix_bytes instead.
         """
+        from datetime import datetime, timezone
+
+        # Error/status payload with no parseable matrix (e.g. the
+        # "Chessboard and sensor matrix do not match" wedge sometimes arrives
+        # with no usable trailing grid). Surface the status + message so the
+        # user/dashboard can see the board is in an error state, but skip all
+        # the grid-dependent computation (FEN, consistency, piece count,
+        # mismatch diff) since there's no grid to work with. v0.4-beta3.
+        if parsed.get("piece_grid") is None:
+            if (self._state.get("matrix_status") == parsed["status"]
+                    and self._state.get("matrix_status_message")
+                    == parsed["status_message"]):
+                return
+            self._state["matrix_raw"] = parsed["raw"]
+            self._state["matrix_status"] = parsed["status"]
+            self._state["matrix_status_message"] = parsed["status_message"]
+            self._state["matrix_last_updated"] = datetime.now(timezone.utc).isoformat()
+            self.async_set_updated_data(dict(self._state))
+            return
+
         # Dedup check (now on loop thread, no read race).
         if (self._state.get("piece_grid") == parsed["piece_grid"]
                 and self._state.get("sensor_bitmap") == parsed["sensor_bitmap"]
                 and self._state.get("matrix_status") == parsed["status"]
                 and self._state.get("matrix_status_message") == parsed["status_message"]):
             return
-        from datetime import datetime, timezone
         fen_board = _grid_to_fen(parsed["piece_grid"])
         consistent, mismatches = _check_consistency(
             parsed["piece_grid"], parsed["sensor_bitmap"]
@@ -582,6 +619,17 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         self._handle_firmware_mode_bytes(bytes(data))
                     except Exception as err:
                         _LOGGER.debug("firmware_mode poll read failed: %s", err)
+                    # fw0.3.2 battery fallback: the BATTERY_INFO CCCD subscribe
+                    # is rejected, so poll-read it here (doc §5.7: battery is a
+                    # read-only characteristic). Harmless on 0.3.0 where notify
+                    # also works. Runs on the loop, so apply state directly.
+                    try:
+                        data = await client.read_gatt_char(UUID_BATTERY_INFO)
+                        parsed = self._parse_battery_payload(bytes(data))
+                        if parsed is not None:
+                            self._apply_battery_state(*parsed)
+                    except Exception as err:
+                        _LOGGER.debug("battery poll read failed: %s", err)
                 await asyncio.sleep(2)
             except asyncio.CancelledError:
                 return
@@ -768,6 +816,8 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         async with BleakClient(device, disconnected_callback=self._on_ble_disconnect) as client:
             self._ble_client = client
             self._ble_connected = True
+            # Fresh session → re-arm the one-shot "0.3.2 diag" INFO line.
+            self._game_start_diag_logged = False
             _LOGGER.info("Connected to Phantom board at %s", self._ble_address)
 
             # Dump GATT layout to a file when debug_dump is enabled — useful
@@ -835,7 +885,31 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await client.start_notify(uuid, callback)
                         _LOGGER.debug("Subscribed to %s (%s)", label, uuid)
                     except Exception as sub_err:
-                        _LOGGER.warning("Subscribe %s (%s) failed: %s", label, uuid, sub_err)
+                        # fw0.3.2: the CCCD subscribe for SEND_MATRIX and
+                        # BATTERY_INFO is rejected with WRITE_NOT_PERMITTED, yet
+                        # the data still reaches us — matrix via the UUID_GAME
+                        # opcode-0x08 notify path AND the 2s poll loop; battery
+                        # via the 2s poll-read fallback (see _matrix_poll_loop).
+                        # So these two are non-fatal: log once at INFO (not on
+                        # every reconnect) and never at WARNING.
+                        if label in ("SEND_MATRIX", "BATTERY_INFO"):
+                            if label not in self._subscribe_degraded_logged:
+                                self._subscribe_degraded_logged.add(label)
+                                _LOGGER.info(
+                                    "Subscribe %s (%s) not permitted on this "
+                                    "firmware (fw0.3.2 CCCD change) — degrading "
+                                    "to poll/game-channel fallback: %s",
+                                    label, uuid, sub_err,
+                                )
+                            else:
+                                _LOGGER.debug(
+                                    "Subscribe %s still not permitted (using "
+                                    "fallback): %s", label, sub_err,
+                                )
+                        else:
+                            _LOGGER.warning(
+                                "Subscribe %s (%s) failed: %s", label, uuid, sub_err
+                            )
                 else:
                     _LOGGER.info("Characteristic %s not present on this firmware — skipping", label)
 
@@ -1375,6 +1449,21 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._physical_move_queue.put_nowait, move_str
         )
 
+    @staticmethod
+    def _parse_battery_payload(data: bytes) -> tuple[int, bool] | None:
+        """Parse 'percent,wallStatus,charging,doneCharging' → (percent, charging).
+
+        Returns None on malformed/empty input. Shared by the notify callback
+        (_on_battery) and the 2s poll-read fallback in _matrix_poll_loop — on
+        fw0.3.2 the BATTERY_INFO CCCD subscribe is rejected, so the poll read
+        is the live source.
+        """
+        try:
+            parts = data.decode().strip().split(",")
+            return int(parts[0]), parts[2] == "1"
+        except Exception:
+            return None
+
     def _on_battery(
         self, characteristic: BleakGATTCharacteristic, data: bytearray
     ) -> None:
@@ -1385,13 +1474,11 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         so the self._state mutation can't race against entity reads.
         Audit §1.5, 2026-05-19.
         """
-        try:
-            parts = data.decode().strip().split(",")
-            percent = int(parts[0])
-            charging = parts[2] == "1"
-        except Exception:
+        parsed = self._parse_battery_payload(bytes(data))
+        if parsed is None:
             # Malformed payload — nothing we can apply.
             return
+        percent, charging = parsed
         self.hass.loop.call_soon_threadsafe(
             self._apply_battery_state, percent, charging,
         )
@@ -1548,13 +1635,32 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return True
 
-    async def _ble_write(self, uuid: str, data: str | bytes) -> None:
+    async def _ble_write(
+        self, uuid: str, data: str | bytes, response: bool = True
+    ) -> None:
+        """Write to a characteristic.
+
+        ``response`` selects write-WITH-response (ATT Write Request, the
+        default and the only mode used by the 0.3.0 path) vs
+        write-WITHOUT-response (ATT Write Command). The kwarg exists so the
+        fw0.3.2 GAME_START diagnostics can A/B the two modes on the live
+        board; every existing caller keeps the response=True behaviour.
+
+        NOTE (fw0.3.2/0.3.3, 2026-06-27): a write-without-response auto-switch
+        for UUID_GAME was tried and reverted. Live testing showed the firmware
+        SILENTLY DROPS write-without-response on UUID_GAME (the characteristic
+        only advertises Write/Request), so it merely masked the 0x0D rejection
+        with a fake success. HCI captures show the official app used
+        write-WITH-response (no bonding) on 0.3.0; 0.3.3 newly rejects it. The
+        real cause (bonding/handshake?) is still under investigation — see
+        FW032_GAME_START_FINDINGS.md, so we keep the honest with-response path.
+        """
         if self._ble_client is None or not self._ble_client.is_connected:
             raise RuntimeError("BLE not connected")
         if isinstance(data, str):
             data = data.encode("utf-8")
         try:
-            await self._ble_client.write_gatt_char(uuid, data, response=True)
+            await self._ble_client.write_gatt_char(uuid, data, response=response)
         except BleakError as err:
             await self._handle_gatt_staleness(err, uuid, op="write")
             raise  # always propagate; caller decides retry policy
@@ -1580,6 +1686,216 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("DEBUG_BLE_WRITE FAIL uuid=%s: %s", uuid, err)
             raise
 
+    # ── fw0.3.2 GAME_START length-rejection diagnostics ──────────────────────
+    # Background: on firmware 0.3.2 the 103-byte GAME_START write (opcode 0 +
+    # 100-char matrix + ",W") is rejected by the board's GATT server with
+    # INVALID_ATTRIBUTE_VALUE_LENGTH (ATT error 0x0D). The payload already
+    # matches the 0.3.2 doc §2.1 byte-for-byte, so this is NOT a wire-format
+    # bug — 0x0D is a *server-side* length rejection. Two candidate causes:
+    #   (1) the negotiated ATT MTU is too small for a single 103-byte write, or
+    #   (2) the firmware declared UUID_GAME with attr_max_len < 103 (an ESP32
+    #       GATT-table regression in 0.3.2).
+    # These helpers capture the data needed to tell them apart on the live
+    # board without guessing. See FABLE5_DEBUG_BRIEF.md / IMPROVEMENTS.md.
+
+    @staticmethod
+    def _is_invalid_attr_value_length(err: BaseException) -> bool:
+        """True if ``err`` is the BLE 'Invalid Attribute Value Length' (0x0D).
+
+        Detected by string match rather than importing a backend-specific
+        bleak exception class, so it works on every bleak version and in the
+        minimal test env where bleak isn't installed. The two stable textual
+        forms both appear in the captured fault:
+          - the enum name  "INVALID_ATTRIBUTE_VALUE_LENGTH"
+          - the human text "Invalid Attribute Value Length"
+        """
+        blob = f"{err!r} {err}"
+        return (
+            "INVALID_ATTRIBUTE_VALUE_LENGTH" in blob
+            or "Invalid Attribute Value Length" in blob
+        )
+
+    def _game_channel_write_diag(self, payload_len: int) -> str:
+        """One-line '0.3.2 diag' describing UUID_GAME's write limits.
+
+        Best-effort and never raises. Logs the negotiated MTU, the implied
+        single-ATT-write cap (MTU-3) and whether ``payload_len`` fits it, plus
+        the UUID_GAME characteristic's ``max_write_without_response_size`` and
+        ``properties``.
+
+        NOTE (BlueZ): ``BleakClient.mtu_size`` on the BlueZ backend can report
+        the 23-byte default until an MTU exchange has been "acquired" (e.g. by
+        a notify subscribe or a write-without-response). When the local adapter
+        is BlueZ, trust ``max_write_without_response_size`` over ``mtu_size``;
+        both are logged so the live reader can compare.
+        """
+        client = self._ble_client
+        mtu: int | None = None
+        max_wwr: int | None = None
+        props: list[str] = []
+        try:
+            if client is not None:
+                try:
+                    mtu = int(client.mtu_size)
+                except Exception:  # noqa: BLE001 — BlueZ may warn/raise pre-acquire
+                    mtu = None
+                char = None
+                try:
+                    char = client.services.get_characteristic(UUID_GAME)
+                except Exception:  # noqa: BLE001
+                    char = None
+                if char is not None:
+                    try:
+                        props = list(char.properties)
+                    except Exception:  # noqa: BLE001
+                        props = []
+                    try:
+                        max_wwr = int(char.max_write_without_response_size)
+                    except Exception:  # noqa: BLE001
+                        max_wwr = None
+        except Exception:  # noqa: BLE001 — diagnostics must never break a write
+            pass
+        single_cap = (mtu - 3) if isinstance(mtu, int) else None
+        if single_cap is None:
+            fits = "unknown"
+        else:
+            fits = "yes" if payload_len <= single_cap else "NO"
+        return (
+            f"0.3.2 diag: UUID_GAME payload={payload_len}B; mtu_size={mtu} "
+            f"(single-ATT-write cap={single_cap}B; payload fits single write: "
+            f"{fits}); max_write_without_response_size={max_wwr}B; "
+            f"properties={props}"
+        )
+
+    def _game_start_length_error(
+        self, err: BaseException, payload_len: int, diag: str
+    ) -> RuntimeError:
+        """Build an actionable RuntimeError from a GAME_START 0x0D rejection.
+
+        Turns the opaque ``BleakGATTProtocolError`` (which otherwise surfaces
+        as a bare HTTP 500) into a message that interprets the diag numbers
+        into the two candidate root causes, so the live operator knows whether
+        this is fixable host-side (MTU) or needs an upstream firmware fix
+        (attr_max_len).
+        """
+        msg = (
+            f"GAME_START rejected by the board: the {payload_len}-byte write to "
+            f"UUID_GAME was refused with INVALID_ATTRIBUTE_VALUE_LENGTH (ATT "
+            f"0x0D) — a server-side 'value too long' rejection. The payload "
+            f"matches the fw0.3.2 doc §2.1 byte-for-byte, so this is a length "
+            f"limit, not a format bug. {diag}. Interpretation: if 'payload fits "
+            f"single write: yes' then the link MTU is fine and the firmware's "
+            f"UUID_GAME attr_max_len is < {payload_len} (a 0.3.2 firmware "
+            f"regression — needs an upstream fix from Efraín; takeback/opcode-5 "
+            f"and reset_detection/opcode-14 large writes will fail the same "
+            f"way). If 'fits: NO' then the negotiated MTU is too small to carry "
+            f"a single {payload_len}-byte ATT write and the board's GATT server "
+            f"isn't accepting a long (prepared) write — raise the MTU / use a "
+            f"higher-MTU transport. Run phantom_chess.diagnose_game_start for a "
+            f"non-destructive confirmation. Original error: {err!r}"
+        )
+        return RuntimeError(msg)
+
+    async def async_diagnose_game_start(self, experimental: bool = False) -> str:
+        """Operator-invoked fw0.3.2 GAME_START diagnostic.
+
+        Step 1 (always, non-destructive): log the MTU/char diag, then probe
+        UUID_GAME with a SAFE documented write — RESET_DETECTION (opcode 14)
+        seeded with the *current* board FEN, which re-asserts the firmware's
+        expected matrix WITHOUT driving the magnet (see async_resync_detection).
+        Comparing that ~35-90B write against the known 103B GAME_START failure
+        localises the attr_max_len ceiling.
+
+        Step 2 (only if ``experimental=True``): A/B the candidate GAME_START
+        fixes on the live board (doc-compliant 103B, experimental no-suffix
+        101B, then write-without-response), stopping at the first that
+        succeeds. A successful write starts a game (the desired end state); a
+        rejected write has no side effect because an ATT-rejected value never
+        reaches the firmware.
+
+        Returns a human summary; every step is also logged at INFO.
+        """
+        if not self._ble_connected:
+            raise RuntimeError("Board not connected via Bluetooth")
+        lines: list[str] = []
+        diag = self._game_channel_write_diag(103)
+        lines.append(diag)
+        _LOGGER.info("diagnose_game_start — %s", diag)
+
+        board_fen = self._board.board_fen()
+        rd_len = 1 + len(board_fen.encode("utf-8"))
+        try:
+            await self._phantom_send_reset_detection(board_fen)
+            lines.append(
+                f"RESET_DETECTION probe OK: a {rd_len}-byte UUID_GAME write "
+                f"(opcode 14, non-destructive) succeeded — so the channel "
+                f"accepts writes at least {rd_len}B. If GAME_START's 103B write "
+                f"still fails, the firmware attr_max_len is between {rd_len} and "
+                f"103 (a 0.3.2 regression)."
+            )
+        except BleakError as err:
+            if self._is_invalid_attr_value_length(err):
+                lines.append(
+                    f"RESET_DETECTION probe FAILED at {rd_len}B with the same "
+                    f"0x0D length rejection — attr_max_len is smaller than "
+                    f"{rd_len}B, or the MTU is too low even for that write."
+                )
+            else:
+                lines.append(f"RESET_DETECTION probe FAILED ({rd_len}B): {err!r}")
+
+        if experimental:
+            lines.extend(await self._diagnose_game_start_variants())
+
+        summary = " | ".join(lines)
+        _LOGGER.info("diagnose_game_start summary: %s", summary)
+        return summary
+
+    async def _diagnose_game_start_variants(self) -> list[str]:
+        """EXPERIMENTAL: A/B GAME_START write variants on the live board.
+
+        Ordered; stops at the first variant the firmware accepts. A successful
+        write starts a game; failed writes are ATT-rejected (no side effect).
+        Invoked only via diagnose_game_start(experimental=True).
+        """
+        matrix = self._build_phantom_matrix_from_fen(self._board.fen())
+        full = bytes([0x00]) + (matrix + ",W").encode("utf-8")          # 103B, §2.1
+        no_suffix = bytes([0x00]) + matrix.encode("utf-8")              # 101B, no ",W"
+        attempts = [
+            ("full-103B response=True (doc §2.1)", full, True),
+            (
+                "no-suffix-101B response=True (EXPERIMENTAL — deviates from "
+                "§2.1; SIDE is set separately via opcode 10 so ',W' may be "
+                "optional)",
+                no_suffix,
+                True,
+            ),
+            ("full-103B response=False (write-without-response)", full, False),
+        ]
+        out: list[str] = []
+        for label, payload, resp in attempts:
+            try:
+                await self._ble_write(UUID_GAME, payload, response=resp)
+                out.append(
+                    f"VARIANT OK → {label} ({len(payload)}B) accepted. This is "
+                    f"the working write mode — promote it to the start path."
+                )
+                return out
+            except BleakError as err:
+                kind = (
+                    "0x0D length-reject"
+                    if self._is_invalid_attr_value_length(err)
+                    else "other error"
+                )
+                out.append(f"variant [{label}] ({len(payload)}B) failed "
+                           f"[{kind}]: {err!r}")
+        out.append(
+            "All GAME_START variants failed → not host-fixable from the write "
+            "path; this is a firmware attr_max_len regression to escalate to "
+            "Efraín (opcode-5 takeback and opcode-14 reset_detection large "
+            "writes will fail the same way)."
+        )
+        return out
+
     # ── Phantom 0.3.0 protocol — confirmed via HCI capture 2026-05-09 ────────
     # See PROTOCOL.md for the full activation sequence and game-loop details.
 
@@ -1590,16 +1906,44 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     _build_phantom_matrix_from_fen = staticmethod(_build_matrix_from_fen_module)
 
     async def _phantom_send_game_start(self, fen: str = chess.STARTING_FEN, side: str = "W") -> None:
-        """Send GameOPCode 0 (gameStart) with column-major matrix to UUID_GAME."""
+        """Send GameOPCode 0 (gameStart) with column-major matrix to UUID_GAME.
+
+        Payload is opcode 0 + the 100-char column-major matrix + ",<side>",
+        matching the fw0.3.2 doc §2.1 (a 103-byte write for a 1-char side).
+        On fw0.3.2 the board's GATT server may reject this with ATT 0x0D
+        (INVALID_ATTRIBUTE_VALUE_LENGTH); we emit a one-shot MTU/char diag
+        before the write and translate the opaque rejection into an actionable
+        error. The 0.3.0 happy path is unchanged (the write succeeds; the diag
+        logs once at INFO, then DEBUG).
+        """
         GAME_CHANNEL = UUID_GAME
         matrix = self._build_phantom_matrix_from_fen(fen)
         payload = bytes([0x00]) + (matrix + "," + side).encode("utf-8")
+        diag = self._game_channel_write_diag(len(payload))
+        if not self._game_start_diag_logged:
+            _LOGGER.info("Phantom gameStart — %s", diag)
+            self._game_start_diag_logged = True
+        else:
+            _LOGGER.debug("Phantom gameStart — %s", diag)
         _LOGGER.debug("Phantom gameStart: %d bytes (matrix=%s, side=%s)", len(payload), matrix, side)
-        await self._ble_write(GAME_CHANNEL, payload)
+        try:
+            await self._ble_write(GAME_CHANNEL, payload)
+        except BleakError as err:
+            if self._is_invalid_attr_value_length(err):
+                _LOGGER.error("Phantom gameStart length-rejected — %s", diag)
+                raise self._game_start_length_error(err, len(payload), diag) from err
+            raise
 
     async def _phantom_send_side(self, side_value: str) -> None:
         """Send GameOPCode 10 (side) with payload '0', '1', or '2'.
-        '1' = white-to-move, '2' = black-to-move, '0' = no-turn (sculpture mode)."""
+
+        Per EFRAIN_GAMEPLAY_DOC and XOUXOU_PROTOCOL, SIDE encodes *who moves
+        next*, NOT a piece colour:
+          '0' = two local players (board waits for either human),
+          '1' = the board/firmware side moves next,
+          '2' = the BLE/app side moves next.
+        (The older 'white/black-to-move' reading was a debunked heuristic.)
+        """
         GAME_CHANNEL = UUID_GAME
         payload = bytes([0x0a]) + side_value.encode("utf-8")
         _LOGGER.debug("Phantom side: %r", side_value)
@@ -1630,10 +1974,29 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         auto_correct_wrong_move: bool = False,
         advanced_capture: bool = False,
         strict_gameplay: bool = False,
+        slide_detection: bool = True,
+        jump_to_center: bool = False,
     ) -> None:
-        """Send GameOPCode 11 (GAME_ASSISTANCE) with the six firmware assistance flags.
+        """Send GameOPCode 11 (GAME_ASSISTANCE) with the firmware assistance flags.
 
-        Data format: "C,E,S,W,A,G" with each value "0" or "1":
+        Firmware 0.3.2 added two fields → the 8-field form "C,E,S,W,A,G,SD,JC".
+          SD = slideDetectionMode (debounced slide detection; firmware
+               default ON — fixes the slow-slide double-move bug)
+          JC = autoJumpToCenter   (firmware default OFF)
+        We always send all 8 (SD on, JC off, matching the firmware defaults).
+
+        DOC CONTRADICTION (flagged 2026-06-14): the authoritative 0.3.2 doc
+        §3.4 NOTE claims "Sending only 6 fields is safe — firmware defaults
+        SD=1, JC=0 if fields are absent." That directly contradicts the live
+        capture (2026-06-09) where the 6-field write was rejected with
+        INVALID_ATTRIBUTE_VALUE_LENGTH. Sending 8 fields is correct and safe
+        under BOTH readings (it's a strict superset of the 6-field form and
+        the 0.3.0 firmware simply ignored positions 6/7), so we send 8
+        unconditionally rather than depend on the unverified default-fill.
+        If the live board later confirms 6 fields really is accepted, only
+        this comment needs revisiting — the wire write stays 8-field.
+
+        Data format: "C,E,S,W,A,G,SD,JC" with each value "0" or "1":
           C = autoCastling           (firmware moves the rook for you on king-castle)
           E = autoEnPassant          (firmware removes the captured pawn)
           S = autoSnapToCenter       (firmware centers misaligned pieces)
@@ -1652,16 +2015,18 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Reference: EFRAIN_GAMEPLAY_DOC_2026-05-14.txt opcode 11.
         """
         GAME_CHANNEL = UUID_GAME
-        flags = "{},{},{},{},{},{}".format(
+        flags = "{},{},{},{},{},{},{},{}".format(
             "1" if auto_castling else "0",
             "1" if auto_en_passant else "0",
             "1" if auto_snap_to_center else "0",
             "1" if auto_correct_wrong_move else "0",
             "1" if advanced_capture else "0",
             "1" if strict_gameplay else "0",
+            "1" if slide_detection else "0",
+            "1" if jump_to_center else "0",
         )
         payload = bytes([0x0B]) + flags.encode()
-        _LOGGER.debug("Phantom game_assistance: %s", flags)
+        _LOGGER.debug("Phantom game_assistance (8-field, fw0.3.2): %s", flags)
         await self._ble_write(GAME_CHANNEL, payload)
 
     async def _phantom_send_check_sound(self, sound_type: str = "1") -> None:
@@ -1902,6 +2267,15 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _phantom_send_ai_move(self, uci: str, piece: str = "E") -> None:
         """Send GameOPCode 2 (MOVEMENT) with M-format payload — the explicit
         AI-move-during-active-game path.
+
+        ⚠️ CURRENTLY UNUSED + UNVERIFIED (2026-06-09 audit). The whole
+        integration drives moves via the snapshot model
+        (`_phantom_execute_position`); this opcode-2 path is never called.
+        It is ALSO suspect: per EFRAIN_GAMEPLAY_DOC the MOVEMENT payload
+        needs a move-index prefix (`MOVE_PREFIX = "M 1 "`, i.e.
+        "M 1 e2-e4 E"), but the string built below omits the index. Do NOT
+        re-wire this path without verifying the exact wire format on live
+        hardware first; prefer `_phantom_execute_position`.
 
         The opcode-2 MOVEMENT write tells the firmware exactly which move
         to physically execute, overriding whatever its onboard AI would
@@ -2531,6 +2905,46 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         _LOGGER.info("resume_from_phone: sync complete")
 
+    async def async_resync_detection(self) -> None:
+        """Recover a wedged board by re-seeding the firmware's expected matrix.
+
+        For the "Snapping Pieces" / "Chessboard and sensor matrix do not
+        match" wedge (firmware's internal expected-matrix gets corrupted even
+        though the physical pieces are correct). Unlike `resume_from_phone`,
+        this does NOT require an active game — it's usable at idle, which is
+        exactly when the board gets stuck after powering on.
+
+        Sends RESET_DETECTION (opcode 14) with the integration's current
+        board FEN (the standard starting position when idle), telling the
+        firmware "this IS the current position." This is a data re-sync, not
+        a magnet move — no pieces are driven, so it's safe to invoke while the
+        board is wedged. v0.4-beta3 (finding C1).
+        """
+        if not self._ble_connected:
+            raise RuntimeError("Board not connected via Bluetooth")
+        fen = self._board.board_fen()
+        _LOGGER.info(
+            "resync_detection: re-seeding firmware expected matrix to FEN %s "
+            "(board_fen at current model state)", fen,
+        )
+        await self._phantom_send_reset_detection(fen)
+        # Best-effort: clear any mismatch notification now that we've told the
+        # firmware to accept the current position.
+        for notif_id in (
+            "phantom_chess_matrix_mismatch",
+            "phantom_chess_ai_move_failed",
+        ):
+            try:
+                await self.hass.services.async_call(
+                    "persistent_notification", "dismiss",
+                    {"notification_id": notif_id},
+                )
+            except Exception:  # noqa: BLE001 — dismiss is best-effort
+                pass
+        self.hass.async_create_task(self._announce_via_tts(
+            "Re-syncing the board's piece detection."
+        ))
+
     async def async_back_to_modes(self) -> None:
         """Reset the dashboard to its mode-picker state AND re-home the board.
 
@@ -2622,7 +3036,13 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             if resp.status not in (200, 201):
-                _LOGGER.warning("Resign failed: %s", await resp.text())
+                # Don't mark the local game resigned if Lichess rejected the
+                # request — that would desync HA from the still-live game.
+                _LOGGER.warning(
+                    "Resign failed (%s): %s — leaving game state unchanged",
+                    resp.status, await resp.text(),
+                )
+                return
         self._state["game_status"] = STATUS_RESIGNED
         self._game_id = None
         self.async_set_updated_data(self._state)
@@ -3185,13 +3605,29 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         # ── Event fan-out (always) ──────────────────────────────────────
+        # The event ALWAYS fires (even when the spoken voiceover is muted)
+        # so event-driven automations keep working; the `voice_enabled`
+        # flag lets them honour the dashboard toggle if they choose.
         try:
             self.hass.bus.async_fire(
                 "phantom_chess_announce",
-                {"message": message, "board_address": self._ble_address},
+                {
+                    "message": message,
+                    "board_address": self._ble_address,
+                    "voice_enabled": bool(self.voice_announcements),
+                },
             )
         except Exception as ev_err:
             _LOGGER.debug("phantom_chess_announce event fire failed: %s", ev_err)
+
+        # ── Master mute for the spoken voiceover (v0.4-beta3) ───────────
+        # The Voice-announcements dashboard switch gates ONLY the direct
+        # tts.speak call below, across every mode (AI, Stockfish, Lichess,
+        # 2-player, and historic — all of which reach the user's TTS
+        # through this one method). The event above still fired.
+        if not self.voice_announcements:
+            _LOGGER.debug("Voice announcements muted — skipping TTS: %s", message)
+            return
 
         # ── Optional direct TTS call (when configured in options) ──────
         # Two-step null-check so mypy can narrow `self._entry` past
@@ -3200,6 +3636,13 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         options = (entry.options if entry is not None else {}) or {}
         tts_service = options.get("tts_service")
         tts_media_player = options.get("tts_media_player_entity_id")
+        # Optional voice pinning. When set, these force a specific language
+        # and voice instead of the engine's default. For Home Assistant Cloud
+        # that's a locale (e.g. "en-GB") plus a short Azure neural voice name
+        # (e.g. "RyanNeural"), passed as options.voice. Both are optional and
+        # independent, so existing setups (no language/voice) are unaffected.
+        tts_language = options.get("tts_language")
+        tts_voice = options.get("tts_voice")
         if tts_service and tts_media_player:
             # tts_service is "domain.service" e.g. "tts.google_ai_tts" — split
             # into ("tts", "google_ai_tts") for the service call. We don't
@@ -3208,18 +3651,25 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 domain, _, service = tts_service.partition(".")
                 if not domain or not service:
                     raise ValueError(f"tts_service must be 'domain.service', got {tts_service!r}")
+                service_data: dict[str, Any] = {
+                    "entity_id": tts_service,
+                    "media_player_entity_id": tts_media_player,
+                    "message": message,
+                    "cache": True,
+                }
+                if tts_language:
+                    service_data["language"] = tts_language
+                if tts_voice:
+                    service_data["options"] = {"voice": tts_voice}
                 await self.hass.services.async_call(
                     "tts", "speak",
-                    {
-                        "entity_id": tts_service,
-                        "media_player_entity_id": tts_media_player,
-                        "message": message,
-                        "cache": True,
-                    },
+                    service_data,
                     blocking=False,
                 )
-                _LOGGER.debug("TTS dispatched via %s → %s: %s",
-                              tts_service, tts_media_player, message)
+                _LOGGER.debug("TTS dispatched via %s → %s (lang=%s voice=%s): %s",
+                              tts_service, tts_media_player,
+                              tts_language or "default", tts_voice or "default",
+                              message)
             except Exception as e:
                 _LOGGER.debug("TTS speak failed (%s): %s", tts_service, e)
 
