@@ -2090,6 +2090,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         side: str = "B",
         timeout_s: float = 30.0,
         side_opcode: str = "2",
+        select_chess_mode: bool = False,
     ) -> bool:
         """Drive the magnet to match the given target FEN.
 
@@ -2130,6 +2131,21 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self._phantom_session_initialized:
             await self._phantom_drop_to_home()
             self._phantom_session_initialized = True
+
+        # fw0.3.2/0.3.3: the firmware rejects EVERY UUID_GAME write (even a
+        # 1-byte GAME_END) with INVALID_ATTRIBUTE_VALUE_LENGTH (0x0D) unless it
+        # has first been put into chess-play mode via SELECT_MODE 2. The
+        # official app does exactly GAME_END → SELECT_MODE 2 → GAME_START
+        # (confirmed by nRF52840 sniffer capture 2026-06-29,
+        # phantom_app_fw033_capture). The 0.3.0 "snapshot" bootstrap didn't
+        # need this, so version-gate to avoid changing the 0.3.0 path (where
+        # SELECT_MODE 2 re-introduced the manual piece-touch oscillation).
+        # Only on a fresh game start (select_chess_mode=True), never on the
+        # per-move AI/move_piece position-execute path.
+        if select_chess_mode and self._fw_at_least((0, 3, 2)):
+            _LOGGER.debug("Phantom: entering chess-play mode (SELECT_MODE 2) before GAME_START")
+            await self._phantom_select_chess_play_mode()
+            await asyncio.sleep(0.2)
 
         # Cache target for the CLEAN: Match parser and the move-done future.
         self._last_target_fen = fen.split(" ")[0]
@@ -2305,6 +2321,29 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.debug("Phantom movement: %r", m_str)
         await self._ble_write(GAME_CHANNEL, payload)
 
+    def _fw_at_least(self, target: tuple[int, ...]) -> bool:
+        """True when the board's reported firmware_version >= ``target``.
+
+        Parses the leading dotted-int run of ``firmware_version`` (e.g.
+        "0.3.3" → (0, 3, 3)) and compares it tuple-wise. Unknown/garbage
+        firmware → False (conservative: keep the historical 0.3.0 behaviour).
+        """
+        raw = (self._state.get("firmware_version") or "").strip()
+        nums: list[int] = []
+        for tok in raw.split("."):
+            digits = ""
+            for ch in tok:
+                if ch.isdigit():
+                    digits += ch
+                else:
+                    break
+            if not digits:
+                break
+            nums.append(int(digits))
+        if not nums:
+            return False
+        return tuple(nums) >= target
+
     async def _phantom_select_chess_play_mode(self) -> None:
         """Set the firmware to chess-play mode (mode 2) via UUID_SELECT_MODE."""
         await self._ble_write(UUID_SELECT_MODE, b"2")
@@ -2318,18 +2357,21 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Start a Phantom chess game using the snapshot protocol.
 
-        Validated 2026-05-13 on firmware 0.3.0:
+        Sequence (matches the official app's HCI capture 2026-06-29 on
+        fw0.3.3):
           1. GAME_END (\\x01) → wait for firmware HOME mode (session init)
-          2. GAME_START (opcode 0) with column-major matrix from FEN
-          3. 300 ms gap
-          4. SIDE (opcode 0x0A) with literal "2"
+          2. SELECT_MODE 2 (chess-play mode) on fw>=0.3.2 — REQUIRED before
+             GAME_START or the firmware 0x0D-rejects every UUID_GAME write
+          3. GAME_START (opcode 0) with column-major matrix from FEN
+          4. Wait for "Waiting Side", then SIDE (opcode 0x0A)
           5. Wait for BLE_MOVE_DONE if a diff exists, or for firmware to reach
              BLE Playing if no motor action is needed (sensors already match).
 
-        Replaces the old SELECT_MODE 2 + manual piece-touch protocol — the
-        snapshot model bootstraps without user intervention. If the physical
-        board doesn't match the target FEN, the magnet drives the pieces to
-        match before returning.
+        History: 0.3.0 was driven by a SELECT_MODE-less "snapshot" bootstrap;
+        fw0.3.2/0.3.3 broke it (every UUID_GAME write 0x0D-rejected). The
+        SELECT_MODE 2 step is restored, version-gated, for 0.3.2+. If the
+        physical board doesn't match the target FEN, the magnet drives the
+        pieces to match before returning.
 
         Args:
             fen: target position FEN (board-only or full). Defaults to standard
@@ -2356,7 +2398,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         ok = await self._phantom_execute_position(
             fen=fen, side=side, timeout_s=wait_for_running_timeout_s,
-            side_opcode=side_opcode,
+            side_opcode=side_opcode, select_chess_mode=True,
         )
         if not ok:
             _LOGGER.warning(

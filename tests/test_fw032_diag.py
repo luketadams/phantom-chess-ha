@@ -17,6 +17,7 @@ verified on the board.
 """
 from __future__ import annotations
 
+import asyncio
 import types
 
 import chess
@@ -356,6 +357,92 @@ async def test_ble_write_defaults_to_with_response_for_game_channel():
     stub = _ble_write_stub()
     await stub._ble_write(UUID_GAME, b"\x00abc")
     assert stub._ble_client.calls[0]["response"] is True
+
+
+# ── _fw_at_least version gate ────────────────────────────────────────────────
+
+
+def _fw_stub(fw):
+    stub = types.SimpleNamespace(_state={"firmware_version": fw})
+    stub._fw_at_least = types.MethodType(PhantomChessCoordinator._fw_at_least, stub)
+    return stub
+
+
+def test_fw_at_least_parses_and_compares():
+    assert _fw_stub("0.3.3")._fw_at_least((0, 3, 2)) is True
+    assert _fw_stub("0.3.2")._fw_at_least((0, 3, 2)) is True
+    assert _fw_stub("0.3.1")._fw_at_least((0, 3, 2)) is False
+    assert _fw_stub("0.3.0")._fw_at_least((0, 3, 2)) is False
+    assert _fw_stub("0.4.0")._fw_at_least((0, 3, 2)) is True
+    assert _fw_stub("0.3")._fw_at_least((0, 3, 2)) is False       # 0.3 < 0.3.2
+    assert _fw_stub("0.3.3-beta")._fw_at_least((0, 3, 2)) is True
+    assert _fw_stub("")._fw_at_least((0, 3, 2)) is False          # unknown → False
+    assert _fw_stub(None)._fw_at_least((0, 3, 2)) is False
+
+
+# ── SELECT_MODE 2 before GAME_START (the fw0.3.3 game-start fix) ──────────────
+# Sniffer capture 2026-06-29 proved the app does GAME_END → SELECT_MODE 2 →
+# GAME_START on fw0.3.3; without SELECT_MODE 2 the firmware 0x0D-rejects every
+# UUID_GAME write. _phantom_execute_position(select_chess_mode=True) restores
+# it, version-gated to fw>=0.3.2 so the 0.3.0 path is unchanged.
+
+
+def _exec_pos_stub(fw_version):
+    stub = types.SimpleNamespace()
+    stub._ble_connected = True
+    stub._phantom_session_initialized = True  # skip drop_to_home
+    stub._state = {"firmware_version": fw_version, "firmware_mode": "Waiting Side"}
+    stub._fw_at_least = types.MethodType(PhantomChessCoordinator._fw_at_least, stub)
+    stub.hass = types.SimpleNamespace(loop=asyncio.get_running_loop())
+    stub._activation_settle_until = 0.0
+    stub._last_target_fen = None
+    stub._move_done_future = None
+    calls = {"select_mode": 0, "game_start": 0, "side": 0}
+
+    async def _select():
+        calls["select_mode"] += 1
+
+    async def _game_start(fen=chess.STARTING_FEN, side="W"):
+        calls["game_start"] += 1
+
+    async def _send_side(side_value):
+        calls["side"] += 1
+        if stub._move_done_future and not stub._move_done_future.done():
+            stub._move_done_future.set_result(True)  # release the wait
+
+    stub._phantom_select_chess_play_mode = _select
+    stub._phantom_send_game_start = _game_start
+    stub._phantom_send_side = _send_side
+    return stub, calls
+
+
+async def test_start_sends_select_mode_on_fw033():
+    stub, calls = _exec_pos_stub("0.3.3")
+    ok = await PhantomChessCoordinator._phantom_execute_position(
+        stub, fen=chess.STARTING_FEN, side="W", timeout_s=2.0, select_chess_mode=True
+    )
+    assert ok is True
+    assert calls["select_mode"] == 1       # chess-play mode set before GAME_START
+    assert calls["game_start"] == 1
+
+
+async def test_start_skips_select_mode_on_fw030():
+    stub, calls = _exec_pos_stub("0.3.0")
+    await PhantomChessCoordinator._phantom_execute_position(
+        stub, fen=chess.STARTING_FEN, side="W", timeout_s=2.0, select_chess_mode=True
+    )
+    assert calls["select_mode"] == 0       # 0.3.0 path unchanged
+    assert calls["game_start"] == 1
+
+
+async def test_position_execute_never_selects_mode_when_flag_false():
+    # per-move AI / move_piece path must NOT re-enter chess-mode mid-game
+    stub, calls = _exec_pos_stub("0.3.3")
+    await PhantomChessCoordinator._phantom_execute_position(
+        stub, fen=chess.STARTING_FEN, side="B", timeout_s=2.0
+    )
+    assert calls["select_mode"] == 0
+    assert calls["game_start"] == 1
 
 
 async def test_ble_write_honours_explicit_response_false():
