@@ -39,7 +39,9 @@ This is an unofficial community integration — not produced by Phantom Technolo
 
 - **Phantom Chess Board** running firmware **v0.3.0 or later** (the integration uses the firmware-0.3.0 BLE protocol exclusively — earlier firmware versions are not supported).
 - **Home Assistant** 2024.11.0 or later.
-- A Bluetooth adapter or BLE proxy reachable by HA (the board uses BLE, not classic Bluetooth). HA Yellow, HA Green, and most Raspberry Pi setups work out of the box. For HA running in a container or VM without local Bluetooth, an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html) within radio range of the board solves this.
+- A Bluetooth surface reachable by HA (the board uses BLE, not classic Bluetooth):
+  - **Firmware 0.3.0 / 0.3.1** — any BLE adapter works, including HA's built-in Bluetooth (HA Yellow/Green, most Raspberry Pi setups) or a USB dongle.
+  - **⚠️ Firmware 0.3.2 / 0.3.3 (current public release) — you MUST use an [ESPHome Bluetooth proxy](https://esphome.io/projects/) (a ~$10 generic ESP32), placed within radio range of the board.** This firmware refuses BLE writes/subscribes from Home Assistant's built-in Linux/BlueZ stack (it only accepts Apple CoreBluetooth and the ESP32's stack) — so a direct HAOS/BlueZ connection cannot start games or detect moves, but the board over an ESP32 proxy works fully. See the CHANGELOG's "Firmware 0.3.2/0.3.3" note for the root-cause detail. Web-flash the ESP32 in two minutes from [esphome.io/projects](https://esphome.io/projects/) → "Bluetooth Proxy" → "Generic ESP32".
 - **Optional**: a [Lichess account](https://lichess.org/) with a Board API token (free) — required only for online play.
 
 ---
@@ -268,18 +270,20 @@ Every Lichess game's accuracy scores get retained in the integration's `last_gam
 |---|---|---|
 | Phantom Chess Board (firmware **v0.3.0+**) | ✅ Supported | Primary target. The integration uses firmware-0.3.0 BLE protocol exclusively. |
 | Phantom Chess Board (firmware v0.2.x or earlier) | ❌ Not supported | Pre-0.3.0 firmware used a different BLE characteristic layout. Update via the official Phantom app. |
-| Phantom Chess Board (firmware **v0.3.2+**) | ✅ Supported (forward-compatible) | The integration tolerates the 0.3.2 protocol additions (slide-detection flag, slide-delay characteristic) but doesn't yet drive them as entities. Pure additions, never regressions. |
+| Phantom Chess Board (firmware **v0.3.2 / 0.3.3**, current public release) | ✅ Supported — **but requires an ESPHome Bluetooth proxy** (see below) | This firmware refuses BLE writes/subscribes from HA's built-in Linux/BlueZ stack; over an ESP32 proxy it works fully (game start, move detection, AI moves). A direct HAOS/BlueZ connection is read-only at best. |
 
 Compatible Bluetooth surfaces:
 
-| Bluetooth setup | Works? |
-|---|---|
-| Home Assistant Yellow built-in BT | ✅ |
-| Home Assistant Green / Connect ZBT-1 | ✅ |
-| Raspberry Pi 4 / 5 onboard BT | ✅ |
-| ESPHome Bluetooth proxy (within radio range) | ✅ — useful for HA-in-VM and HA-in-container deployments |
-| USB BT 4.0+ dongle | ✅ (any HA-supported dongle) |
-| Classic Bluetooth-only adapter | ❌ — the Phantom Chess Board is BLE-only |
+| Bluetooth setup | fw 0.3.0 / 0.3.1 | fw 0.3.2 / 0.3.3 |
+|---|---|---|
+| **ESPHome Bluetooth proxy** (ESP32, within radio range) | ✅ | ✅ **required** |
+| Home Assistant Yellow built-in BT | ✅ | ❌ (BlueZ refused by firmware) |
+| Home Assistant Green / Connect ZBT-1 | ✅ | ❌ (BlueZ refused by firmware) |
+| Raspberry Pi 4 / 5 onboard BT | ✅ | ❌ (BlueZ refused by firmware) |
+| USB BT 4.0+ dongle (on Linux HA) | ✅ | ❌ (BlueZ refused by firmware) |
+| Classic Bluetooth-only adapter | ❌ — the Phantom Chess Board is BLE-only | ❌ |
+
+> On **firmware 0.3.2 / 0.3.3**, an [ESPHome Bluetooth proxy](https://esphome.io/projects/) (a ~$10 generic ESP32, web-flashed with "Bluetooth Proxy") is **mandatory** — HA's native Linux/BlueZ Bluetooth cannot drive the board on this firmware, only the ESP32's (and Apple's) BLE stack can. See the CHANGELOG "Firmware 0.3.2/0.3.3" note for the full root cause.
 
 ---
 

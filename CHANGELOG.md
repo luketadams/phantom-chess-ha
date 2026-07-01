@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.4.0-beta3] — 2026-06-27
+## [0.4.0-beta3] — 2026-07-01
 
-Third public beta. Ships the **fw0.3.2/0.3.3 diagnostics + a root-cause investigation** of the game-start breakage, plus the robustness, recovery, and diagnostics batch staged since beta2. **Game start is still broken on fw0.3.2/0.3.3** (firmware-side) — see Known limitations; this release does not claim to fix it.
+Third public beta. **Restores full gameplay on the current public firmware (0.3.2 / 0.3.3) — by routing the board through an ESPHome Bluetooth proxy** (see the firmware note below). Also ships the fw0.3.x diagnostics that root-caused the breakage, plus the robustness, recovery, and hardening batch staged since beta2.
 
 ### Added
 
@@ -25,9 +25,13 @@ Third public beta. Ships the **fw0.3.2/0.3.3 diagnostics + a root-cause investig
 - **`white_to_move`** no longer raises on a board-only FEN; **`resign`** no longer marks a game resigned if the Lichess POST failed.
 - **Restored `number` entity values are clamped** to the entity's current min/max, so a narrowed slider range can't persist an out-of-range value.
 
-### Known limitations
+### Firmware 0.3.2 / 0.3.3 — requires an ESPHome Bluetooth proxy
 
-- **Game start does not work on firmware 0.3.2 / 0.3.3** (the current public firmware). The board's GATT server rejects ATT write-with-response on the gameplay characteristic (`UUID_GAME`) with `INVALID_ATTRIBUTE_VALUE_LENGTH` (ATT 0x0D) for any payload size, and silently drops write-without-response. HCI captures show the official app used plain write-with-response (no bonding) on 0.3.0, so a 0.3.x firmware change introduced this — likely a new bonding/encryption or handshake requirement, still under investigation (see `FW032_GAME_START_FINDINGS.md`). Until resolved, `start_*` services fail with a descriptive error on 0.3.2/0.3.3. The 0.3.0 path is unaffected.
+**The current public firmware (0.3.2 / 0.3.3, app 4.1.0) refuses all GATT writes and notification-subscribes from Home Assistant's built-in Linux/BlueZ Bluetooth** — `WRITE_NOT_PERMITTED` on characteristic subscribes and `INVALID_ATTRIBUTE_VALUE_LENGTH` (ATT 0x0D) on `UUID_GAME` writes (even a 1-byte `GAME_END`) — while accepting the official iOS app (Apple CoreBluetooth) doing **byte-identical** operations on the **same unencrypted link**. This was confirmed with a Nordic nRF52840 BLE sniffer capturing both the working app session and the failing HA session (see `FW033_CAPTURE_FINDINGS_2026-06-29.md`). It is a **firmware ↔ BlueZ stack incompatibility, not an integration bug** — ruled out: bonding/encryption, write method, payload, SELECT_MODE, subscribe order, and the BlueZ GATT cache.
+
+**Fix — route the board through an [ESPHome Bluetooth proxy](https://esphome.io/projects/):** a ~$10 generic ESP32 web-flashed with the ready-made "Bluetooth Proxy" firmware and powered near the board. Home Assistant then reaches the board over the ESP32's BLE stack (which the firmware accepts), and **all gameplay works end-to-end** — game start, physical-move detection, AI/engine moves, takeback, etc. Verified live: with the proxy, HA subscribes to `UUID_GAME` successfully, `start_two_player_game` starts the game, the firmware enters *Board Playing*, and physical moves are detected and analysed.
+
+A direct HAOS/BlueZ connection to the board does **not** work on firmware 0.3.2+. The **0.3.0** firmware path is unaffected (works over BlueZ directly). On 0.3.2+ *without* a proxy, `start_*` services fail with a descriptive error (see the `diagnose_game_start` service) rather than a bare crash.
 
 ## [0.4.0-beta2] — 2026-06-03
 
