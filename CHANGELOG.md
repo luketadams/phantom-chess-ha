@@ -12,6 +12,7 @@ Third public beta. **Restores full gameplay on the current public firmware (0.3.
 
 ### Added
 
+- **Historic games now play one selected game at a time, driven by the integration.** `play_selected_sculpture` no longer enters the firmware's built-in sculpture mode (which autonomously looped through the board's own library and couldn't be told which game to play). Instead the integration drives the **selected** historic game move-by-move over the same snapshot protocol AI-vs-AI uses — chess-play mode, one game, then stop. Move data for all 18 catalog games is bundled in `sculpture_games.json` (SAN parsed to UCI and validated with python-chess). Because the integration owns the move stream, the dashboard can name the game with confidence, the analysis pipeline / learning view populate as it plays, and a post-game review is built at the end. Stop early with `back_to_modes` or `stop_local_game`; a transient BLE drop mid-playback is recovered by the same reconnect-and-re-drive path AI-vs-AI uses.
 - **`phantom_chess.diagnose_game_start` service** — logs the negotiated MTU and `UUID_GAME` write limits and (with `experimental: true`) A/B-tests the GAME_START write variants on the live board. This localised the fw0.3.2/0.3.3 root cause (see Known limitations).
 - **`phantom_chess.resync_detection` recovery + dashboard tile** for a board wedged in "Snapping Pieces" / "Chessboard and sensor matrix do not match" with the pieces correctly placed. Sends RESET_DETECTION (opcode 14) to re-seed the firmware's expected matrix without driving the magnet.
 - **Matrix `ERROR:` payloads are surfaced** to `matrix_status` even when the frame carries no parseable grid (previously dropped), so a firmware wedge is visible.
@@ -20,6 +21,7 @@ Third public beta. **Restores full gameplay on the current public firmware (0.3.
 
 ### Fixed
 
+- **Dashboard no longer goes blank during historic-game playback**, and the whole state matrix was audited for gaps. The firmware's `Running` state (its built-in demo/idle routine) matched no dashboard branch, so the view collapsed to blank; the generic "Snapping Pieces" interstitial also mislabeled sculpture moves as start-up "please stand by." The sculpture flow now has a dedicated **picker → "Now playing" → post-game review** progression gated on the integration's own reliable signal (`lichess_game_id == "sculpture"`) rather than fragile firmware strings, `Running` gets a clear "board is busy" stand-by card, and a state-coverage simulation across every `setup_mode × firmware_mode × flag` combination confirms **no reachable state renders blank or double-renders**.
 - The `GAME_START`/`GAME_ASSISTANCE` 0x0D rejection now raises a **descriptive, actionable error** (with the firmware/MTU diagnostics) instead of a bare stack trace.
 - **Diagnostics dump** now reports the live integration version (was hardcoded `0.2.0`) and populates the battery field (`battery_percent`); private-attribute and Stockfish introspection are guarded so a rename can no longer 500 the whole dump.
 - **`white_to_move`** no longer raises on a board-only FEN; **`resign`** no longer marks a game resigned if the Lichess POST failed.

@@ -14,7 +14,7 @@ This is an unofficial community integration — not produced by Phantom Technolo
 - **Five play modes**, chosen from a ghost-mascot button launcher:
   - **Play with Lichess** — challenge Lichess's Stockfish AI over the Board API; games appear in your Lichess profile.
   - **Play with Stockfish** — bundled offline engine, no internet or Lichess account needed.
-  - **Watch historic games** — switch the board into its sculpture display mode, where it plays famous games (the Immortal Game, Kasparov-Deep Blue, the Game of the Century...) as a kinetic display. _(Choosing a specific game from the dashboard is still in progress - see Known Limitations.)_
+  - **Watch historic games** — pick a famous game from the 18-game catalog (the Immortal Game, Kasparov–Deep Blue, the Game of the Century...) and the board plays **that** game out move-by-move as a kinetic display, then stops. The integration drives the moves itself, so the dashboard names the game and shows live progress.
   - **Two-player recording** — two humans play on the board; every move is detected and recorded with live Stockfish evaluation + classification, and a PGN is saved at game end. _(New this beta - see Known Limitations.)_
   - **AI vs AI** — Stockfish plays both sides on the board while you watch the eval swing.
 - **In-game learning dashboard:**
@@ -140,7 +140,7 @@ After setup, open the **Phantom Chess** dashboard from the sidebar. The mode lau
 
 1. **Play with Lichess** — pick color + AI level, then start, and play your moves on the board.
 2. **Play with Stockfish** — same, fully offline.
-3. **Watch historic games** — put the board into sculpture display mode (it plays famous games on its own).
+3. **Watch historic games** — choose a game from the catalog and *Play selected sculpture*; the board plays that one game out move-by-move, then stops.
 4. **Two-player recording** — tap *Start recording*, then two people play on the board; the dashboard tracks every move with live evaluation and saves a PGN at the end.
 5. **AI vs AI** — Stockfish plays itself on the board.
 
@@ -179,7 +179,8 @@ All services accept an optional `entry_id` field. **Required if you have more th
 | `phantom_chess.reset_position` | Drive the magnet to return all pieces to the starting position. |
 | `phantom_chess.reconcile_lichess_state` | Query Lichess for game status and sync local state. Use when `lichess_active` gets stuck on after a hardware error. |
 | `phantom_chess.resume_from_phone` | After an "AI move not delivered" notification, call this to push the current position to the board so you can resume physical play. |
-| `phantom_chess.start_sculpture` | Enter sculpture mode for displaying historical games. |
+| `phantom_chess.play_selected_sculpture` | Play the game selected in `select.<id>_sculpture_game` — the integration drives that one game move-by-move, then stops. |
+| `phantom_chess.start_sculpture` | Low-level: enter the firmware's built-in sculpture loop (autonomous playlist). Prefer `play_selected_sculpture` for a specific game. |
 | `phantom_chess.play_sound` | Play firmware-native check or checkmate sound. |
 | `phantom_chess.request_hint` | Refresh the engine's recommendation for the current position. |
 
@@ -256,7 +257,7 @@ Set up a Lichess correspondence game. The integration's `phantom_chess_announce`
 
 ### Historic games for guests
 
-Trigger sculpture mode via voice or automation when guests arrive. The board enters its sculpture display mode and plays famous games as a kinetic display. The integration ships an 18-game catalog; the **Watch historic games** launcher enters the mode (per-game selection from the dashboard is a work in progress — see Known Limitations).
+Pick a game from the 18-game catalog and the board plays it out move-by-move as a kinetic display, then stops. Trigger it by voice or automation when guests arrive: set `select.<id>_sculpture_game` to the game you want, then call `phantom_chess.play_selected_sculpture`. The integration drives the moves itself (chess-play mode), so exactly one game plays — it won't wander off into the board's built-in loop.
 
 ### Post-game accuracy tracking
 
@@ -465,7 +466,7 @@ Not bugs — design or platform constraints to set the right expectations.
 
 - **One physical board per HA install at a time** is the primary tested configuration. Multi-board is supported architecturally (`entry_id` parameter on every service, per-board coordinators) but Luke only owns one board so the multi-board paths haven't been stress-tested. File an issue if you hit problems.
 - **The `phantom_chess.move_piece` service bypasses chess.Board validation.** It drives the magnet directly without checking move legality. Useful for setting up arbitrary positions and recovering from state-mismatch — but you can put the physical board into states python-chess can't represent. Use `phantom_chess.execute_move` for normal gameplay.
-- **Historic-games playback is firmware-driven, not yet integration-selected.** "Watch historic games" switches the board into its sculpture mode, where the firmware plays its built-in famous games as a kinetic display. Choosing a *specific* catalog entry from the dashboard isn't wired up yet (the per-game playlist push is a follow-up); the `select.<id>_sculpture_game` picker and `phantom_chess.play_selected_sculpture` service currently enter sculpture mode and notify, rather than driving the chosen game move-by-move.
+- **Historic-games playback drives the *selected* game move-by-move** over the same snapshot protocol AI-vs-AI uses — so exactly one game plays and then stops, rather than the firmware's autonomous library loop. Move data for all 18 catalog games is bundled and validated. Playback speed is a fixed, watchable pace (~2 s/move). The end-to-end flow is unit-tested and simulated; the specific per-game **BLE playback has not yet been verified on live hardware for every one of the 18 games** (piece geometry for a few unusual moves — e.g. multiple promotions — may still need magnet-timing tuning). The legacy firmware loop is still available via `phantom_chess.start_sculpture` if you want the board's own kinetic display.
 - **Two-player recording is new in this beta.** Move detection, live evaluation, and PGN export work; but if you make an *illegal* physical move the board model can desync from the physical board and subsequent moves may be rejected. Correct the board back to the recorded position (or re-home it) to recover. Please file feedback on any edge cases.
 - **The Lichess cloud-eval endpoint is unauthenticated and rate-limited.** During long games the eval can briefly become stale (the integration falls back to local Stockfish when available, otherwise to a `stub` source that just preserves the last reading).
 - **Stockfish download is one-shot, ~3 MB.** First evaluate() call after a fresh install pulls the appropriate binary from official Stockfish releases (glibc) or Alpine apk (musl). Subsequent restarts reuse the cached binary at `/config/phantom_chess/bin/`. If the download fails (e.g. firewall blocking GitHub), the integration falls back to Lichess cloud-eval only.

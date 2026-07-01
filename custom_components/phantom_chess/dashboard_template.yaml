@@ -497,6 +497,13 @@ views:
       - condition: state
         entity: input_select.phantom_chess_setup_mode
         state: Sculpture Library
+      # Hide the picker while a game is actively being driven (the
+      # sculpture-playback view above owns that state).
+      - condition: not
+        conditions:
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
+          state: sculpture
       - condition: state
         entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
@@ -602,6 +609,67 @@ views:
             perform_action: script.turn_on
             data:
               entity_id: script.phantom_play_selected_sculpture
+    # beta3: sculpture-playback view. The integration now DRIVES the selected
+    # historic game move-by-move (chess-play mode), so we gate on its own
+    # reliable signal — sensor.<mac>_lichess_game_id == "sculpture" — rather
+    # than the fragile firmware_mode strings (which cycle Setting Up / Snapping
+    # Pieces / Board Playing during playback). Hidden once the post-game review
+    # is ready, so the review view takes over cleanly.
+    - type: conditional
+      conditions:
+      - condition: state
+        entity: input_select.phantom_chess_setup_mode
+        state: Sculpture Library
+      - condition: state
+        entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
+        state: sculpture
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
+        state: 'off'
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+        state: 'on'
+      card:
+        type: vertical-stack
+        cards:
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: tile
+            entity: script.phantom_back_to_modes
+            name: Stop & back to modes
+            icon: mdi:stop
+            color: grey
+          - type: custom:mushroom-template-card
+            primary: "▶ Now playing"
+            secondary: "{{ states('input_select.phantom_chess_sculpture_game') }}"
+            icon: mdi:motion-play-outline
+            icon_color: purple
+            fill_container: true
+            tap_action:
+              action: none
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
+        - type: picture-entity
+          entity: image.phantom_YOUR_BOARD_MAC_board
+          show_state: false
+          show_name: false
+          camera_view: auto
+          tap_action:
+            action: none
+          hold_action:
+            action: none
+        - type: markdown
+          content: "{% set w = states('sensor.phantom_YOUR_BOARD_MAC_lichess_white_name')\
+            \ %}{% set b = states('sensor.phantom_YOUR_BOARD_MAC_lichess_black_name') %}{%\
+            \ set n = states('sensor.phantom_YOUR_BOARD_MAC_move_history') %}{% set last =\
+            \ states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}**{{ w }}** vs\
+            \ **{{ b }}**\n\nMove **{{ n }}** &nbsp;•&nbsp; Last: `{{ last }}`\n\nThe board\
+            \ is playing this game out move-by-move — sit back and watch. Tap **Stop & back\
+            \ to modes** to end it early."
     - type: conditional
       conditions:
       - condition: or
@@ -810,6 +878,9 @@ views:
         - condition: state
           entity: input_select.phantom_chess_setup_mode
           state: Choose a mode
+        - condition: state
+          entity: input_select.phantom_chess_setup_mode
+          state: Sculpture Library
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -865,6 +936,9 @@ views:
         - condition: state
           entity: input_select.phantom_chess_setup_mode
           state: Choose a mode
+        - condition: state
+          entity: input_select.phantom_chess_setup_mode
+          state: Sculpture Library
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -920,6 +994,9 @@ views:
         - condition: state
           entity: input_select.phantom_chess_setup_mode
           state: Choose a mode
+        - condition: state
+          entity: input_select.phantom_chess_setup_mode
+          state: Sculpture Library
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -965,6 +1042,9 @@ views:
         - condition: state
           entity: input_select.phantom_chess_setup_mode
           state: Choose a mode
+        - condition: state
+          entity: input_select.phantom_chess_setup_mode
+          state: Sculpture Library
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -1005,6 +1085,13 @@ views:
       conditions:
       - entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
         state: Ending Game
+      # beta3: yield to the dedicated sculpture-playback view during a driven
+      # historic game (its firmware briefly reports Ending Game on completion).
+      - condition: not
+        conditions:
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
+          state: sculpture
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -1040,6 +1127,11 @@ views:
       conditions:
       - entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
         state: Initializing
+      - condition: not
+        conditions:
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
+          state: sculpture
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
         state: 'off'
       - entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
@@ -1058,6 +1150,61 @@ views:
           secondary: Phantom Chess Board is starting up...
           icon: mdi:rocket-launch
           icon_color: purple
+          fill_container: true
+          tap_action:
+            action: none
+          hold_action:
+            action: none
+          double_tap_action:
+            action: none
+        - type: tile
+          entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+          name: Firmware state
+          icon: mdi:chip
+          color: grey
+          hide_state: false
+    # beta3: firmware "Running" is the board's own built-in routine / idle
+    # demo loop (NOT an integration-driven game). It can surface under any
+    # mode and previously matched no branch → blank screen (the bug Luke hit).
+    # Give it a clear stand-by card. Gated on board_idle=on so it never
+    # double-renders with the bare-board "busy" view below (which owns
+    # board_idle=off), and excludes active sculpture playback (own view above).
+    - type: conditional
+      conditions:
+      - condition: state
+        entity: sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+        state: Running
+      - condition: not
+        conditions:
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
+          state: sculpture
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_active
+        state: 'off'
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
+        state: 'off'
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+        state: 'on'
+      - condition: state
+        entity: binary_sensor.phantom_chess_board_idle
+        state: 'on'
+      card:
+        type: vertical-stack
+        cards:
+        - type: tile
+          entity: script.phantom_back_to_modes
+          name: Back to modes
+          icon: mdi:chevron-left
+          color: grey
+        - type: custom:mushroom-template-card
+          primary: Board is busy
+          secondary: "The board is running a built-in routine. Tap “Back to modes”\
+            \ to return it to the mode picker."
+          icon: mdi:cog-play-outline
+          icon_color: blue
           fill_container: true
           tap_action:
             action: none
@@ -1091,6 +1238,13 @@ views:
       - condition: state
         entity: binary_sensor.phantom_YOUR_BOARD_MAC_learning_view_active
         state: 'off'
+      # beta3: sculpture playback has its own dedicated view now, so don't
+      # also render this bare-board view during it (would stack two boards).
+      - condition: not
+        conditions:
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
+          state: sculpture
       - condition: state
         entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
         state: 'on'

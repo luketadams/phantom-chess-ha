@@ -41,6 +41,12 @@ def coord() -> PhantomChessCoordinator:
     c = PhantomChessCoordinator.__new__(PhantomChessCoordinator)
     # The state mutators read/write self._state freely.
     c._state = {}
+    # Game-loop flags read by async_back_to_modes / stop paths. Default to a
+    # quiescent coordinator (no game/sculpture/AI-vs-AI loop in flight).
+    c._sculpture_active = False
+    c._ai_vs_ai_active = False
+    c._local_game_active = False
+    c._local_game_task = None
     # _apply_matrix_state's notification path checks this against the
     # current mismatch signature; None means "no prior notification" so
     # the first ERROR payload triggers a create.

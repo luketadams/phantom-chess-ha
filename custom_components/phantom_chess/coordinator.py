@@ -281,6 +281,16 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ai_vs_ai_white_level: int = 3
         self._ai_vs_ai_black_level: int = 3
         self._ai_vs_ai_move_delay: float = 1.5
+        # Sculpture playback: the integration drives a specific historic
+        # game move-by-move over the SAME snapshot protocol AI-vs-AI uses
+        # (chess-play mode, SELECT_MODE 2), then STOPS — exactly one game,
+        # no firmware playlist loop. `_sculpture_active` gates the loop so
+        # stop_local_game / back_to_modes can halt it cleanly. Move data is
+        # bundled in sculpture_games.json (keyed by const.SCULPTURE_GAMES)
+        # and lazy-loaded into `_sculpture_games_cache` on first use.
+        self._sculpture_active: bool = False
+        self._sculpture_move_delay: float = 2.0
+        self._sculpture_games_cache: dict | None = None
         # Serializes _local_game_task replacement so the four-or-more
         # sites that schedule an AI turn can't race and end up running
         # two AI turns concurrently. All assignments to
@@ -3006,6 +3016,26 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Added 2026-05-26 (v0.4-alpha3).
         """
         from .const import DEFAULT_SETUP_MODE
+        # Halt an in-flight sculpture playback (or AI-vs-AI loop) first, so its
+        # move loop can't fight the re-home snapshot below. The loop honors
+        # these flags and exits on its next iteration; cancel the task too so a
+        # mid-`apply_ai_move` await returns promptly.
+        stop_local = self._sculpture_active or self._ai_vs_ai_active or self._local_game_active
+        self._sculpture_active = False
+        self._ai_vs_ai_active = False
+        if stop_local:
+            self._local_game_active = False
+            self._state["local_game_active"] = False
+            self._state["lichess_game_id"] = None
+            if self._local_game_task and not self._local_game_task.done():
+                self._local_game_task.cancel()
+            # Idle the firmware (SELECT_MODE 3) so it isn't left in a
+            # playlist/chess-play state that ignores the re-home.
+            try:
+                await self._ble_write(UUID_SELECT_MODE, b"3")
+            except Exception:  # noqa: BLE001
+                pass
+
         self.setup_mode = DEFAULT_SETUP_MODE
         self._state["lichess_review_ready"] = False
         self.async_set_updated_data(dict(self._state))
@@ -3029,42 +3059,276 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             clock_increment_seconds=self.lichess_clock_increment,
         )
 
-    async def async_play_selected_sculpture(self) -> None:
-        """Play back the sculpture game currently selected in
-        `select.<device>_sculpture_game`.
+    def _load_sculpture_games_blocking(self) -> dict:
+        """Read and parse the bundled sculpture move-data file (blocking IO).
 
-        v0.4-alpha3 ships a STUB: enters sculpture mode (firmware
-        SELECT_MODE=1) and fires a persistent notification telling the
-        user that per-game move sequences will land in a later alpha.
-        Replaces the v0.3 script `phantom_play_selected_sculpture` which
-        dispatched to one of 18 per-game scripts containing hardcoded
-        move data — bundling those move sequences in the integration is
-        future work (v0.4-alpha5 or v0.5).
+        Returns the ``games`` mapping: label → {white, black, date, eco,
+        result, moves:[uci,…]}. Called via the executor and cached on
+        ``self._sculpture_games_cache`` so the file is read at most once.
         """
-        await self.async_start_sculpture()
+        import pathlib
+
+        path = pathlib.Path(__file__).parent / "sculpture_games.json"
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh).get("games", {})
+
+    async def _async_get_sculpture_games(self) -> dict:
+        """Lazy-load + cache the bundled sculpture move catalog."""
+        if self._sculpture_games_cache is None:
+            try:
+                self._sculpture_games_cache = await self.hass.async_add_executor_job(
+                    self._load_sculpture_games_blocking
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Sculpture: failed to load move catalog: %s", err)
+                self._sculpture_games_cache = {}
+        return self._sculpture_games_cache
+
+    async def async_play_selected_sculpture(self) -> None:
+        """Play the selected historic game on the physical board — exactly
+        ONE game, driven by the integration, then stop.
+
+        The board is driven move-by-move through the SAME snapshot protocol
+        AI-vs-AI uses (chess-play mode, SELECT_MODE 2): each historic ply is
+        pushed onto ``self._board`` and the magnet places the pieces. When the
+        move list is exhausted the game ends and the post-game review is built.
+        Because the integration owns the move stream, only the selected game
+        plays — there's no firmware playlist loop to run on and cycle to other
+        games (the pre-beta3 behaviour, which entered firmware SELECT_MODE 1
+        and let the board autonomously loop through its built-in library).
+
+        Falls back to the legacy firmware-sculpture stub (SELECT_MODE 1 + a
+        notification) only if the selected label has no bundled move data.
+        """
+        if not self._ble_connected:
+            raise RuntimeError("Board not connected via Bluetooth")
+
+        games = await self._async_get_sculpture_games()
+        record = games.get(self.selected_sculpture)
+        if not record or not record.get("moves"):
+            # Unknown / un-bundled game — preserve the old firmware behaviour
+            # rather than fail outright.
+            _LOGGER.warning(
+                "Sculpture: no bundled moves for %r; falling back to firmware "
+                "sculpture mode", self.selected_sculpture,
+            )
+            await self.async_start_sculpture()
+            try:
+                await self.hass.services.async_call(
+                    "persistent_notification", "create",
+                    {
+                        "title": "Phantom Chess: Sculpture playback",
+                        "message": (
+                            f"Selected: **{self.selected_sculpture}**\n\n"
+                            f"No bundled move data for this game, so the board's "
+                            f"own firmware library is playing instead."
+                        ),
+                        "notification_id": "phantom_chess_sculpture_stub",
+                    },
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("play_selected_sculpture: notification failed: %s", err)
+            return
+
+        moves = list(record["moves"])
+        white = record.get("white") or "White"
+        black = record.get("black") or "Black"
+
+        # Cancel any active game tasks (mirrors async_start_ai_vs_ai_game).
+        if self._lichess_task and not self._lichess_task.done():
+            self._lichess_task.cancel()
+        if self._local_game_task and not self._local_game_task.done():
+            self._local_game_task.cancel()
+
+        # Fresh board + game state. Shaped like async_start_ai_vs_ai_game but
+        # tagged with the "sculpture" sentinel so the dashboard can present a
+        # dedicated playback view.
+        self._board = chess.Board()
+        self._game_id = None
+        self._our_color = chess.WHITE  # board-player side flag stays "W"
+        self._processed_moves = 0
+        self._local_game_active = True
+        self._state["game_status"] = STATUS_PLAYING
+        self._state["last_move"] = None
+        self._state["lichess_game_id"] = "sculpture"
+        self._state["live_fen"] = self._board.board_fen()
+        self._state["local_game_active"] = True
+        self._state["lichess_active"] = False
+        self._state["lichess_review_ready"] = False
+        self._state["move_history_moves"] = []
+        self._state["opening_name"] = None
+        self._state["opening_eco"] = record.get("eco") or None
+        self._state["eval_cp"] = None
+        self._state["eval_mate"] = None
+        self._state["eval_source"] = None
+        self._state["eval_depth"] = None
+        self._state["best_move_san"] = None
+        self._state["threat_san"] = None
+        self._state["last_move_classification"] = None
+        self._state["last_move_cpl"] = None
+        self._state["last_move_motif"] = None
+        self._state["last_game_result"] = None
+        self._state["last_game_accuracy_white"] = None
+        self._state["last_game_accuracy_black"] = None
+        self._state["last_game_top_mistakes"] = []
+        self._analysis_board = chess.Board()
+        self._state["lichess_white_name"] = f"{white} (W)"
+        self._state["lichess_black_name"] = f"{black} (B)"
+        self.paused = False
+        self._sculpture_active = True
+
+        self.hass.async_create_task(self._analyze_starting_position())
+
+        # Same GAME_ASSISTANCE flags local games use, so the firmware handles
+        # castling / en-passant / captures / snap-to-center for us.
         try:
-            await self.hass.services.async_call(
-                "persistent_notification", "create",
-                {
-                    "title": "Phantom Chess: Sculpture playback",
-                    "message": (
-                        f"Selected: **{self.selected_sculpture}**\n\n"
-                        f"Entered sculpture mode on the firmware. "
-                        f"Per-game move-sequence playback inside the "
-                        f"integration is queued for a later v0.4 alpha; "
-                        f"for now, the game data lives in the user-side "
-                        f"`script.phantom_sculpture_*` scripts from v0.3's "
-                        f"`examples/scripts.yaml`. If you have those scripts "
-                        f"installed, you can call them directly to play "
-                        f"a specific game."
-                    ),
-                    "notification_id": "phantom_chess_sculpture_stub",
-                },
+            await self._phantom_send_game_assistance(
+                auto_castling=True, auto_en_passant=True,
+                auto_snap_to_center=True, auto_correct_wrong_move=True,
+                advanced_capture=True, strict_gameplay=False,
             )
-        except Exception as err:
-            _LOGGER.debug(
-                "play_selected_sculpture: notification create failed: %s", err,
+        except Exception as _ga_err:  # noqa: BLE001
+            _LOGGER.warning("Sculpture: GAME_ASSISTANCE write failed: %s", _ga_err)
+
+        # Intro announcement (the per-ply TTS is intentionally suppressed for
+        # sculpture — see _should_announce_active_game).
+        self.hass.async_create_task(self._announce_via_tts(
+            f"Now playing {self.selected_sculpture}. {white} as white, "
+            f"{black} as black."
+        ))
+
+        # Activate firmware with the standard starting position, board-as-white.
+        await self.async_phantom_start_game(side="W", side_opcode="1")
+
+        self.async_set_updated_data(dict(self._state))
+        _LOGGER.info(
+            "Sculpture playback started: %s (%d plies)",
+            self.selected_sculpture, len(moves),
+        )
+
+        self._local_game_task = self.hass.loop.create_task(
+            self._sculpture_loop(moves), name=f"{DOMAIN}_sculpture_loop",
+        )
+
+    async def _sculpture_loop(self, moves: list[str]) -> None:
+        """Drive the pre-loaded historic game move-by-move, then stop.
+
+        Mirrors ``_ai_vs_ai_loop`` but the move source is the bundled UCI
+        list instead of Stockfish. Honors ``self._sculpture_active`` for a
+        clean stop from ``async_stop_local_game`` / ``async_back_to_modes``,
+        and re-drives the absolute position after a transient BLE drop
+        (identical recovery to AI-vs-AI). Ends after the final ply — one game,
+        no loop.
+        """
+        try:
+            await asyncio.sleep(self._sculpture_move_delay)
+
+            for uci in moves:
+                if not self._sculpture_active:
+                    break
+                # A move that isn't legal on the tracked board means state
+                # drift — stop rather than desync the physical board.
+                try:
+                    mv = chess.Move.from_uci(uci)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning("Sculpture: bad UCI %r; stopping", uci)
+                    break
+                if mv not in self._board.legal_moves:
+                    _LOGGER.warning(
+                        "Sculpture: %s illegal at ply %d (%s); stopping",
+                        uci, len(self._board.move_stack), self._board.fen(),
+                    )
+                    break
+
+                is_two_step_move = (
+                    self._board.is_capture(mv) or self._board.is_castling(mv)
+                )
+
+                try:
+                    await self.async_phantom_apply_ai_move(uci)
+                except Exception as err:  # noqa: BLE001
+                    # Transient BLE drop under stepper load — wait for the
+                    # maintain loop to reconnect, then re-drive the absolute
+                    # position (snapshot model is idempotent). Same recovery
+                    # as _ai_vs_ai_loop; apply_ai_move already pushed the move.
+                    _LOGGER.warning(
+                        "Sculpture: apply_ai_move raised %s at ply %d; "
+                        "waiting for reconnect to re-drive",
+                        err, len(self._board.move_stack),
+                    )
+                    if not await self._ai_vs_ai_await_reconnect():
+                        _LOGGER.warning("Sculpture: no reconnect; stopping")
+                        break
+                    try:
+                        await self._phantom_execute_position(
+                            fen=self._board.fen(), side="W",
+                            timeout_s=30.0, side_opcode="1",
+                        )
+                    except Exception as err2:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "Sculpture: re-drive failed (%s) at ply %d; stopping",
+                            err2, len(self._board.move_stack),
+                        )
+                        break
+
+                # Feed the analysis pipeline so the learning view populates.
+                try:
+                    mover_was_white = (self._board.turn == chess.BLACK)
+                    self._record_and_analyze_local_move(mv, mover_was_white)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug("Sculpture: analysis hook failed: %s", err)
+
+                settle = self._sculpture_move_delay
+                if is_two_step_move:
+                    settle = max(settle, AI_VS_AI_TWO_STEP_SETTLE_S)
+                await asyncio.sleep(settle)
+
+            # Terminal handling. If we played the whole game, report its
+            # historic result; if stopped early, just go idle.
+            played_all = self._sculpture_active and len(self._board.move_stack) >= len(moves)
+            if played_all:
+                if self._board.is_checkmate():
+                    self._state["game_status"] = STATUS_CHECKMATE
+                    winner = "0-1" if self._board.turn == chess.WHITE else "1-0"
+                    self._state["last_game_result"] = f"{winner} (checkmate)"
+                else:
+                    self._state["game_status"] = STATUS_IDLE
+                    self._state["last_game_result"] = "Historic game complete"
+                self._state["lichess_review_ready"] = True
+                review = True
+            else:
+                self._state["game_status"] = STATUS_IDLE
+                review = False
+
+            self._sculpture_active = False
+            self._local_game_active = False
+            self._state["local_game_active"] = False
+            # Clear the sculpture sentinel so the dashboard's playback view
+            # yields — to the post-game review (if any), else the picker — and
+            # so re-entering the Sculpture Library shows the chooser, not a
+            # stale "Now playing" card for the game that just finished.
+            self._state["lichess_game_id"] = None
+            self.async_set_updated_data(dict(self._state))
+            if review:
+                self.hass.async_create_task(self._announce_via_tts(
+                    f"{self.selected_sculpture} complete."
+                ))
+                self.hass.async_create_task(self._build_post_game_review())
+            _LOGGER.info(
+                "Sculpture playback ended: %s after %d plies (complete=%s)",
+                self.selected_sculpture, len(self._board.move_stack), played_all,
             )
+        except asyncio.CancelledError:
+            _LOGGER.debug("Sculpture: loop cancelled")
+            self._sculpture_active = False
+            self._local_game_active = False
+            raise
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.exception("Sculpture: loop failed unexpectedly: %s", err)
+            self._sculpture_active = False
+            self._local_game_active = False
+            self._state["local_game_active"] = False
+            self.async_set_updated_data(dict(self._state))
 
     async def async_resign(self) -> None:
         """Resign the current game."""
@@ -3718,6 +3982,12 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _should_announce_active_game(self) -> bool:
         """True if we're in an active Lichess or local Stockfish game.
         Sculpture playback has its own TTS path and shouldn't double-announce."""
+        # Sculpture playback drives the board through STATUS_PLAYING too (so
+        # the analysis pipeline + learning view populate), but it announces
+        # only an intro + result — not every ply — so a long historic game
+        # (e.g. the 271-ply 2021 WCC marathon) doesn't spam TTS.
+        if self._sculpture_active:
+            return False
         # game_status is STATUS_PLAYING during both Lichess (start_game) and
         # local Stockfish (start_local_game). Sculpture mode doesn't set this.
         return self._state.get("game_status") == STATUS_PLAYING
@@ -5205,6 +5475,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         self._local_game_active = False
         self._ai_vs_ai_active = False
+        self._sculpture_active = False
         if self._local_game_task and not self._local_game_task.done():
             self._local_game_task.cancel()
         self._state["game_status"] = STATUS_IDLE
@@ -5353,19 +5624,25 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         waits for ``_ble_connected`` to come back so the spectator game can
         resume instead of dying on the first transient blip.
 
-        Honors ``_ai_vs_ai_active`` for prompt shutdown. On reconnect it
-        waits a short settle so the board can finish connect-time service
-        discovery before the caller writes the re-drive snapshot. Returns
-        True once reconnected (and still active), False on timeout or if the
-        game was stopped while waiting.
+        Honors the active flag for prompt shutdown. Shared by AI-vs-AI and
+        sculpture playback (beta3): both drive the board via the same snapshot
+        primitive and want the same reconnect-and-re-drive recovery, so the
+        "still active?" check covers either loop's flag. On reconnect it waits
+        a short settle so the board can finish connect-time service discovery
+        before the caller writes the re-drive snapshot. Returns True once
+        reconnected (and still active), False on timeout or if the driving loop
+        was stopped while waiting.
         """
+        def _active() -> bool:
+            return self._ai_vs_ai_active or getattr(self, "_sculpture_active", False)
+
         deadline = self.hass.loop.time() + timeout
         while self.hass.loop.time() < deadline:
-            if not self._ai_vs_ai_active:
+            if not _active():
                 return False
             if self._ble_connected:
                 await asyncio.sleep(2.0)
-                return self._ble_connected and self._ai_vs_ai_active
+                return self._ble_connected and _active()
             await asyncio.sleep(1.0)
         return False
 

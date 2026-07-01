@@ -116,7 +116,10 @@ def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
     # beta3: +1 surviving tile — the always-visible "Voice announcements"
     # master-mute toggle (tap_action: toggle, same shape as the
     # training-wheels toggle, so it stays a tile): 17 → 18.
-    assert len(tiles) == 18, f"expected 18 surviving tiles, got {len(tiles)}"
+    # beta3 sculpture rework: the sculpture-playback view dropped its info
+    # "Firmware state" tile, but the new "Running / board busy" interstitial
+    # adds a "Firmware state" info tile: net 18 → 19.
+    assert len(tiles) == 19, f"expected 19 surviving tiles, got {len(tiles)}"
     # beta1: the 5 mode-picker tiles became custom ghost-mascot picture
     # buttons (type: picture, not action-tiles), so they no longer convert
     # to `button` cards: 25 → 20. beta2 added the 2-player Start button (+1 button)
@@ -130,8 +133,12 @@ def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
     # beta3: +2 "Re-sync board detection" recovery buttons on the two
     # Snapping-Pieces cards (the wedge state) calling
     # phantom_chess.resync_detection: 26 → 28.
+    # beta3 sculpture rework: +2 buttons — the sculpture-playback "Stop & back
+    # to modes" button and the "Running / board busy" interstitial's "Back to
+    # modes" button (both script.phantom_back_to_modes → Case-C conversion):
+    # 28 → 30.
     # Launcher asserted in test_mode_picker_buttons_target_setup_mode_select.
-    assert len(buttons) == 28, f"expected 28 buttons, got {len(buttons)}"
+    assert len(buttons) == 30, f"expected 30 buttons, got {len(buttons)}"
 
 
 # ─── "what should be gone" assertions ───────────────────────────────────

@@ -141,13 +141,17 @@ start_lichess_configured:
     Replaces the v0.3 `script.phantom_start_lichess_configured`.
 
 play_selected_sculpture:
-  name: Play Selected Sculpture (Stub)
+  name: Play Selected Sculpture
   description: >
-    STUB. Enters the firmware's sculpture mode and fires a persistent
-    notification telling the user which game is selected. Per-game
-    move-sequence playback inside the integration is not yet implemented
-    (planned). For now the historic game is played out by the board's
-    own firmware after you put the pieces in the start position.
+    Play the historic game currently selected in
+    `select.<device>_sculpture_game` on the physical board — exactly ONE
+    game, driven by the integration move-by-move via the same snapshot
+    protocol AI-vs-AI uses, then stop. Unlike the pre-beta3 behaviour (which
+    entered the firmware's sculpture mode and let the board autonomously loop
+    through its built-in library), only the selected game plays. Move data
+    for all 18 catalog games is bundled in `sculpture_games.json`. Put the
+    pieces in the start position first. Stop early with `back_to_modes` or
+    `stop_local_game`.
 
 start_ai_vs_ai_game:
   name: Start AI-vs-AI Game
