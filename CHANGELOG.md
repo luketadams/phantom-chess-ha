@@ -6,9 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.4.0-beta3] — 2026-07-01
+## [0.4.0-beta3] — 2026-07-02
 
-Third public beta. **Restores full gameplay on the current public firmware (0.3.2 / 0.3.3) — by routing the board through an ESPHome Bluetooth proxy** (see the firmware note below). Also ships the fw0.3.x diagnostics that root-caused the breakage, plus the robustness, recovery, and hardening batch staged since beta2.
+Third public beta. **Restores full gameplay on the current public firmware (0.3.2 / 0.3.3) — by routing the board through an ESPHome Bluetooth proxy** (see the firmware note below). Also ships the fw0.3.x diagnostics that root-caused the breakage, the robustness, recovery, and hardening batch staged since beta2, and **the Silver quality-scale milestone** (test coverage 44.5% → 95.5%).
+
+### Quality scale — Silver
+
+- **`quality_scale: silver` declared in the manifest.** The last open Silver rule (`test-coverage` ≥ 95%) is cleared: combined coverage is **95.5%** (from the alpha14 44.5% baseline), 876 tests across the full HA environment. The CI coverage gate (`fail_under` in `pyproject.toml`) is raised from 43 to **95** to hold the new floor.
+- The gap was closed with a **BLE-mocked coordinator test suite** built on a reusable harness (`tests/ble_mock.py`): a `FakeBleakClient` faithful to the `UUID_GAME` opcode map (observable wire bytes, injectable GATT failures, real notification-callback delivery) plus a `make_coordinator()` factory — with a drift-guard test that fails if `PhantomChessCoordinator.__init__` gains attributes the harness doesn't replicate. New suites cover the opcode senders, notify handlers, connect/reconnect loops, snapshot-move orchestration, game modes (two-player / sculpture / AI-vs-AI, including BLE-drop-mid-move reconnect recovery and AI-echo suppression incl. the 180°-rotated form), Lichess bridge, analysis/TTS, all 7 entity platforms (100%), setup/unload/migration, and the Stockfish/HTTP client (99%).
+- **Stockfish archive extraction hardened** with `tarfile` `filter="data"` (path-traversal-safe; also silences the Python 3.12+ deprecation warning ahead of the 3.14 default).
+- Test-environment portability fixes recorded in `FINDINGS_TEST_PORTABILITY.md` (pytest 9.1 `filterwarnings` crash, `mock_bluetooth` autouse fixture, minimal-env vs HA-env `BleakError` translation).
 
 ### Added
 
@@ -29,7 +36,7 @@ Third public beta. **Restores full gameplay on the current public firmware (0.3.
 
 ### Firmware 0.3.2 / 0.3.3 — requires an ESPHome Bluetooth proxy
 
-**The current public firmware (0.3.2 / 0.3.3, app 4.1.0) refuses all GATT writes and notification-subscribes from Home Assistant's built-in Linux/BlueZ Bluetooth** — `WRITE_NOT_PERMITTED` on characteristic subscribes and `INVALID_ATTRIBUTE_VALUE_LENGTH` (ATT 0x0D) on `UUID_GAME` writes (even a 1-byte `GAME_END`) — while accepting the official iOS app (Apple CoreBluetooth) doing **byte-identical** operations on the **same unencrypted link**. This was confirmed with a Nordic nRF52840 BLE sniffer capturing both the working app session and the failing HA session (see `FW033_CAPTURE_FINDINGS_2026-06-29.md`). It is a **firmware ↔ BlueZ stack incompatibility, not an integration bug** — ruled out: bonding/encryption, write method, payload, SELECT_MODE, subscribe order, and the BlueZ GATT cache.
+**The current public firmware (0.3.2 / 0.3.3, app 4.1.0) refuses all GATT writes and notification-subscribes from Home Assistant's built-in Linux/BlueZ Bluetooth** — `WRITE_NOT_PERMITTED` on characteristic subscribes and `INVALID_ATTRIBUTE_VALUE_LENGTH` (ATT 0x0D) on `UUID_GAME` writes (even a 1-byte `GAME_END`) — while accepting the official iOS app (Apple CoreBluetooth) doing **byte-identical** operations on the **same unencrypted link**. This was confirmed with a Nordic nRF52840 BLE sniffer capturing both the working app session and the failing HA session. It is a **firmware ↔ BlueZ stack incompatibility, not an integration bug** — ruled out: bonding/encryption, write method, payload, SELECT_MODE, subscribe order, and the BlueZ GATT cache.
 
 **Fix — route the board through an [ESPHome Bluetooth proxy](https://esphome.io/projects/):** a ~$10 generic ESP32 web-flashed with the ready-made "Bluetooth Proxy" firmware and powered near the board. Home Assistant then reaches the board over the ESP32's BLE stack (which the firmware accepts), and **all gameplay works end-to-end** — game start, physical-move detection, AI/engine moves, takeback, etc. Verified live: with the proxy, HA subscribes to `UUID_GAME` successfully, `start_two_player_game` starts the game, the firmware enters *Board Playing*, and physical moves are detected and analysed.
 

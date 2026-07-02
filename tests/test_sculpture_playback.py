@@ -13,7 +13,6 @@ Runs in the minimal CI env — only needs `chess`.
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import pathlib
 import types

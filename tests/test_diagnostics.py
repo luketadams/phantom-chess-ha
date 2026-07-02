@@ -12,7 +12,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -26,6 +26,37 @@ from custom_components.phantom_chess.diagnostics import (
 def _run(coro):
     """asyncio.run wrapper so tests don't need pytest-asyncio."""
     return asyncio.run(coro)
+
+
+@pytest.fixture(autouse=True)
+def _stub_async_get_integration():
+    """Make ``async_get_integration`` hermetic in the ha-tests env.
+
+    ``async_get_config_entry_diagnostics`` calls the real HA loader helper
+    ``homeassistant.loader.async_get_integration(hass, DOMAIN)`` to read the
+    manifest version. These tests pass a ``MagicMock()`` for ``hass`` (they
+    only exercise the redaction/shape logic, not a live HA instance). When HA
+    is actually installed (the ha-tests job / this sandbox), that helper
+    dives into loader internals with the mock and never returns — the test
+    hangs. Patching it to an ``AsyncMock`` keeps the tests fast and
+    deterministic while still exercising the ``str(integration.version)``
+    branch. In the minimal matrix-tests env ``homeassistant.loader`` isn't
+    importable, the function's own ``except Exception`` already handles it
+    (version -> "unknown"), and this fixture no-ops. See
+    FINDINGS_TEST_PORTABILITY.md.
+    """
+    try:
+        import homeassistant.loader  # noqa: F401
+    except Exception:
+        yield
+        return
+    integration = MagicMock()
+    integration.version = "0.4.0b3"
+    with patch(
+        "homeassistant.loader.async_get_integration",
+        AsyncMock(return_value=integration),
+    ):
+        yield
 
 
 # ─── _mask_ble_address ──────────────────────────────────────────────────

@@ -187,8 +187,43 @@ try:
     )
 
     @pytest.fixture(autouse=True)
-    def auto_enable_custom_integrations(enable_custom_integrations):
-        """Auto-enable custom_components/phantom_chess discovery for every HA test."""
+    def auto_enable_custom_integrations(request):
+        """Auto-enable custom_components/phantom_chess discovery for HA tests.
+
+        Depends on the phacc-provided ``enable_custom_integrations`` fixture,
+        pulled in lazily via ``request.getfixturevalue`` so that this file
+        still works when the phacc plugin is disabled for a fast pure-test
+        run (``-p no:pytest_homeassistant_custom_component``). In that case
+        the fixture is absent and we simply no-op — the pure tests never
+        touch HA's integration discovery anyway.
+        """
+        try:
+            request.getfixturevalue("enable_custom_integrations")
+        except pytest.FixtureLookupError:
+            pass
+        yield
+
+    @pytest.fixture(autouse=True)
+    def _auto_mock_bluetooth(request):
+        """Mock the bluetooth stack for HA tests.
+
+        ``manifest.json`` declares ``dependencies: [bluetooth]``, so any
+        test that sets up a config entry (or drives the config flow) makes
+        HA eagerly set up the ``bluetooth`` component. Without mocking, that
+        setup opens a real socket, which pytest-socket blocks, and the
+        dependency setup fails with ``DependencyError: bluetooth``. The
+        phacc ``mock_bluetooth`` fixture provides mocked adapters/scanner so
+        the component sets up cleanly offline — the standard HA pattern for
+        testing bluetooth-dependent integrations.
+
+        Pulled in lazily via ``request.getfixturevalue`` for the same reason
+        as ``auto_enable_custom_integrations``: it no-ops when the phacc
+        plugin is disabled for fast pure-test runs.
+        """
+        try:
+            request.getfixturevalue("mock_bluetooth")
+        except pytest.FixtureLookupError:
+            pass
         yield
 except ImportError:
     pass

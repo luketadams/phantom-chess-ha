@@ -565,11 +565,15 @@ class StockfishFallback:
                                 inner, tmp_path,
                             )
                             return None
-                        tar.extract(member, self.bin_dir)
+                        # filter="data" strips absolute paths / traversal /
+                        # device members (safe-extraction hardening; also the
+                        # Python 3.14 default — silences the 3.12+
+                        # DeprecationWarning about unset filters).
+                        tar.extract(member, self.bin_dir, filter="data")
                         return self.bin_dir / inner
                     # Bulk extraction (official-release layout):
                     # tar contains a top-level "stockfish/" directory.
-                    tar.extractall(self.bin_dir)
+                    tar.extractall(self.bin_dir, filter="data")
             except Exception as err:
                 _LOGGER.warning("Stockfish write/extract failed: %s", err)
                 return None

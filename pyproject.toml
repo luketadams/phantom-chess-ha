@@ -15,11 +15,17 @@
 # conventions.
 asyncio_mode = "auto"
 
-# Filter the noisy "pytest 9 will break this" warning that
-# pytest-homeassistant-custom-component triggers in our pinned version
-# range. Re-evaluate when bumping pytest beyond 9.x.
+# Filter the noisy pytest-deprecation warning that
+# pytest-homeassistant-custom-component triggers. This was originally
+# ``ignore::pytest.PytestRemovedIn9Warning``, but pytest removed that
+# category in 9.1 (renamed to PytestRemovedIn10Warning), so referencing
+# the class by name crashed collection under pytest >= 9.1 with
+# ``AttributeError: module 'pytest' has no attribute
+# 'PytestRemovedIn9Warning'``. Match by message instead so the filter is
+# robust across pytest 9.0 → 9.1+ without naming a category that may not
+# exist. See FINDINGS_TEST_PORTABILITY.md.
 filterwarnings = [
-    "ignore::pytest.PytestRemovedIn9Warning",
+    "ignore:.*is deprecated.*:Warning",
 ]
 
 [tool.coverage.run]
@@ -44,7 +50,10 @@ exclude_lines = [
 # - alpha12 baseline: 42.7% → fail_under=40 (locked in with 2.7 buffer)
 # - alpha13 added coordinator state-handler tests → 43.7%, bumped to 42
 # - alpha14 added diagnostics tests → 44.5%, bumped to 43
-# The Silver `test-coverage` rule's 95% target is a multi-alpha goal.
-fail_under = 43
+# - beta3 added the BLE-mocked coordinator suite (tests/ble_mock.py harness +
+#   test_coordinator_ble / test_coord_* / test_coord_discovery /
+#   test_coverage_gaps) → 95.4% combined, satisfying the Silver
+#   `test-coverage` rule's 95% threshold. Locked in at 95.
+fail_under = 95
 skip_empty = true
 precision = 1

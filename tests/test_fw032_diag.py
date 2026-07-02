@@ -23,8 +23,16 @@ import types
 import chess
 
 from custom_components.phantom_chess.const import UUID_GAME
-from custom_components.phantom_chess.coordinator import PhantomChessCoordinator
+from custom_components.phantom_chess.coordinator import BleakError, PhantomChessCoordinator
 from custom_components.phantom_chess.matrix import build_matrix_from_fen
+
+# The coordinator only translates the 0x0D rejection when it arrives as a
+# ``BleakError`` (the real bleak base class when bleak is installed, as in
+# the ha-tests env; an ``Exception`` alias in the minimal matrix-tests env).
+# Simulating the fault with a plain ``Exception`` therefore only exercised
+# the catch clause in the minimal env and silently escaped it once bleak was
+# present. Use the coordinator's own ``BleakError`` symbol so these tests are
+# correct in BOTH environments. See FINDINGS_TEST_PORTABILITY.md.
 
 
 # ── fakes for the diagnostic string ─────────────────────────────────────────
@@ -206,7 +214,7 @@ def _game_start_raising_stub(err):
 
 
 async def test_game_start_0x0d_raises_actionable_runtimeerror():
-    err = Exception("GATT Protocol Error: Invalid Attribute Value Length")
+    err = BleakError("GATT Protocol Error: Invalid Attribute Value Length")
     stub = _game_start_raising_stub(err)
     raised = None
     try:
@@ -290,7 +298,7 @@ def _variant_stub(fail_until_index):
     async def fake_ble_write(uuid, payload, response=True):
         calls.append({"len": len(payload), "response": response, "payload": payload})
         if len(calls) <= fail_until_index:
-            raise Exception("GATT Protocol Error: Invalid Attribute Value Length")
+            raise BleakError("GATT Protocol Error: Invalid Attribute Value Length")
 
     stub = types.SimpleNamespace()
     stub._board = chess.Board()

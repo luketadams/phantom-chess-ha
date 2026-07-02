@@ -261,16 +261,29 @@ rules:
       (test_reauth_flow_success).
 
   test-coverage:
-    status: todo
+    status: done
     comment: |
-      alpha14 baseline: 44.5% combined coverage (up from ~9% pre-push).
-      Most entity platforms are now 79–93% covered via the ha-tests job's
-      setup-time entity instantiation; matrix.py is 93%; lichess_analysis
-      is 39%. The remaining gap is mostly coordinator.py (BLE async paths
-      that need bleak mocking) and lichess_analysis's HTTP client +
-      Stockfish-binary class. CI fail_under gate ratchets up with each
-      alpha (currently 43%). Reaching 95% is a multi-alpha goal — Silver
-      is otherwise compliant.
+      beta3: 95.4% combined coverage (up from the alpha14 44.5% baseline),
+      clearing the Silver 95% threshold. The CI fail_under gate in
+      pyproject.toml is now locked at 95.
+      The gap was closed by a BLE-mocked coordinator test suite built on a
+      reusable harness (tests/ble_mock.py): a FakeBleakClient (GATT
+      read/write/notify + injectable failures, faithful to the UUID_GAME
+      opcode map) plus a make_coordinator() factory that bypasses
+      DataUpdateCoordinator scheduling. New suites:
+      test_coordinator_ble (senders, _ble_write, notify handlers, poll/
+      connect/reconnect loops, snapshot-move orchestration),
+      test_coord_lifecycle / _lichess / _analysis / _modes / _services
+      (game lifecycle, Lichess bridge, analysis+announce, two-player+
+      sculpture+AI-vs-AI, HA services + state handlers + diagnostics),
+      test_coord_discovery (the in-connect human-move discovery callback),
+      test_platforms (all 7 entity platforms → 100%),
+      test_init_and_dashboard (setup/unload/services/migration +
+      dashboard storage provision), test_lichess_analysis_extra
+      (HTTP client + Stockfish fallback → 99%), and test_coverage_gaps
+      (residual branches). Per-module: platforms 100%, diagnostics 100%,
+      lichess_analysis 99%, __init__ 98%, matrix 98%, config_flow 96%,
+      coordinator 93%, dashboard_provision 89%.
 
   # ── Gold ───────────────────────────────────────────────────────────────
   repair-issues:
