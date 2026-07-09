@@ -34,6 +34,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+LICHESS_TOKEN_URL = "https://lichess.org/account/oauth/token"
+
 # BLE address canonical form: uppercase, colon-separated. HA's Bluetooth
 # integration (and bleak under it) normalizes all discovered addresses to
 # this form, so any stored unique_id MUST match it or _abort_if_unique_id_
@@ -256,6 +258,9 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
             errors=errors,
             description_placeholders={
                 "device": self._discovered_name or self._discovered_address or "board",
+                # hassfest: literal URLs not allowed in strings.json —
+                # injected via placeholder (CI finding 2026-07-08).
+                "token_url": LICHESS_TOKEN_URL,
             },
         )
 
@@ -328,6 +333,7 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
                 "device": (self._reauth_entry_data or {}).get(
                     CONF_DEVICE_NAME, "Phantom Chess Board"
                 ),
+                "token_url": LICHESS_TOKEN_URL,
             },
         )
 

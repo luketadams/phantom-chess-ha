@@ -18,7 +18,7 @@
       },
       "lichess_token": {
         "title": "Lichess Board API Token",
-        "description": "Enter your Lichess Board API token for **{device}**.\n\nCreate one at https://lichess.org/account/oauth/token — enable **Board API** scope.",
+        "description": "Enter your Lichess Board API token for **{device}**.\n\nCreate one at {token_url} — enable **Board API** scope.",
         "data": {
           "lichess_token": "Lichess Board API Token"
         },
@@ -28,7 +28,7 @@
       },
       "reauth_confirm": {
         "title": "Re-authenticate Phantom Chess",
-        "description": "Your Lichess token for **{device}** is no longer accepted (probably expired or revoked). Enter a new Board API token to resume online play.\n\nCreate one at https://lichess.org/account/oauth/token with the **Board API** scope.",
+        "description": "Your Lichess token for **{device}** is no longer accepted (probably expired or revoked). Enter a new Board API token to resume online play.\n\nCreate one at {token_url} with the **Board API** scope.",
         "data": {
           "lichess_token": "Lichess Board API Token"
         },
