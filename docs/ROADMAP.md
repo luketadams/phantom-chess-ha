@@ -62,7 +62,14 @@ Before tagging beta4: hardware-verify #1 with a real promotion and #2 with live 
   `protocol.py`, `lichess_game.py`, `local_modes.py`, `announce.py`; target ~1,500
   lines of orchestration. Now tractable — the 95.5% suite + `ble_mock.py` harness
   + drift-guard test protect each extraction.
-- **Coverage headroom**: `dashboard_provision.py` (90%) is the lowest-covered
+- **Restore the 95 coverage floor** *(updated at beta4 ship, 2026-07-08)*: the
+  beta4 batch landed at 94.7% full-HA coverage; the gate was floored at 94
+  (still enforcing) to ship. Raise-back targets: `dashboard_provision.py`
+  83.1% (42 missed - dashboards_collection branches), `config_flow.py` 86.1%
+  (22 missed - user_manual/reauth/reconfigure edges), `coordinator.py` 92.5%
+  (183 missed - full-HA-only lifecycle paths). Cover ~15+ lines -> back over
+  95.0, then bump `fail_under` to 95.
+- **Coverage headroom** *(historical, pre-beta4)*: `dashboard_provision.py` (90%) is the lowest-covered
   module; the CI floor (95) has only a 0.5-point buffer.
 
 ## Features
