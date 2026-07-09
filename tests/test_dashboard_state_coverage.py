@@ -213,6 +213,28 @@ def test_active_learning_game_never_double_renders(top_level_conditionals, fw):
     )
 
 
+@pytest.mark.parametrize("fw", _FIRMWARE_MODES)
+def test_sculpture_playback_never_double_renders(top_level_conditionals, fw):
+    """Live bug 2026-07-08: sculpture playback drives the analysis pipeline,
+    turning learning_view_active ON — the learning view stacked a second
+    board under the dedicated sculpture-playback view. The learning view
+    must yield whenever lichess_game_id == 'sculpture'."""
+    state = _derive_state({
+        _CONNECTED: "on",
+        _BOARD_IDLE: "off",
+        _FW_MODE: fw,
+        _SETUP_MODE: "Sculpture Library",
+        _LICHESS_ACTIVE: "off",
+        _REVIEW_READY: "off",
+        _LEARNING: "on",  # analysis pipeline active during playback
+        _GAME_ID: "sculpture",
+    })
+    matches = _matching(top_level_conditionals, state)
+    assert len(matches) == 1, (
+        f"sculpture playback double-renders at fw={fw!r}: {len(matches)} views"
+    )
+
+
 def test_disconnected_shows_only_not_connected_overlay(top_level_conditionals):
     """When the board is offline, only the 'not connected' card renders."""
     state = _derive_state({
