@@ -11,6 +11,10 @@
   "dependencies": [
     "bluetooth"
   ],
+  "after_dependencies": [
+    "http",
+    "lovelace"
+  ],
   "requirements": [
     "chess>=1.10.0,<2.0"
   ],

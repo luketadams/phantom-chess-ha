@@ -41,14 +41,7 @@
     },
     "select": {
       "setup_mode": {
-        "default": "mdi:view-list",
-        "state": {
-          "Play with Lichess": "mdi:web",
-          "Play with Stockfish": "mdi:chip",
-          "Sculpture Library": "mdi:auto-fix",
-          "2-Player Game": "mdi:account-multiple",
-          "Watch AI vs AI": "mdi:robot-excited"
-        }
+        "default": "mdi:view-list"
       },
       "player_color": {
         "default": "mdi:chess-pawn",
@@ -87,20 +80,7 @@
     },
     "sensor": {
       "firmware_mode": {
-        "default": "mdi:chip",
-        "state": {
-          "Running": "mdi:play-circle",
-          "Paused": "mdi:pause-circle",
-          "HOME": "mdi:home",
-          "Waiting Side": "mdi:account-clock",
-          "Board Playing": "mdi:play-circle",
-          "Snap to Center": "mdi:magnet",
-          "Snapping Pieces": "mdi:magnet",
-          "Calibrating": "mdi:tune-vertical",
-          "Setting Up": "mdi:cog",
-          "Managing Mismatch": "mdi:alert-circle",
-          "Sculpture Playback": "mdi:auto-fix"
-        }
+        "default": "mdi:chip"
       },
       "eval_source": {
         "default": "mdi:help-circle-outline",
@@ -111,11 +91,7 @@
         }
       },
       "matrix_status": {
-        "default": "mdi:checkbox-marked-circle",
-        "state": {
-          "Clean": "mdi:checkbox-marked-circle",
-          "Error": "mdi:alert-circle"
-        }
+        "default": "mdi:checkbox-marked-circle"
       },
       "last_move_classification": {
         "default": "mdi:circle-outline",
