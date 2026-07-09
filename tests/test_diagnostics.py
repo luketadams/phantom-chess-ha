@@ -232,3 +232,58 @@ def test_diagnostics_stockfish_block_empty_when_client_absent() -> None:
     entry = _stub_entry(runtime_data=None)
     out = _run(async_get_config_entry_diagnostics(hass=MagicMock(), entry=entry))
     assert out["stockfish"] == {"client_initialized": False}
+
+
+# ─── C6: device_name / entry_title MAC masking ──────────────────────────
+
+
+def test_diagnostics_masks_device_name_containing_mac() -> None:
+    """device_name 'Phantom C8:C9:A3:F2:7C:0A' must have the MAC masked.
+
+    C6 fix: pre-C6 code left CONF_DEVICE_NAME (defaults to 'Phantom <MAC>')
+    fully unmasked, leaking the same MAC that CONF_BLE_ADDRESS masked.
+
+    Falsifiable: on pre-C6 code, out['entry_data']['device_name'] is
+    'Phantom C8:C9:A3:F2:7C:0A'; on fixed code the MAC is partially masked."""
+    entry = _stub_entry(runtime_data=None)
+    entry.data = dict(entry.data)
+    entry.data["device_name"] = "Phantom C8:C9:A3:F2:7C:0A"
+    out = _run(async_get_config_entry_diagnostics(hass=MagicMock(), entry=entry))
+
+    device_name_out = out["entry_data"]["device_name"]
+    assert "C8:C9:A3:F2:7C:0A" not in str(device_name_out), (
+        f"Full MAC leaked in device_name: {device_name_out!r}"
+    )
+    assert "C8:" in str(device_name_out), "Expected masked device_name to start with C8:"
+
+
+def test_diagnostics_masks_entry_title_containing_mac() -> None:
+    """entry_title must have embedded MAC masked in the integration block.
+
+    C6 fix: pre-C6 code surfaced entry.title verbatim in the integration
+    block. For default configs the title is 'Phantom <MAC>' — same leak.
+
+    Falsifiable: on pre-C6 code, out['integration']['entry_title'] is
+    'Phantom C8:C9:A3:F2:7C:0A'; on fixed code the MAC is partially masked."""
+    entry = _stub_entry(runtime_data=None)
+    entry.title = "Phantom C8:C9:A3:F2:7C:0A"
+    entry.data = dict(entry.data)
+    entry.data["device_name"] = "Phantom C8:C9:A3:F2:7C:0A"
+    out = _run(async_get_config_entry_diagnostics(hass=MagicMock(), entry=entry))
+
+    title_out = out["integration"]["entry_title"]
+    assert "C8:C9:A3:F2:7C:0A" not in str(title_out), (
+        f"Full MAC leaked in entry_title: {title_out!r}"
+    )
+    assert "Phantom" in str(title_out), "Expected masked title to retain 'Phantom' prefix"
+
+
+def test_diagnostics_device_name_without_mac_unchanged() -> None:
+    """A device_name with no embedded MAC must pass through unchanged.
+
+    Regression guard: _mask_device_name must only redact when the MAC
+    actually appears in the name, never truncate arbitrary names."""
+    entry = _stub_entry(runtime_data=None)
+    out = _run(async_get_config_entry_diagnostics(hass=MagicMock(), entry=entry))
+    # _stub_entry uses 'Phantom Test' — no MAC embedded
+    assert out["entry_data"]["device_name"] == "Phantom Test"

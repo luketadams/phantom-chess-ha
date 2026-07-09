@@ -133,7 +133,10 @@ async def test_async_update_data_returns_cached_state() -> None:
     coord = make_coordinator()
     coord._state = {"foo": "bar"}
     out = await coord._async_update_data()
-    assert out is coord._state
+    # B7: returns a snapshot copy (equal by value), not the live dict, so
+    # coordinator.data can't mutate underneath entity reads.
+    assert out == coord._state
+    assert out is not coord._state
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -745,7 +748,7 @@ async def test_mismatch_notification_dedups_same_signature() -> None:
 async def test_mismatch_notification_consistent_without_prior_is_noop() -> None:
     coord = make_coordinator()
     coord._last_mismatch_signature = None
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord._update_mismatch_notification("." * 100, "0" * 100, True)
     coord.hass.async_create_task.assert_not_called()
 

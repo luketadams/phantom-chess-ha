@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock
 import chess
 import pytest
 
+import custom_components.phantom_chess.coordinator as coord_mod
 from custom_components.phantom_chess.coordinator import PhantomChessCoordinator
 
 
@@ -87,7 +88,7 @@ def _no_sleep(monkeypatch):
     async def _instant(_seconds):
         return None
 
-    monkeypatch.setattr(asyncio, "sleep", _instant)
+    monkeypatch.setattr(coord_mod, "_sleep", _instant)
 
 
 def _legal_uci(board: chess.Board) -> str:
@@ -133,17 +134,15 @@ async def test_transient_drop_is_re_driven_not_fatal(monkeypatch):
     stub._phantom_execute_position = AsyncMock(side_effect=_execute)
 
     # Emulate the background maintain loop reconnecting: whenever the real
-    # _ai_vs_ai_await_reconnect polls (via asyncio.sleep), restore the link.
-    # We override sleep inside the coordinator module so the helper's
-    # `if self._ble_connected` poll flips True on the next iteration.
-    import custom_components.phantom_chess.coordinator as coord_mod
-
+    # _ai_vs_ai_await_reconnect polls (via _sleep), restore the link.
+    # We override coord_mod._sleep so the helper's `if self._ble_connected`
+    # poll flips True on the next iteration.
     async def _reconnecting_sleep(_seconds):
         if not stub._ble_connected:
             stub._ble_connected = True
         return None
 
-    monkeypatch.setattr(coord_mod.asyncio, "sleep", _reconnecting_sleep)
+    monkeypatch.setattr(coord_mod, "_sleep", _reconnecting_sleep)
 
     await stub._ai_vs_ai_loop()
 
@@ -197,13 +196,12 @@ async def test_await_reconnect_returns_true_when_link_restored():
         return None
 
     # Override the no-op sleep with one that flips the link after a couple polls.
-    import custom_components.phantom_chess.coordinator as coord_mod
-    orig = coord_mod.asyncio.sleep
-    coord_mod.asyncio.sleep = _flip
+    orig = coord_mod._sleep
+    coord_mod._sleep = _flip
     try:
         result = await stub._ai_vs_ai_await_reconnect(timeout=30.0)
     finally:
-        coord_mod.asyncio.sleep = orig
+        coord_mod._sleep = orig
     assert result is True
 
 

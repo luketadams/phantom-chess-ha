@@ -35,30 +35,47 @@ jobs:
         # aiohttp is needed because lichess_analysis.py imports it at
         # module top (its LichessAnalysisClient uses HA's aiohttp session).
         # Pure-Python install, ~50KB, fast.
+        #
+        # pytest/pytest-asyncio are pinned (Fable5 deep dive A1,
+        # 2026-07-06) so this job stops floating onto whatever pytest
+        # ships the day CI happens to run — that's what let the
+        # pytest-9.1 collection crash (see FINDINGS_TEST_PORTABILITY.md)
+        # land in a job we can't see fail (ha-tests ran continue-on-error
+        # at the time). No phacc here, so no transitive constraint to
+        # match — these are just the latest verified-good releases as of
+        # 2026-07-06 (pytest 9.1.1, pytest-asyncio 1.3.0).
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio 'chess>=1.10.0,<2.0' pyyaml aiohttp
+          pip install pytest==9.1.1 pytest-asyncio==1.3.0 'chess>=1.10.0,<2.0' pyyaml aiohttp
       - name: Run pure-function tests
         # The tests/conftest.py stub stages matrix.py + dashboard_provision.py
         # + lichess_analysis.py into sys.modules with stubbed homeassistant.*
         # symbols, so these tests run on a minimal Python install.
-        # test_config_flow.py gracefully skips because it
-        # pytest.importorskip()s pytest-homeassistant-custom-component
+        # test_config_flow.py and any other HA-dependent tests gracefully
+        # skip via pytest.importorskip()'ing pytest-homeassistant-custom-component
         # (only installed in the ha-tests job).
+        #
+        # Fable5 deep dive A1 (2026-07-06): this used to run a hardcoded
+        # 8-file list while claiming to be the gating job — a coverage/
+        # regression collapse in any other file under tests/ would go
+        # completely unnoticed. Point it at the full directory now that
+        # we've confirmed (2026-07-06 sandbox run) the whole minimal-env
+        # suite passes here in ~7s with no HA scaffolding required.
         run: |
-          PYTHONPATH=. pytest tests/test_matrix.py tests/test_dashboard_provision.py tests/test_lichess_analysis.py tests/test_coordinator_helpers.py tests/test_coordinator_state.py tests/test_diagnostics.py tests/test_ai_vs_ai_resilience.py tests/test_two_player.py -v
-          # test_lichess_analysis.py grew in alpha18 with parse + cache +
-          # AI-level-table tests for LichessAnalysisClient. No new deps
-          # needed — all tests use direct construction and stay in the
-          # minimal env.
+          PYTHONPATH=. pytest tests/ -v
 
   ha-tests:
     # The config_flow tests use pytest-homeassistant-custom-component
     # which pulls in the full HA dependency tree. They're skipped
     # gracefully if the plugin isn't installed (see tests/test_config_flow.py).
     # We install it here so the tests actually run in CI.
+    #
+    # Fable5 deep dive A1 (2026-07-06): this was the ONLY job running the
+    # full ~885-test suite and enforcing fail_under=95, but continue-on-error
+    # meant a coverage collapse (or a total install failure) still showed
+    # green. Gating for real now that the version underneath it is pinned
+    # instead of floating — see the pin rationale below.
     runs-on: ubuntu-latest
-    continue-on-error: true   # HA test plugin tracks HA versions tightly; don't gate on this
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.13
@@ -76,12 +93,31 @@ jobs:
         #   chess (python-chess, for AI move generation + board state)
         # And coverage.py for the Silver `test-coverage` rule's trend
         # tracking (fail_under threshold lives in pyproject.toml).
+        #
+        # VERSION PIN — read before bumping (Fable5 deep dive A1, 2026-07-06):
+        # pytest-homeassistant-custom-component tracks HA core 1:1 (each
+        # phacc release == one homeassistant release) and HA moved its
+        # Python floor to >=3.14 starting with HA 2026.3 (phacc 0.13.317+
+        # all declare Requires-Python >=3.14, verified against PyPI
+        # 2026-07-06). This runner is on Python 3.13, so 0.13.316 —
+        # tracking HA 2026.2.3, released 2026-02-21 — is the newest phacc
+        # release this job can install at all. That means this job now
+        # gates on a real HA snapshot instead of silently no-op'ing, but
+        # it's a ~5-month-old HA snapshot until someone deliberately bumps
+        # this job to Python 3.14 to follow current HA (a separate,
+        # bigger decision — not folded into this pin).
+        # pytest==9.0.0 and coverage==7.10.6 are pinned to match exactly
+        # what pytest-homeassistant-custom-component==0.13.316 itself
+        # declares in its own install_requires (see its
+        # requirements_test.txt at that tag) — installing a newer pytest
+        # here would conflict with phacc's internal exact pin and fail
+        # to resolve.
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-homeassistant-custom-component \
+          pip install pytest==9.0.0 pytest-homeassistant-custom-component==0.13.316 \
                       aiousbwatcher pyserial \
                       'chess>=1.10.0,<2.0' \
-                      coverage
+                      coverage==7.10.6
       - name: Run HA-integration tests with coverage
         # coverage run records hits across the whole package; coverage
         # report enforces the fail_under threshold set in pyproject.toml.
@@ -105,9 +141,12 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install mypy + deps
+        # mypy pinned (Fable5 deep dive A1, 2026-07-06) — latest verified
+        # release as of that date, no HA scaffolding involved so no
+        # transitive-pin conflict to worry about here.
         run: |
           python -m pip install --upgrade pip
-          pip install mypy 'chess>=1.10.0,<2.0' pyyaml aiohttp
+          pip install mypy==2.1.0 'chess>=1.10.0,<2.0' pyyaml aiohttp
       - name: Run mypy
         # --ignore-missing-imports because we don't install HA core
         # here (way too heavy for a type check pass); HA's own types
@@ -132,9 +171,11 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install ruff
+        # Pinned (Fable5 deep dive A1, 2026-07-06) — latest verified
+        # release as of that date.
         run: |
           python -m pip install --upgrade pip
-          pip install ruff
+          pip install ruff==0.15.20
       - name: Run ruff
         run: |
           python -m ruff check custom_components/phantom_chess/

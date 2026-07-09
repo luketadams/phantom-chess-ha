@@ -109,12 +109,15 @@ START_GAME_SCHEMA = vol.Schema(
         # Lichess clock parameters — combined limit + increment must be ≥ 4s.
         vol.Optional("clock_limit_seconds"): vol.All(vol.Coerce(int), vol.Range(min=60, max=10800)),
         vol.Optional("clock_increment_seconds"): vol.All(vol.Coerce(int), vol.Range(min=0, max=180)),
+        # B2: required for multi-board installs; optional (ignored) for single-board.
+        vol.Optional("entry_id"): cv.string,
     }
 )
 
 SEND_MOVE_SCHEMA = vol.Schema(
     {
         vol.Required("move"): cv.string,  # UCI notation, e.g. "e2e4"
+        vol.Optional("entry_id"): cv.string,
     }
 )
 
@@ -122,6 +125,7 @@ DEBUG_BLE_WRITE_SCHEMA = vol.Schema(
     {
         vol.Required("uuid"): cv.string,
         vol.Required("data"): cv.string,
+        vol.Optional("entry_id"): cv.string,
     }
 )
 
@@ -130,6 +134,7 @@ DIAGNOSE_GAME_START_SCHEMA = vol.Schema(
         # experimental=true additionally A/B-tests the candidate GAME_START
         # write variants on the live board (a successful variant starts a game).
         vol.Optional("experimental", default=False): cv.boolean,
+        vol.Optional("entry_id"): cv.string,
     }
 )
 
@@ -138,12 +143,14 @@ PHANTOM_START_GAME_SCHEMA = vol.Schema(
         vol.Optional("fen", default="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"): cv.string,
         vol.Optional("side", default="W"): vol.In(["W", "B"]),
         vol.Optional("timeout", default=60): vol.All(vol.Coerce(float), vol.Range(min=5, max=300)),
+        vol.Optional("entry_id"): cv.string,
     }
 )
 
 PHANTOM_APPLY_AI_MOVE_SCHEMA = vol.Schema(
     {
         vol.Required("move"): cv.string,  # UCI notation, e.g. 'e7e5'
+        vol.Optional("entry_id"): cv.string,
     }
 )
 
@@ -192,6 +199,7 @@ MOVE_PIECE_SCHEMA = vol.Schema(
         vol.Required("to_square"):   vol.All(cv.string, vol.Length(min=2, max=2)),  # 'e4'
         vol.Optional("capture", default=False): cv.boolean,
         vol.Optional("piece", default="E"): cv.string,
+        vol.Optional("entry_id"): cv.string,
     }
 )
 
@@ -596,9 +604,22 @@ async def async_setup_entry(
     coordinator = PhantomChessCoordinator(hass, dict(entry.data), entry=entry)
     await coordinator.async_setup()
 
+    # B3 lifecycle: register the coordinator shutdown as an on_unload hook
+    # BEFORE forwarding to platforms. async_setup() has already started the
+    # BLE loop (reconnect task) — if async_forward_entry_setups (or any step
+    # below) raises, HA runs the on_unload callbacks for the failed setup, so
+    # a failed setup can't leak the reconnect task + analysis client. On a
+    # normal unload HA runs these callbacks only AFTER async_unload_entry
+    # reports the platforms unloaded cleanly, giving the correct teardown
+    # ordering (platforms first, coordinator last).
+    entry.async_on_unload(coordinator.async_shutdown)
+
     # Pre-populate coordinator.data with the blank state so entities don't
     # crash on first read before the BLE loop calls async_set_updated_data.
-    coordinator.async_set_updated_data(coordinator._state)
+    # B7: seed a snapshot copy, not the live mutable dict, so coordinator.data
+    # doesn't alias _state and mutate underneath entity reads before the first
+    # real fan-out.
+    coordinator.async_set_updated_data(dict(coordinator._state))
 
     # Bronze quality scale rule `runtime-data` — store per-entry state on
     # entry.runtime_data, not hass.data[DOMAIN][entry.entry_id]. HA
@@ -624,13 +645,23 @@ async def async_setup_entry(
                 entry.entry_id,
             )
     else:
-        try:
-            await async_unprovision_dashboard(hass)
-        except Exception:
-            _LOGGER.exception(
-                "Failed to unprovision Phantom Chess dashboard for entry %s",
-                entry.entry_id,
-            )
+        # B6: only remove the dashboard when no *other* loaded entry still
+        # wants it.  Without this check, a second board with
+        # auto_provision=False would delete the dashboard provisioned by
+        # the first board — even though the first board still wants it.
+        other_wants_dashboard = any(
+            e.options.get(OPT_AUTO_PROVISION_DASHBOARD, DEFAULT_AUTO_PROVISION_DASHBOARD)
+            for e in hass.config_entries.async_entries(DOMAIN)
+            if e.entry_id != entry.entry_id
+        )
+        if not other_wants_dashboard:
+            try:
+                await async_unprovision_dashboard(hass)
+            except Exception:
+                _LOGGER.exception(
+                    "Failed to unprovision Phantom Chess dashboard for entry %s",
+                    entry.entry_id,
+                )
 
     # Reload when options change so the auto_provision_dashboard toggle takes
     # effect without a HA restart. async_on_unload auto-removes the listener
@@ -699,13 +730,14 @@ async def async_unload_entry(
 ) -> bool:
     """Unload a config entry.
 
-    Services are registered in ``async_setup`` (not here), so unload only
-    needs to shut down the per-entry coordinator and unload the platforms.
-    HA garbage-collects ``entry.runtime_data`` automatically after this
-    function returns.
+    Services are registered in ``async_setup`` (not here). B3: unload the
+    platforms FIRST and report their result to HA. The coordinator shutdown
+    is registered via ``entry.async_on_unload`` in ``async_setup_entry``, so
+    HA runs it only when this returns True — i.e. the coordinator is torn
+    down only after the platforms actually unloaded, never leaving a loaded
+    entry with a dead coordinator. HA garbage-collects ``entry.runtime_data``
+    automatically after this function returns.
     """
-    coordinator = entry.runtime_data
-    await coordinator.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
@@ -970,7 +1002,10 @@ def _register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_START_LOCAL_GAME, handle_start_local_game,
-        schema=vol.Schema({vol.Optional("color"): vol.In(["white", "black", "random"])}),
+        schema=vol.Schema({
+            vol.Optional("color"): vol.In(["white", "black", "random"]),
+            vol.Optional("entry_id"): cv.string,
+        }),
     )
     hass.services.async_register(DOMAIN, SERVICE_STOP_LOCAL_GAME, handle_stop_local_game)
     hass.services.async_register(
@@ -1029,7 +1064,10 @@ def _register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_PLAY_SOUND, handle_play_sound,
-        schema=vol.Schema({vol.Optional("sound", default="check"): vol.In(["check", "checkmate"])}),
+        schema=vol.Schema({
+            vol.Optional("sound", default="check"): vol.In(["check", "checkmate"]),
+            vol.Optional("entry_id"): cv.string,
+        }),
     )
     hass.services.async_register(
         DOMAIN, SERVICE_REQUEST_HINT, handle_request_hint,

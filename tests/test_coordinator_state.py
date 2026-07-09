@@ -63,6 +63,38 @@ def coord() -> PhantomChessCoordinator:
     return c
 
 
+# ─── B7: coordinator.data identity ──────────────────────────────────────
+
+
+async def test_async_update_data_returns_state_copy_not_alias(
+    coord: PhantomChessCoordinator,
+) -> None:
+    """B7: _async_update_data returns a snapshot copy, not the live _state,
+    so ``coordinator.data`` can't mutate underneath entity reads (image.py's
+    change-detection compares against the pushed values).
+
+    Falsifiable: pre-B7 it returned ``self._state`` directly, so the returned
+    dict WAS ``coord._state`` and a later mutation leaked into it."""
+    coord._state = {"live_fen": "start"}
+    data = await coord._async_update_data()
+    assert data == {"live_fen": "start"}
+    assert data is not coord._state
+    coord._state["live_fen"] = "changed"
+    assert data["live_fen"] == "start"  # snapshot is independent
+
+
+def test_firmware_mode_fanout_passes_state_copy(
+    coord: PhantomChessCoordinator,
+) -> None:
+    """B7: a fan-out pushes ``dict(self._state)``, not the live dict — so the
+    value entities receive is a stable snapshot. Falsifiable: a raw
+    ``self._state`` fan-out would push the identical object."""
+    coord._apply_firmware_mode_state("Running")
+    pushed = coord.async_set_updated_data.call_args.args[0]
+    assert pushed == coord._state
+    assert pushed is not coord._state
+
+
 # ─── _apply_firmware_mode_state ─────────────────────────────────────────
 
 

@@ -168,7 +168,9 @@ class FakeBleakClient:
         key = uuid.lower()
         if key in self.fail_read:
             raise self.fail_read[key]
-        return self._read_values.get(key, b"")
+        if key not in self._read_values:
+            raise KeyError(f"read_gatt_char: UUID {uuid!r} not seeded in FakeBleakClient")
+        return self._read_values[key]
 
     async def write_gatt_char(self, uuid: str, data: bytes, response: bool = True) -> None:
         key = uuid.lower()
@@ -214,15 +216,39 @@ def make_hass(loop: asyncio.AbstractEventLoop | None = None) -> MagicMock:
     ``.call_soon_threadsafe``/``.create_task`` — those must be a genuine loop.
     ``async_add_executor_job`` is wired to run the function inline in a thread
     executor via the real loop so debug-dump / blocking-read paths work.
+    ``async_create_task`` is wired to ``loop.create_task`` so fire-and-forget
+    coroutines actually run rather than being swallowed by a bare MagicMock
+    (which would leave them unawaited and emit RuntimeWarnings).
     """
     hass = MagicMock()
-    hass.loop = loop or asyncio.get_event_loop()
+    hass.loop = loop or asyncio.get_running_loop()
 
-    async def _exec(func, *args):
-        return func(*args)
+    def _exec(func, *args):
+        # Run the blocking work inline but hand back a *resolved Future* rather
+        # than a coroutine. Awaited call sites (`await async_add_executor_job`)
+        # still get the result, while fire-and-forget call sites (the B1
+        # debug-dump marshalling at coordinator.py:482) can drop the Future
+        # with no "coroutine was never awaited" RuntimeWarning.
+        fut = hass.loop.create_future()
+        try:
+            fut.set_result(func(*args))
+        except Exception as err:  # pragma: no cover - mirror executor semantics
+            fut.set_exception(err)
+        return fut
 
-    hass.async_add_executor_job = MagicMock(side_effect=lambda func, *a: _exec(func, *a))
+    hass.async_add_executor_job = MagicMock(side_effect=_exec)
+    hass.async_create_task = hass.loop.create_task
     return hass
+
+
+async def drain_tasks() -> None:
+    """Yield to the event loop until all immediately-scheduled tasks settle.
+
+    Call after code that fires ``async_create_task`` fire-and-forgets to
+    ensure the scheduled coroutines have had a chance to run before assertions.
+    """
+    for _ in range(5):
+        await asyncio.sleep(0)
 
 
 def make_coordinator(
@@ -308,7 +334,12 @@ def make_coordinator(
     c._last_ai_uci = None
     c._last_ai_uci_rotated = None
     c._last_ai_uci_set_at = 0.0
+    c._ai_echo_move_done_expire_at = 0.0  # M9
     c._last_ai_echo_ucis = set()
+
+    # M2 double-fire dedup
+    c._last_applied_move_uci = None
+    c._last_applied_move_ts = 0.0
 
     # snapshot protocol
     c._phantom_session_initialized = False

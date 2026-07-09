@@ -121,15 +121,27 @@ class PhantomBaseSensor(CoordinatorEntity[PhantomChessCoordinator], SensorEntity
 
     @property
     def available(self) -> bool:
-        """Silver quality scale rule `entity-unavailable`.
+        """Base availability: DataUpdateCoordinator last_update_success gate only."""
+        return super().available
 
-        Mark unavailable when the BLE connection drops — the board can't
-        be providing fresh state at that point.
-        """
+
+class PhantomBleBaseSensor(PhantomBaseSensor):
+    """Sensor subclass for board-hardware entities that go unavailable when
+    the BLE connection drops (battery, piece_count, firmware_*, matrix_*,
+    live_position, image).
+
+    B4 fix: analysis/Lichess sensors that are fed by the Lichess stream or
+    Stockfish — not BLE — must NOT be gated here, or a proxy blip
+    mid-game collapses the learning view and the post-game review dies if
+    the board powers off after the game ends.
+    """
+
+    @property
+    def available(self) -> bool:
         return super().available and self.coordinator.is_ble_connected
 
 
-class PhantomBatterySensor(PhantomBaseSensor):
+class PhantomBatterySensor(PhantomBleBaseSensor):
     _attr_translation_key = "battery"
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -161,7 +173,7 @@ class PhantomLichessIdSensor(PhantomBaseSensor):
         return (self.coordinator.data or {}).get("lichess_game_id")
 
 
-class PhantomLivePositionSensor(PhantomBaseSensor):
+class PhantomLivePositionSensor(PhantomBleBaseSensor):
     """Live board state derived from UUID_SEND_MATRIX (firmware 0.3.0).
 
     State = board-only FEN (8 ranks separated by /, no side-to-move).
@@ -181,6 +193,13 @@ class PhantomLivePositionSensor(PhantomBaseSensor):
     _attr_translation_key = "live_position"
     _attr_icon = "mdi:chess-board"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # D-block: the raw 10×10 grid / bitmap / matrix blobs re-write the
+    # recorder DB on every BLE push (a few Hz during play). They are
+    # transient render data, never charted — exclude them from history so
+    # the recorder isn't hammered. State (the FEN) is still recorded.
+    _unrecorded_attributes = frozenset(
+        {"piece_grid", "sensor_bitmap", "matrix_raw"}
+    )
 
     def __init__(self, coord, entry, address, name):
         super().__init__(coord, entry, address, name, ENTITY_LIVE_POSITION)
@@ -233,7 +252,7 @@ class PhantomLivePositionSensor(PhantomBaseSensor):
         }
 
 
-class PhantomPieceCountSensor(PhantomBaseSensor):
+class PhantomPieceCountSensor(PhantomBleBaseSensor):
     """Total pieces detected by the firmware on the board (0–32 normally).
     Counts non-empty cells in the 10×10 piece grid."""
 
@@ -249,7 +268,7 @@ class PhantomPieceCountSensor(PhantomBaseSensor):
         return (self.coordinator.data or {}).get("piece_count")
 
 
-class PhantomFirmwareModeSensor(PhantomBaseSensor):
+class PhantomFirmwareModeSensor(PhantomBleBaseSensor):
     """Firmware operating mode — Running, Paused, Snapping Pieces, etc.
     Read from UUID acb6543c."""
 
@@ -269,7 +288,7 @@ class PhantomFirmwareModeSensor(PhantomBaseSensor):
         return {"last_updated": data.get("firmware_mode_last_updated")}
 
 
-class PhantomMatrixStatusSensor(PhantomBaseSensor):
+class PhantomMatrixStatusSensor(PhantomBleBaseSensor):
     """Whether the firmware's expected board state matches what its sensors
     detect. Values: 'Clean' (all expected pieces in place), 'Error' (mismatch
     detected — check status_message attribute), or unknown."""
@@ -290,7 +309,7 @@ class PhantomMatrixStatusSensor(PhantomBaseSensor):
         return {"status_message": data.get("matrix_status_message")}
 
 
-class PhantomFirmwareLastMoveSensor(PhantomBaseSensor):
+class PhantomFirmwareLastMoveSensor(PhantomBleBaseSensor):
     """Last move emitted by the firmware on UUID_SET_STATE in M-format
     (e.g. 'K e1-a4', 'p a7-g6'). Fires during chess play and sculpture
     playback. This is the firmware-authoritative move source."""
@@ -367,7 +386,8 @@ class PhantomLichessWhiteClockSensor(PhantomBaseSensor):
     # durations in seconds. Tagging lets HA display them with the right
     # unit-conversion options + chart formatting.
     _attr_device_class = SensorDeviceClass.DURATION
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    # D-block: no state_class — a countdown clock is not a long-term
+    # statistic; recording min/max/mean of it is meaningless noise.
 
     def __init__(self, coord, entry, address, name):
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_WHITE_CLOCK)
@@ -382,7 +402,7 @@ class PhantomLichessBlackClockSensor(PhantomBaseSensor):
     _attr_icon = "mdi:timer-outline"
     _attr_native_unit_of_measurement = "s"
     _attr_device_class = SensorDeviceClass.DURATION
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    # D-block: no state_class — see white-clock rationale above.
 
     def __init__(self, coord, entry, address, name):
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_BLACK_CLOCK)
@@ -560,6 +580,9 @@ class PhantomMoveHistorySensor(PhantomBaseSensor):
     _attr_translation_key = "move_history"
     _attr_icon = "mdi:history"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # D-block: the per-ply move list grows every move and re-writes the
+    # recorder DB on each push. It's live-render data, not statistics.
+    _unrecorded_attributes = frozenset({"moves"})
 
     def __init__(self, coord, entry, address, name):
         super().__init__(coord, entry, address, name, ENTITY_MOVE_HISTORY)
@@ -621,6 +644,9 @@ class PhantomLastGameReviewSensor(PhantomBaseSensor):
     _attr_translation_key = "last_game_review"
     _attr_icon = "mdi:magnify-scan"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # D-block: the top-mistakes list is heavy render data written once per
+    # game — keep it out of the recorder.
+    _unrecorded_attributes = frozenset({"top_mistakes"})
 
     def __init__(self, coord, entry, address, name):
         super().__init__(coord, entry, address, name, ENTITY_LAST_GAME_REVIEW)

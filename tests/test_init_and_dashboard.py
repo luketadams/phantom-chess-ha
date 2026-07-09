@@ -163,6 +163,49 @@ async def test_get_coordinator_two_boards_with_entry_id_routes() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# B2: entry_id schema-boundary — schemas must accept entry_id field
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_start_game_schema_accepts_entry_id() -> None:
+    """START_GAME_SCHEMA must not reject entry_id.
+
+    B2 fix: pre-B2 all service schemas used vol.Schema's default
+    PREVENT_EXTRA, which raises vol.Invalid for any undeclared key.
+    With ≥2 boards a caller must pass entry_id — the schema would
+    reject it before _get_coordinator was ever reached.
+
+    Falsifiable: on pre-B2 code this raises vol.Invalid('extra keys not
+    allowed'); on fixed code it returns the validated dict cleanly."""
+    import voluptuous as vol  # already installed as a HA dep
+
+    try:
+        result = pc.START_GAME_SCHEMA({"entry_id": "entry_abc"})
+    except vol.Invalid as exc:
+        raise AssertionError(
+            f"START_GAME_SCHEMA rejected entry_id — B2 schema fix not applied: {exc}"
+        ) from exc
+    assert result.get("entry_id") == "entry_abc"
+
+
+async def test_start_game_schema_entry_id_routes_second_board() -> None:
+    """Two entries + entry_id in start_game call → routes to the second board.
+
+    This complements test_start_game_schema_accepts_entry_id: it confirms
+    that once the schema admits entry_id, the full handler dispatch also
+    routes correctly — no regression in _get_coordinator."""
+    hass, handlers = _register_and_collect()
+    c1 = MagicMock(); c1.async_start_game = AsyncMock()
+    c2 = MagicMock(); c2.async_start_game = AsyncMock()
+    e1 = MagicMock(); e1.entry_id = "entry_abc"; e1.runtime_data = c1
+    e2 = MagicMock(); e2.entry_id = "entry_xyz"; e2.runtime_data = c2
+    hass.config_entries.async_entries.return_value = [e1, e2]
+    await handlers[pc.SERVICE_START_GAME](_make_call({"entry_id": "entry_xyz"}))
+    c2.async_start_game.assert_awaited_once()
+    c1.async_start_game.assert_not_awaited()
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Individual service handlers → coordinator method forwarding
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -510,7 +553,12 @@ async def test_async_setup_entry_provisions_dashboard_by_default() -> None:
     )
     prov.assert_awaited_once_with(hass, entry)
     unprov.assert_not_awaited()
-    entry.async_on_unload.assert_called_once()
+    # B3: two on_unload hooks now — the coordinator shutdown (registered
+    # before the platform forward so a failed setup still tears it down) and
+    # the options-update listener.
+    assert entry.async_on_unload.call_count == 2
+    on_unload_args = [c.args[0] for c in entry.async_on_unload.call_args_list]
+    assert coord.async_shutdown in on_unload_args
     entry.add_update_listener.assert_called_once()
 
 
@@ -531,6 +579,38 @@ async def test_async_setup_entry_unprovisions_when_toggle_off() -> None:
     assert result is True
     prov.assert_not_awaited()
     unprov.assert_awaited_once_with(hass)
+
+
+async def test_async_setup_entry_sibling_dashboard_preserved() -> None:
+    """B6: when this entry has auto_provision=False but a sibling still has it
+    enabled, async_unprovision_dashboard must NOT be called.
+
+    Falsifiable: pre-B6 code unconditionally called async_unprovision_dashboard
+    in the else branch, so a second board with the toggle off would silently
+    delete the dashboard that the first board provisioned."""
+    hass = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock()
+    entry = _entry_for_setup(options={pc.OPT_AUTO_PROVISION_DASHBOARD: False})
+    entry.entry_id = "second_board"
+
+    # Sibling entry still wants the dashboard.
+    sibling = MagicMock()
+    sibling.entry_id = "first_board"
+    sibling.options = {pc.OPT_AUTO_PROVISION_DASHBOARD: True}
+    hass.config_entries.async_entries.return_value = [entry, sibling]
+
+    coord = MagicMock()
+    coord.async_setup = AsyncMock()
+    coord._state = {}
+
+    with patch.object(pc, "PhantomChessCoordinator", return_value=coord), \
+         patch.object(pc, "async_provision_dashboard", new=AsyncMock()) as prov, \
+         patch.object(pc, "async_unprovision_dashboard", new=AsyncMock()) as unprov:
+        result = await pc.async_setup_entry(hass, entry)
+
+    assert result is True
+    prov.assert_not_awaited()
+    unprov.assert_not_awaited()
 
 
 async def test_async_setup_entry_swallows_provision_exception() -> None:
@@ -566,6 +646,34 @@ async def test_async_setup_entry_swallows_unprovision_exception() -> None:
     assert result is True
 
 
+async def test_async_setup_entry_registers_shutdown_before_platform_forward() -> None:
+    """B3: the coordinator shutdown is registered via async_on_unload BEFORE
+    forwarding to platforms, so if the forward raises, HA still runs the
+    on_unload hooks for the failed setup and tears the coordinator down — no
+    leaked reconnect task + analysis client.
+
+    Falsifiable: pre-B3 the shutdown was wired only into async_unload_entry,
+    which HA does NOT call for a setup that raised during the forward, so the
+    coordinator leaked. Here the registration must have happened before the
+    forward blew up."""
+    hass = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock(
+        side_effect=RuntimeError("platform boom")
+    )
+    entry = _entry_for_setup(options={})
+    coord = MagicMock()
+    coord.async_setup = AsyncMock()
+    coord.async_shutdown = AsyncMock()
+    coord._state = {}
+
+    with patch.object(pc, "PhantomChessCoordinator", return_value=coord):
+        with pytest.raises(RuntimeError):
+            await pc.async_setup_entry(hass, entry)
+
+    on_unload_args = [c.args[0] for c in entry.async_on_unload.call_args_list]
+    assert coord.async_shutdown in on_unload_args
+
+
 async def test_async_options_updated_reloads_entry() -> None:
     hass = MagicMock()
     hass.config_entries.async_reload = AsyncMock()
@@ -575,7 +683,11 @@ async def test_async_options_updated_reloads_entry() -> None:
     hass.config_entries.async_reload.assert_awaited_once_with("e1")
 
 
-async def test_async_unload_entry_shuts_down_and_unloads() -> None:
+async def test_async_unload_entry_unloads_platforms_first() -> None:
+    """B3: unload_entry unloads platforms and returns their result. The
+    coordinator shutdown is NOT called here — it runs via the on_unload hook
+    HA fires only after this reports success, so the coordinator is never
+    torn down ahead of a platform-unload failure."""
     hass = MagicMock()
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
     coord = MagicMock()
@@ -585,7 +697,7 @@ async def test_async_unload_entry_shuts_down_and_unloads() -> None:
 
     result = await pc.async_unload_entry(hass, entry)
     assert result is True
-    coord.async_shutdown.assert_awaited_once()
+    coord.async_shutdown.assert_not_awaited()  # deferred to the on_unload hook
     hass.config_entries.async_unload_platforms.assert_awaited_once_with(
         entry, pc.PLATFORMS
     )
@@ -598,7 +710,11 @@ async def test_async_unload_entry_returns_platform_result() -> None:
     coord.async_shutdown = AsyncMock()
     entry = MagicMock()
     entry.runtime_data = coord
+    # Platforms failed to unload → False propagates, and (crucially) the
+    # coordinator is NOT shut down, so the still-loaded entry keeps a live
+    # coordinator instead of a dead one.
     assert await pc.async_unload_entry(hass, entry) is False
+    coord.async_shutdown.assert_not_awaited()
 
 
 # ─────────────────────────────────────────────────────────────────────────

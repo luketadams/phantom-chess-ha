@@ -36,6 +36,16 @@
           "lichess_token": "A fresh Lichess personal-access token with the Board API scope. Existing token was rejected by the API and needs replacement."
         }
       },
+      "user_manual": {
+        "title": "Manual Board Setup",
+        "description": "Enter the Bluetooth MAC address of your Phantom Chess Board manually (e.g. C8:C9:A3:F2:7C:0A). Use colons or dashes.",
+        "data": {
+          "ble_address": "Board Bluetooth Address"
+        },
+        "data_description": {
+          "ble_address": "6 hex pairs separated by colons or dashes, e.g. C8:C9:A3:F2:7C:0A. Found on the board's serial sticker or any BLE scanner app."
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure Phantom Chess",
         "description": "Update the configuration for **{device}** (currently linked to Lichess account: `{current_user}`).\n\nLeave the Lichess token field blank to keep the existing token. The BLE address can't be changed here — that would mean a different physical board; remove this entry and add a new one if you've swapped boards.",
@@ -79,14 +89,16 @@
           "tts_media_player_entity_id": "Speaker for play-by-play",
           "tts_language": "Voice language",
           "tts_voice": "Voice",
-          "debug_dump": "Write developer-debug artifacts to <config>/phantom_chess/debug/"
+          "debug_dump": "Write developer-debug artifacts to <config>/phantom_chess/debug/",
+          "auto_provision_dashboard": "Auto-provision Chess dashboard"
         },
         "data_description": {
           "tts_service": "Optional. Pick a text-to-speech entity to speak move announcements and coaching aloud. Leave blank to only fire the `phantom_chess_announce` event for your own automation.",
           "tts_media_player_entity_id": "The speaker to play announcements on (HomePod, Alexa, Sonos, a Voice assistant, any media player). Required if a text-to-speech engine is set.",
           "tts_language": "Optional. Force a language for the chosen engine. For Home Assistant Cloud use a locale like en-GB. Leave blank for the engine default.",
           "tts_voice": "Optional. Force a specific voice. For Home Assistant Cloud use a short neural voice name like RyanNeural. Leave blank for the engine default.",
-          "debug_dump": "Off by default. Only enable when troubleshooting an issue."
+          "debug_dump": "Off by default. Only enable when troubleshooting an issue.",
+          "auto_provision_dashboard": "On by default. When enabled the integration creates and maintains the /phantom-chess dashboard automatically. Disable if you prefer to author your own dashboard — the existing /phantom-chess dashboard will be removed on the next reload."
         }
       }
     }
@@ -254,6 +266,9 @@
       },
       "board_idle": {
         "name": "Board Idle"
+      },
+      "picker_available": {
+        "name": "Picker Available"
       }
     }
   },
@@ -266,6 +281,112 @@
     },
     "ambiguous_target_entry": {
       "message": "{count} Phantom Chess Boards configured — service call must include an entry_id field to target one specifically. Known entry_ids: {known}"
+    }
+  },
+  "services": {
+    "start_game": {
+      "name": "Start Game",
+      "description": "Start a new chess game against the Lichess AI."
+    },
+    "send_move": {
+      "name": "Send Move",
+      "description": "Manually inject a move in UCI notation."
+    },
+    "start_local_game": {
+      "name": "Start Local Game",
+      "description": "Start a game against the built-in AI — no Lichess account required."
+    },
+    "stop_local_game": {
+      "name": "Stop Local Game",
+      "description": "End the local AI game and return the board to idle mode."
+    },
+    "resign": {
+      "name": "Resign",
+      "description": "Resign the current game on Lichess."
+    },
+    "back_to_modes": {
+      "name": "Back to Modes",
+      "description": "Return to the mode picker and re-home the board."
+    },
+    "start_two_player_game": {
+      "name": "Start Two-Player Recording",
+      "description": "Start a two-human recording game on the physical board."
+    },
+    "resync_detection": {
+      "name": "Re-sync Board Detection",
+      "description": "Recovery for a board stuck in Snapping Pieces / matrix mismatch."
+    },
+    "resync_two_player": {
+      "name": "Resync Two-Player Board",
+      "description": "Recovery action for a two-player recording that has gone out of sync."
+    },
+    "start_lichess_configured": {
+      "name": "Start Lichess Game (Configured)",
+      "description": "Start a Lichess game using the integration's currently-set entities."
+    },
+    "play_selected_sculpture": {
+      "name": "Play Selected Sculpture",
+      "description": "Play the historic game currently selected in the sculpture-game selector."
+    },
+    "start_ai_vs_ai_game": {
+      "name": "Start AI vs AI Game",
+      "description": "Run a Stockfish-vs-Stockfish game on the physical board."
+    },
+    "takeback": {
+      "name": "Request Takeback",
+      "description": "Undo the last N plies on the physical board and in integration state."
+    },
+    "debug_ble_write": {
+      "name": "Debug BLE Write",
+      "description": "Diagnostic — write an arbitrary payload to a BLE characteristic."
+    },
+    "diagnose_game_start": {
+      "name": "Diagnose Game Start",
+      "description": "Diagnostic for the firmware GAME_START length rejection."
+    },
+    "phantom_start_game": {
+      "name": "Phantom Start Game",
+      "description": "Start a chess game using the activation sequence from the official Phantom app."
+    },
+    "phantom_apply_ai_move": {
+      "name": "Phantom Apply AI Move",
+      "description": "Apply an engine move to the board after a human move has been detected."
+    },
+    "reconcile_lichess_state": {
+      "name": "Reconcile Lichess State",
+      "description": "Query Lichess for the current game state and sync local sensors."
+    },
+    "resume_from_phone": {
+      "name": "Resume from Phone",
+      "description": "Push the integration's current board state to the physical board."
+    },
+    "move_piece": {
+      "name": "Move Piece",
+      "description": "Low-level move primitive — instructs firmware to move a piece via the magnet."
+    },
+    "start_sculpture": {
+      "name": "Start Sculpture Mode",
+      "description": "Switch the firmware to sculpture mode."
+    },
+    "reset_position": {
+      "name": "Reset Position",
+      "description": "Drive the physical board and internal state back to the starting position."
+    },
+    "play_sound": {
+      "name": "Play Firmware Sound",
+      "description": "Trigger a check or checkmate sound on the board's onboard speaker."
+    },
+    "request_hint": {
+      "name": "Request Hint",
+      "description": "Force-refresh the cloud-eval / Stockfish evaluation for the current position."
+    },
+    "dismiss_review": {
+      "name": "Dismiss Post-Game Review",
+      "description": "Clear the post-game review state so the dashboard returns to the mode-picker."
+    },
+    "execute_move": {
+      "name": "Execute Move",
+      "description": "Execute a UCI move on behalf of the user, driving the magnet to move the piece."
     }
   }
 }

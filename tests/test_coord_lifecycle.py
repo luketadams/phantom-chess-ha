@@ -155,7 +155,7 @@ async def test_apply_ai_move_announces_when_active():
     coord._should_announce_active_game = MagicMock(return_value=True)
     coord._build_move_speech = MagicMock(return_value="Pawn to e4")
     coord._post_move_event_speech = MagicMock(return_value="")
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord._phantom_execute_position = AsyncMock(return_value=True)
 
     await coord.async_phantom_apply_ai_move("e2e4")
@@ -180,7 +180,7 @@ async def test_apply_ai_move_retries_then_raises_and_notifies():
     coord._our_color = chess.WHITE
     # Always raises → both attempts fail → RuntimeError, board NOT rolled back.
     coord._phantom_execute_position = AsyncMock(side_effect=BleakError("boom"))
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord.hass.services = MagicMock()
     coord.hass.services.async_call = AsyncMock()
 
@@ -190,13 +190,13 @@ async def test_apply_ai_move_retries_then_raises_and_notifies():
     async def _sleep(sec):
         slept.append(sec)
 
-    orig = coord_mod.asyncio.sleep
-    coord_mod.asyncio.sleep = _sleep
+    orig = coord_mod._sleep
+    coord_mod._sleep = _sleep
     try:
         with pytest.raises(RuntimeError, match="apply_ai_move BLE write failed"):
             await coord.async_phantom_apply_ai_move("e2e4")
     finally:
-        coord_mod.asyncio.sleep = orig
+        coord_mod._sleep = orig
 
     # two attempts → one backoff sleep between them
     assert coord._phantom_execute_position.await_count == 2
@@ -258,7 +258,7 @@ async def test_start_game_happy_path(monkeypatch):
     _quiet_announcements(coord)
     coord._ble_write = AsyncMock()
     coord._phantom_execute_position = AsyncMock(return_value=True)
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord._lichess_stream_loop = MagicMock()  # never awaited (task creation stubbed)
     coord._lichess_task_done_cb = MagicMock()
 
@@ -309,7 +309,7 @@ async def test_start_game_lichess_error_raises():
     coord = make_coordinator(ble_connected=True)
     _quiet_announcements(coord)
     coord._ble_write = AsyncMock()
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
 
     resp = _FakeResp(400, text_data="Invalid clock")
     _patch_session(coord, resp)
@@ -327,7 +327,7 @@ async def test_start_game_black_uses_side_opcode_2():
     _quiet_announcements(coord)
     coord._ble_write = AsyncMock()
     coord._phantom_execute_position = AsyncMock(return_value=True)
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
 
     def _create_task(coro, name=None):
         try:
@@ -363,7 +363,7 @@ async def test_start_game_stream_slow_falls_back_to_preference():
     coord.player_color = "black"
     coord._ble_write = AsyncMock()
     coord._phantom_execute_position = AsyncMock(return_value=True)
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
 
     def _create_task(coro, name=None):
         try:
@@ -396,7 +396,7 @@ async def test_start_game_execute_position_failure_is_swallowed():
     _quiet_announcements(coord)
     coord._ble_write = AsyncMock()
     coord._phantom_execute_position = AsyncMock(side_effect=RuntimeError("fw fail"))
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
 
     def _create_task(coro, name=None):
         try:
@@ -439,7 +439,7 @@ async def test_start_local_game_white_no_ai_first():
     coord = make_coordinator(ble_connected=True)
     _quiet_announcements(coord)
     coord.player_color = "white"
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord.async_phantom_start_game = AsyncMock()
     coord._replace_local_game_task = AsyncMock()
 
@@ -460,7 +460,7 @@ async def test_start_local_game_black_ai_first():
     coord = make_coordinator(ble_connected=True)
     _quiet_announcements(coord)
     coord.player_color = "black"
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord.async_phantom_start_game = AsyncMock()
     coord._replace_local_game_task = AsyncMock()
 
@@ -477,7 +477,7 @@ async def test_start_local_game_game_assistance_failure_swallowed():
     _quiet_announcements(coord)
     coord.player_color = "white"
     coord._phantom_send_game_assistance = AsyncMock(side_effect=RuntimeError("nope"))
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord.async_phantom_start_game = AsyncMock()
     coord._replace_local_game_task = AsyncMock()
     # GAME_ASSISTANCE failure is caught/logged; game still starts.
@@ -489,7 +489,7 @@ async def test_start_local_game_cancels_prior_lichess_task():
     coord = make_coordinator(ble_connected=True)
     _quiet_announcements(coord)
     coord.player_color = "white"
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord.async_phantom_start_game = AsyncMock()
     coord._replace_local_game_task = AsyncMock()
     prior = MagicMock()
@@ -709,11 +709,11 @@ async def test_replace_local_game_task_old_raises_is_logged():
 
 @pytest.fixture(autouse=True)
 def _fast_sleep(monkeypatch):
-    """Make the coordinator module's asyncio.sleep instant for loop paths."""
+    """Make the coordinator module's _sleep instant for loop paths."""
     async def _instant(_s):
         return None
 
-    monkeypatch.setattr(coord_mod.asyncio, "sleep", _instant)
+    monkeypatch.setattr(coord_mod, "_sleep", _instant)
 
 
 async def test_local_ai_turn_no_move_returns():
@@ -918,7 +918,7 @@ async def test_get_ai_move_no_legal_returns_none():
 async def test_record_and_analyze_happy_path():
     coord = make_coordinator(ble_connected=True)
     coord._record_history_stub = MagicMock(return_value=0)
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord._analyze_move = MagicMock()
     move = chess.Move.from_uci("e2e4")
     coord._record_and_analyze_local_move(move, mover_is_white=True)
@@ -931,7 +931,7 @@ async def test_record_and_analyze_happy_path():
 async def test_record_and_analyze_history_stub_failure_returns():
     coord = make_coordinator(ble_connected=True)
     coord._record_history_stub = MagicMock(side_effect=RuntimeError("stub fail"))
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     move = chess.Move.from_uci("e2e4")
     coord._record_and_analyze_local_move(move, mover_is_white=True)
     # bailed before scheduling analysis
@@ -941,7 +941,7 @@ async def test_record_and_analyze_history_stub_failure_returns():
 async def test_record_and_analyze_illegal_on_analysis_board():
     coord = make_coordinator(ble_connected=True)
     coord._record_history_stub = MagicMock(return_value=2)
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord._analyze_move = MagicMock()
     # a move illegal on the (starting) analysis board → not pushed, but the
     # analysis task is still scheduled with before==after boards.
@@ -957,7 +957,7 @@ async def test_record_and_analyze_clears_two_player_out_of_sync():
     coord._state["two_player_out_of_sync"] = True
     coord._clear_two_player_out_of_sync = MagicMock()
     coord._record_history_stub = MagicMock(return_value=0)
-    coord.hass.async_create_task = MagicMock()
+    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
     coord._analyze_move = MagicMock()
     coord._record_and_analyze_local_move(chess.Move.from_uci("e2e4"), mover_is_white=True)
     coord._clear_two_player_out_of_sync.assert_called_once()

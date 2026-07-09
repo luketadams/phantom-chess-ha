@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     CONF_BLE_ADDRESS,
+    CONF_DEVICE_NAME,
     CONF_LICHESS_TOKEN,
     CONF_LICHESS_USER,
     DOMAIN,
@@ -58,6 +59,22 @@ def _mask_username(username: str | None) -> str | None:
     return f"{username[:2]}{'*' * (len(username) - 3)}{username[-1]}"
 
 
+def _mask_device_name(name: str | None, address: str | None) -> str | None:
+    """Replace an embedded MAC in a device name with the masked form.
+
+    "Phantom C8:C9:A3:F2:7C:0A" → "Phantom C8:**:**:**:**:0A"
+
+    Handles both the default device name ("Phantom <MAC>") and any custom
+    name the user may have set that still contains the MAC.
+    """
+    if not name or not address:
+        return name
+    masked = _mask_ble_address(address)
+    if masked and address in name:
+        return name.replace(address, masked)
+    return name
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -68,11 +85,14 @@ async def async_get_config_entry_diagnostics(
 
     # ── Entry-level data (mostly already redacted via TO_REDACT) ──────────
     entry_payload = async_redact_data(dict(entry.data), TO_REDACT)
-    entry_payload[CONF_BLE_ADDRESS] = _mask_ble_address(
-        entry.data.get(CONF_BLE_ADDRESS)
-    )
+    raw_address = entry.data.get(CONF_BLE_ADDRESS)
+    entry_payload[CONF_BLE_ADDRESS] = _mask_ble_address(raw_address)
     entry_payload[CONF_LICHESS_USER] = _mask_username(
         entry.data.get(CONF_LICHESS_USER)
+    )
+    # C6: device_name defaults to "Phantom <MAC>" and leaks the full MAC.
+    entry_payload[CONF_DEVICE_NAME] = _mask_device_name(
+        entry.data.get(CONF_DEVICE_NAME), raw_address
     )
 
     # ── Coordinator runtime state ─────────────────────────────────────────
@@ -183,7 +203,9 @@ async def async_get_config_entry_diagnostics(
             "domain": DOMAIN,
             "version": version,
             "entry_id": entry.entry_id,
-            "entry_title": entry.title,
+            # C6: entry_title is user-visible (e.g. "Phantom C8:C9:A3:F2:7C:0A")
+            # and would leak the full MAC in a public diagnostics dump.
+            "entry_title": _mask_device_name(entry.title, raw_address) or entry.title,
             "entry_options": dict(entry.options or {}),
         },
         "entry_data": entry_payload,

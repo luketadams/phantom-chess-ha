@@ -1,6 +1,7 @@
 """Config flow for the Phantom Chess Board integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any
@@ -153,6 +154,9 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
 
         if user_input is not None:
             raw_address = user_input.get(CONF_BLE_ADDRESS, "")
+            # Sentinel value — user wants to type a MAC by hand.
+            if raw_address == "manual":
+                return await self.async_step_user_manual()
             address = _normalize_ble_address(raw_address)
             if address is None:
                 errors[CONF_BLE_ADDRESS] = "invalid_ble_address"
@@ -169,23 +173,24 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
                 self._discovered_name = name
                 return await self.async_step_lichess_token()
 
-        # Build address selector — discovered devices + manual entry option.
-        # (Inline-form: the `vol.In(...)` mapping below is the actual selector;
-        # the address_options local was a leftover from an earlier iteration
-        # that built the schema imperatively. Removed alpha26.)
+        # Build address selector. When boards have been discovered we show a
+        # picker (vol.In) that lists them plus a "manual" sentinel so the
+        # user can still enter a MAC by hand (e.g. the board is out of
+        # Bluetooth range at setup time). When nothing is discovered we
+        # fall back to a plain text field.
+        if self._discovered_devices:
+            options: dict[str, str] = {
+                addr: f"{name} ({addr})"
+                for addr, name in self._discovered_devices.items()
+            }
+            options["manual"] = "Enter MAC address manually"
+            ble_validator: object = vol.In(options)
+        else:
+            ble_validator = str
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_BLE_ADDRESS): (
-                    vol.In(
-                        {
-                            addr: f"{name} ({addr})"
-                            for addr, name in self._discovered_devices.items()
-                        }
-                    )
-                    if self._discovered_devices
-                    else str
-                ),
+                vol.Required(CONF_BLE_ADDRESS): ble_validator,
             }
         )
 
@@ -196,6 +201,31 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
             description_placeholders={
                 "discovered": ", ".join(self._discovered_devices.values()) or "none found yet",
             },
+        )
+
+    async def async_step_user_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle manual MAC entry — shown when the user picks 'Enter MAC address
+        manually' from the discovery picker, or when arriving here directly.
+        """
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            raw_address = user_input.get(CONF_BLE_ADDRESS, "")
+            address = _normalize_ble_address(raw_address)
+            if address is None:
+                errors[CONF_BLE_ADDRESS] = "invalid_ble_address"
+            else:
+                await self.async_set_unique_id(address)
+                self._abort_if_unique_id_configured()
+                self._discovered_address = address
+                self._discovered_name = f"Phantom {address}"
+                return await self.async_step_lichess_token()
+
+        return self.async_show_form(
+            step_id="user_manual",
+            data_schema=vol.Schema({vol.Required(CONF_BLE_ADDRESS): str}),
+            errors=errors,
         )
 
     async def async_step_lichess_token(
@@ -241,7 +271,12 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
                 if resp.status == 200:
                     data = await resp.json()
                     return data.get("username")
-        except aiohttp.ClientError as err:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            # C7: a slow/unreachable Lichess (or a total-timeout hit on the
+            # ClientTimeout above) raises asyncio.TimeoutError, not a
+            # ClientError — catch both so setup/reauth/reconfigure surface the
+            # proper "cannot validate token" error instead of a generic
+            # "Unknown error" page. Matches lichess_analysis.py's handling.
             _LOGGER.warning("Lichess token validation failed: %s", err)
         return None
 

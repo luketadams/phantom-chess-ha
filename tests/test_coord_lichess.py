@@ -857,7 +857,7 @@ async def test_stream_loop_non200_retries_then_exits():
         coord._game_id = None
 
     with patch.object(coord_mod, "async_get_clientsession", return_value=session), \
-            patch.object(coord_mod.asyncio, "sleep", AsyncMock(side_effect=_sleep)):
+            patch.object(coord_mod, "_sleep", AsyncMock(side_effect=_sleep)):
         await coord._lichess_stream_loop("g1")
     session.get.assert_called_once()
 
@@ -872,7 +872,7 @@ async def test_stream_loop_exception_retries_with_backoff():
         coord._game_id = None  # break the loop after the first backoff sleep
 
     with patch.object(coord_mod, "async_get_clientsession", return_value=session), \
-            patch.object(coord_mod.asyncio, "sleep", AsyncMock(side_effect=_sleep)):
+            patch.object(coord_mod, "_sleep", AsyncMock(side_effect=_sleep)):
         await coord._lichess_stream_loop("g1")
     session.get.assert_called_once()
 

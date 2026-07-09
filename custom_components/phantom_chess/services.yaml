@@ -52,6 +52,13 @@ start_game:
           step: 1
           unit_of_measurement: s
           mode: box
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 send_move:
   name: Send Move
@@ -63,6 +70,13 @@ send_move:
       name: Move
       description: UCI move string, e.g. "e2e4", "g8f6", "e1g1" (kingside castle).
       required: true
+      selector:
+        text:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
       selector:
         text:
 
@@ -82,14 +96,37 @@ start_local_game:
             - white
             - black
             - random
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 stop_local_game:
   name: Stop Local Game
   description: End the local AI game and return the board to idle mode.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 resign:
   name: Resign
   description: Resign the current game on Lichess.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 back_to_modes:
   name: Back to Modes
@@ -101,6 +138,14 @@ back_to_modes:
     a disconnected board still returns the dashboard to the picker. Replaces the
     v0.3 `script.phantom_back_to_modes` so the bundled dashboard can call this
     service directly.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 start_two_player_game:
   name: Start Two-Player Recording
@@ -109,6 +154,14 @@ start_two_player_game:
     2-local-player firmware mode, no AI/Lichess opponent). Each detected move is
     run through the analysis pipeline so the live learning view populates, and a
     PGN is saved under `<config>/phantom_chess/recordings/` when the game ends.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 resync_detection:
   name: Re-sync Board Detection (wedge recovery)
@@ -120,6 +173,14 @@ resync_detection:
     when idle), telling the firmware to accept the board as-is. This is a data
     re-sync — it does NOT drive the magnet/pieces — so it's safe to run while
     the board is wedged. Requires the board to be connected via Bluetooth.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 resync_two_player:
   name: Resync Two-Player Board
@@ -129,6 +190,14 @@ resync_two_player:
     pieces back to the last recorded position so the board and the dashboard
     agree again; the recorded move history is left untouched. EXPERIMENTAL —
     behaviour in 2-local-player mode still needs live-hardware verification.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 start_lichess_configured:
   name: Start Lichess Game (Configured)
@@ -139,6 +208,14 @@ start_lichess_configured:
     `number.<device>_lichess_clock_increment`). The minute value is
     multiplied by 60 to form Lichess's seconds-based `clock.limit`.
     Replaces the v0.3 `script.phantom_start_lichess_configured`.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 play_selected_sculpture:
   name: Play Selected Sculpture
@@ -152,6 +229,14 @@ play_selected_sculpture:
     for all 18 catalog games is bundled in `sculpture_games.json`. Put the
     pieces in the start position first. Stop early with `back_to_modes` or
     `stop_local_game`.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 start_ai_vs_ai_game:
   name: Start AI-vs-AI Game
@@ -260,6 +345,13 @@ debug_ble_write:
       required: true
       selector:
         text:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 diagnose_game_start:
   name: Diagnose Game Start (fw0.3.2)
@@ -284,6 +376,13 @@ diagnose_game_start:
       default: false
       selector:
         boolean:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 phantom_start_game:
   name: Phantom Start Game (confirmed protocol)
@@ -317,6 +416,13 @@ phantom_start_game:
           max: 300
           step: 5
           mode: box
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 phantom_apply_ai_move:
   name: Phantom Apply AI Move
@@ -331,6 +437,13 @@ phantom_apply_ai_move:
       required: true
       selector:
         text:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 reconcile_lichess_state:
   name: Reconcile Lichess State
@@ -340,6 +453,14 @@ reconcile_lichess_state:
     shows lichess_active=on but you've finished the game on your phone or
     web. Safe to call at any time — no-op if Lichess still says the game is
     active. Also auto-triggers when the stream task dies unexpectedly.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 resume_from_phone:
   name: Resume from Phone
@@ -351,6 +472,14 @@ resume_from_phone:
     service when the board is ready to resume physical play. The integration
     sends a RESET_DETECTION (opcode 14) snapshot to firmware so it knows the
     current position without driving the magnet.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 move_piece:
   name: Move Piece (raw firmware)
@@ -390,6 +519,13 @@ move_piece:
       default: E
       selector:
         text:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 start_sculpture:
   name: Start Sculpture Mode
@@ -401,6 +537,14 @@ start_sculpture:
     firmware once the pieces are in the start position; per-game selection
     from inside the integration is not yet implemented (tracked in
     play_selected_sculpture).
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 reset_position:
   name: Reset Position
@@ -410,6 +554,14 @@ reset_position:
     if you've manually rearranged pieces and want a clean reset before
     starting a new game. Sends opcode 0 (GAME_START) on UUID_GAME with the
     starting-position snapshot matrix, side = W.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 play_sound:
   name: Play Firmware Sound
@@ -428,6 +580,13 @@ play_sound:
           options:
             - check
             - checkmate
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 request_hint:
   name: Request Hint
@@ -436,6 +595,14 @@ request_hint:
     for the current position and publish the engine's best move to
     sensor.<device>_best_move_san. Used by the dashboard's Hint button in
     learning mode. Safe to call at any time; no-op if no game is active.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 dismiss_review:
   name: Dismiss Post-Game Review
@@ -446,6 +613,14 @@ dismiss_review:
     Used internally by back_to_modes; exposed as a service for
     automations that want to drop the review pane without changing the
     user's current mode selection.
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: >
+        Only needed when more than one Phantom Chess Board is configured.
+      example: "01H..."
+      selector:
+        text:
 
 execute_move:
   name: Execute Move (Dashboard)

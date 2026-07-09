@@ -162,6 +162,46 @@ ENTITY_AI_VS_AI_MOVE_DELAY     = "ai_vs_ai_move_delay"
 # enough) vs the live-game cards (firmware is mid-move).
 ENTITY_BOARD_IDLE   = "board_idle"
 BOARD_IDLE_THRESHOLD_SECONDS = 60.0  # match v0.3's template behavior
+
+# C3 (deep-dive 2026-07-06): integration-owned "should the mode picker
+# render?" gate. The dashboard previously copy-pasted a 10-state
+# firmware_mode OR-block + idle/connected/no-active-game gate into six
+# conditional cards; every new firmware label was a six-place edit and a
+# silent blank-screen regression risk. `binary_sensor.<mac>_picker_available`
+# centralises that logic (unit-tested against every label) so each YAML
+# conditional collapses to a 2-line `picker_available == on` + setup-mode
+# check.
+ENTITY_PICKER_AVAILABLE = "picker_available"
+
+# The firmware-mode labels during which the board is in a settled home /
+# standby state and the mode picker (and per-mode setup views) should
+# render. These are the six states the OLD dashboard's five *setup* views
+# gated on. Deliberately EXCLUDES the four transient "the magnet is
+# rearranging pieces" labels (Snapping Pieces / Snap to Center / Calibrating
+# / Setting Up): those are owned by the dedicated stand-by interstitial
+# cards, which fire on the specific firmware_mode. Splitting the two keeps
+# the picker/setup views and the interstitials on DISJOINT firmware sets, so
+# exactly one renders — no double-render, no blank screen.
+#
+# The old *main* mode picker additionally OR'd in the four transient labels
+# (so it stayed visible if the board wedged mid-snap while on "Choose a
+# mode"). That coverage moves to the interstitials: dropping their
+# "Choose a mode" exclusion lets them own the transient states for every
+# setup mode uniformly (see dashboard_template.yaml).
+#
+# "unknown"/"unavailable" cover a freshly-connected or wedged firmware_mode
+# sensor (in the binary sensor a firmware_mode of None maps here); the
+# connected gate keeps the picker hidden when the board is actually offline.
+PICKER_FIRMWARE_MODES = frozenset(
+    {
+        "HOME",
+        "Waiting Side",
+        "unknown",
+        "unavailable",
+        "BLE Playing",
+        "Board Playing",
+    }
+)
 DEFAULT_TRAINING_WHEELS        = False
 DEFAULT_LICHESS_CLOCK_MINUTES  = 30   # default rapid pace (matches Lichess's typical 30+0)
 DEFAULT_LICHESS_CLOCK_INCREMENT = 0  # seconds per move; 0 = no increment
@@ -253,6 +293,54 @@ STATUS_RESIGNED   = "resigned"
 BLE_RETRY_SECONDS      = 10
 BLE_MAX_RETRY_SECONDS  = 60
 LICHESS_RETRY_SECONDS  = 5
+
+
+# ── Move-detection stability (audit 2026-06-09 M2/M3/M9) ─────────────────────
+
+# M2 — double-fire move dedup window. A slow physical piece-slide makes the
+# firmware emit TWO `\x03M` movementVerify notifications for one move; the
+# second can arrive as a distinct placement string that happens to be legal in
+# the new position and would be applied as a phantom second move. The move-apply
+# path records the (uci, loop-monotonic ts) of every APPLIED human move; a
+# following move-frame that resolves to the same UCI (or its 180° rotation) and
+# lands within this window is dropped as a refire. Distinct moves inside the
+# window (legitimate blitz premoves) are NOT dropped. ~400 ms comfortably covers
+# the observed intra-slide gap without swallowing real back-to-back moves.
+MOVE_DEDUP_WINDOW_SECONDS: float = 0.4
+
+# M3 — wedged-board circuit breaker. `_phantom_execute_position` returns False
+# (BLE_MOVE_DONE never arrived) on every ply when the board is physically
+# wedged; the AI-vs-AI and sculpture loops otherwise re-drive forever, grinding
+# the magnet. After this many CONSECUTIVE move-delivery failures a loop stops
+# cleanly and raises a persistent notification suggesting `resync_detection`.
+# A single delivered move resets the counter.
+PHANTOM_EXEC_FAILURE_LIMIT: int = 3
+
+# M9 — AI-echo expiry backstop, aligned to the post-activation settle window
+# (`_activation_settle_until`, 600 s in `_phantom_execute_position`). The echo
+# set is normally cleared the moment BLE_MOVE_DONE fires (see
+# AI_ECHO_MOVE_DONE_GRACE_SECONDS); this time backstop only matters when a
+# BLE_MOVE_DONE is never delivered. The former fixed 60 s value was SHORTER than
+# the 600 s settle window, so a slow castle echo landing 60–600 s after the AI
+# move was mis-processed as a human move. Raised to match the settle semantics.
+AI_ECHO_BACKSTOP_SECONDS: float = 600.0
+
+# M9 — grace period after BLE_MOVE_DONE before the AI echo set is cleared.
+# Castling fires TWO physical movements (king + rook); the rook's `\x03M` echo
+# can land a beat AFTER BLE_MOVE_DONE (which signals the whole magnet sequence
+# is done). Clearing the echo set immediately on move-done would let that
+# trailing rook echo be mis-read as a human move, so we hold the set for this
+# grace period first. A few seconds spans the king→rook echo gap.
+AI_ECHO_MOVE_DONE_GRACE_SECONDS: float = 4.0
+
+# Task 5 (live bug 2026-07-02) — minimum fraction of a color's plies that must
+# be ANALYZED (real Lichess/engine eval, not the "unknown" stub) before the
+# post-game review will report an accuracy for that color. During fast sculpture
+# playback the cloud evals are fire-and-forget and mostly don't complete, so the
+# per-ply CPLs stay at their stub 0 while a handful of resolved mate-swing plies
+# read ~9999 — averaging that mix fabricated a 0.0. Below this fraction the
+# review reports None (sensor shows "unknown") instead of a fabricated number.
+POST_GAME_MIN_ANALYZED_FRACTION: float = 0.6
 
 
 # ── Mode picker + sculpture catalog (v0.4-alpha1, Option C step 1) ───────────

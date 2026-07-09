@@ -96,8 +96,10 @@ async def test_is_ai_echo_no_last_move_false():
 async def test_is_ai_echo_window_expired_false():
     c = make_coordinator()
     c._set_last_ai_move("e2e4")
-    # Force the set-at time far into the past so the 60s window has expired.
-    c._last_ai_uci_set_at -= 120.0
+    # Force the set-at time past the AI_ECHO_BACKSTOP_SECONDS time backstop
+    # (raised 60s -> 600s in M9 to match the activation-settle window). 700s
+    # ago is comfortably beyond it, so the echo is no longer suppressed.
+    c._last_ai_uci_set_at -= 700.0
     assert c._is_ai_echo("M 1 e2-e4") is False
 
 
@@ -583,6 +585,84 @@ async def test_build_post_game_review_black_perspective():
     assert [m["san"] for m in top] == ["Qh4"]  # only black's move
 
 
+# ── Task 5: sculpture review accuracy (analyzed-only, no fabricated 0.0) ──────
+
+
+def test_accuracy_for_side_empty_or_all_unknown_is_none():
+    """No plies, or only unanalyzed (stub) plies for a colour → None."""
+    assert PhantomChessCoordinator._accuracy_for_side([], "white") is None
+    only_unknown = [
+        {"side": "white", "classification": "unknown", "cpl": 0},
+        {"side": "white", "classification": "unknown", "cpl": 0},
+    ]
+    assert PhantomChessCoordinator._accuracy_for_side(only_unknown, "white") is None
+
+
+def test_accuracy_for_side_sparse_below_threshold_is_none():
+    """Only 1 of 4 white plies analyzed (< POST_GAME_MIN_ANALYZED_FRACTION) →
+    None, not a number diluted by the 3 stub zeros."""
+    hist = [
+        {"side": "white", "classification": "unknown", "cpl": 0},
+        {"side": "white", "classification": "unknown", "cpl": 0},
+        {"side": "white", "classification": "unknown", "cpl": 0},
+        {"side": "white", "classification": "good", "cpl": 10},
+    ]
+    assert PhantomChessCoordinator._accuracy_for_side(hist, "white") is None
+
+
+def test_accuracy_for_side_fully_analyzed_computes_value():
+    """All analyzed → coarse accuracy over the real CPLs. Hand-computed:
+    mean([10, 30]) = 20 → 100 - 20/2 = 90.0."""
+    hist = [
+        {"side": "white", "classification": "good", "cpl": 10},
+        {"side": "white", "classification": "good", "cpl": 30},
+        {"side": "black", "classification": "mistake", "cpl": 50},
+    ]
+    assert PhantomChessCoordinator._accuracy_for_side(hist, "white") == 90.0
+    # black: mean([50]) = 50 → 100 - 25 = 75.0
+    assert PhantomChessCoordinator._accuracy_for_side(hist, "black") == 75.0
+
+
+async def test_build_post_game_review_sparse_evals_reports_none():
+    """Reproduces the 2026-07-02 sculpture bug: a fast playback where only a
+    couple of mate-swing plies (cpl 9999) resolved while the rest stayed stub
+    zeros. The OLD code averaged the mix and fabricated 0.0/0.0; now it reports
+    None (sensor → unknown).
+
+    Falsifiable: on the pre-fix code
+    ``_coarse_accuracy([0, 0, 0, 9999])`` clamps to 0.0, so both accuracies
+    would be 0.0 rather than None."""
+    c = make_coordinator()
+    c._our_color = chess.WHITE
+    hist = []
+    for _ in range(3):
+        hist.append({"side": "white", "classification": "unknown", "cpl": 0, "san": "-"})
+        hist.append({"side": "black", "classification": "unknown", "cpl": 0, "san": "-"})
+    hist.append({"side": "white", "classification": "blunder", "cpl": 9999, "san": "??"})
+    hist.append({"side": "black", "classification": "blunder", "cpl": 9999, "san": "??"})
+    c._state["move_history_moves"] = hist
+    await c._build_post_game_review()
+    assert c._state["last_game_accuracy_white"] is None
+    assert c._state["last_game_accuracy_black"] is None
+    # Sanity: the OLD path would have produced 0.0 here.
+    assert PhantomChessCoordinator._coarse_accuracy([0, 0, 0, 9999]) == 0.0
+
+
+async def test_build_post_game_review_full_evals_reports_values():
+    """A fully-analyzed game (e.g. a slow two-player game) still reports real
+    accuracies — the fix doesn't regress the working path."""
+    c = make_coordinator()
+    c._our_color = chess.WHITE
+    c._state["move_history_moves"] = [
+        {"side": "white", "classification": "good", "cpl": 10, "san": "e4"},
+        {"side": "black", "classification": "mistake", "cpl": 50, "san": "e5"},
+        {"side": "white", "classification": "good", "cpl": 30, "san": "Nf3"},
+    ]
+    await c._build_post_game_review()
+    assert c._state["last_game_accuracy_white"] == 90.0
+    assert c._state["last_game_accuracy_black"] == 75.0
+
+
 # ── async_dismiss_review ─────────────────────────────────────────────────────
 
 
@@ -628,6 +708,22 @@ async def test_async_request_hint_populates_best_move():
     assert c._state["eval_cp"] == 30
     assert c._state["best_move_san"] == "e4"
     c.async_set_updated_data.assert_called()
+
+
+async def test_async_request_hint_bypasses_cache():
+    """Beta5 audit fix: request_hint is documented as a deliberate refresh,
+    but the ``bypass_cache`` flag added to ``get_eval`` for it was never
+    wired to this caller — a cached FEN made the service a no-op. Pin the
+    kwarg so the wiring can't silently regress."""
+    c = make_coordinator()
+    c._board = chess.Board()
+    c._analysis_client = MagicMock()
+    ev = EvalResult(cp=30, mate=None, depth=25, best_uci="e2e4", source="lichess-cloud")
+    c._analysis_client.get_eval = AsyncMock(return_value=ev)
+    await c.async_request_hint()
+    c._analysis_client.get_eval.assert_awaited_once_with(
+        c._board.fen(), bypass_cache=True
+    )
 
 
 async def test_async_request_hint_no_eval_returns():

@@ -25,7 +25,10 @@ asyncio_mode = "auto"
 # robust across pytest 9.0 → 9.1+ without naming a category that may not
 # exist. See FINDINGS_TEST_PORTABILITY.md.
 filterwarnings = [
-    "ignore:.*is deprecated.*:Warning",
+    "ignore:.*is deprecated.*:Warning:pytest_homeassistant_custom_component",
+    # Escalate unawaited-coroutine warnings to errors so new fire-and-forget
+    # calls to async_create_task(bare_MagicMock()) are caught immediately (C8a).
+    "error:coroutine '.*' was never awaited:RuntimeWarning",
 ]
 
 [tool.coverage.run]

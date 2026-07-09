@@ -32,11 +32,26 @@ _PC_DIR = _REPO_ROOT / "custom_components" / "phantom_chess"
 
 
 def _stage_pure_module(qualified_name: str, file_path: Path) -> None:
-    """Load a single .py file into sys.modules under ``qualified_name``."""
+    """Load a single .py file into sys.modules under ``qualified_name``.
+
+    Also binds the loaded module as an attribute of its parent package
+    module. Manually inserting into ``sys.modules`` skips the import
+    machinery that normally does this, and on Python 3.10
+    ``unittest.mock._dot_lookup`` resolves ``patch("a.b.c")`` targets via
+    ``getattr(parent, child)`` *without* falling back to an import when the
+    attribute is missing — so ``patch("custom_components.phantom_chess."
+    "lichess_analysis...")`` raised ``AttributeError`` under 3.10 even though
+    the module was staged. (Python 3.12+ recovers via ``import_module`` and
+    masked this.) Setting the parent attribute makes the minimal env robust
+    across 3.10–3.13. See FINDINGS_TEST_PORTABILITY.md.
+    """
     spec = importlib.util.spec_from_file_location(qualified_name, file_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[qualified_name] = module
     spec.loader.exec_module(module)
+    parent_name, _, child = qualified_name.rpartition(".")
+    if parent_name and parent_name in sys.modules:
+        setattr(sys.modules[parent_name], child, module)
 
 
 try:  # noqa: SIM105
@@ -52,6 +67,10 @@ except ImportError:
     _pc_stub = types.ModuleType("custom_components.phantom_chess")
     _pc_stub.__path__ = [str(_PC_DIR)]
     sys.modules["custom_components.phantom_chess"] = _pc_stub
+    # Bind the subpackage onto its parent so ``patch("custom_components."
+    # "phantom_chess.<mod>...")`` resolves under Python 3.10 (see
+    # _stage_pure_module docstring / FINDINGS_TEST_PORTABILITY.md).
+    _cc_stub.phantom_chess = _pc_stub
     # matrix.py is fully pure (only stdlib).
     _stage_pure_module("custom_components.phantom_chess.matrix", _PC_DIR / "matrix.py")
 
@@ -82,6 +101,13 @@ except ImportError:
         "homeassistant.helpers.update_coordinator",
     ):
         sys.modules.setdefault(_ha_path, types.ModuleType(_ha_path))
+        # Bind each stub onto its parent package so dotted ``patch()``
+        # targets (e.g. "homeassistant.helpers.aiohttp_client....") resolve
+        # under Python 3.10, whose unittest.mock._dot_lookup does not import
+        # a missing parent attribute. See FINDINGS_TEST_PORTABILITY.md.
+        _parent, _, _child = _ha_path.rpartition(".")
+        if _parent and _parent in sys.modules:
+            setattr(sys.modules[_parent], _child, sys.modules[_ha_path])
 
     # diagnostics.async_redact_data is a small helper that replaces
     # selected dict keys with "**REDACTED**". Stub it with the same

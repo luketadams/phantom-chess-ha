@@ -36,8 +36,15 @@ async def test_make_coordinator_covers_every_init_attribute():
     attribute-for-attribute (bypassing HA scheduling). If a future change
     adds a ``self._x = ...`` to ``__init__`` without updating the harness,
     every harness-based test would exercise a coordinator missing that
-    attribute — passing while the real object behaves differently. Parse
-    ``__init__`` and assert the harness sets a superset.
+    attribute — passing while the real object behaves differently.
+
+    Two checks:
+    1. Name coverage — every attribute set in ``__init__`` exists on the
+       harness coordinator.
+    2. Value coverage — for attributes whose ``__init__`` default is a plain
+       constant (None, bool, int, float, str), the harness must set the same
+       value. ``make_coordinator(ble_connected=False)`` is used so
+       ``_ble_connected`` matches ``__init__``'s ``False`` default.
     """
     import ast
     import inspect
@@ -46,12 +53,16 @@ async def test_make_coordinator_covers_every_init_attribute():
     src = textwrap.dedent(inspect.getsource(PhantomChessCoordinator.__init__))
     tree = ast.parse(src)
     init_attrs: set[str] = set()
+    init_const_defaults: dict[str, object] = {}
     for node in ast.walk(tree):
         targets = []
+        value_node = None
         if isinstance(node, ast.Assign):
             targets = node.targets
+            value_node = node.value
         elif isinstance(node, ast.AnnAssign):
             targets = [node.target]
+            value_node = node.value
         for t in targets:
             if (
                 isinstance(t, ast.Attribute)
@@ -59,11 +70,30 @@ async def test_make_coordinator_covers_every_init_attribute():
                 and t.value.id == "self"
             ):
                 init_attrs.add(t.attr)
+                if isinstance(value_node, ast.Constant):
+                    init_const_defaults[t.attr] = value_node.value
+
+    # Check 1: all attribute names present.
     coord = make_coordinator()
     missing = {a for a in init_attrs if not hasattr(coord, a)}
     assert not missing, (
         f"make_coordinator is missing attributes set by __init__: {sorted(missing)} "
         "— update tests/ble_mock.py"
+    )
+
+    # Check 2: constant default VALUES match (use ble_connected=False to match
+    # __init__'s `self._ble_connected = False`).
+    coord_defaults = make_coordinator(ble_connected=False)
+    wrong = {
+        attr: (init_const_defaults[attr], getattr(coord_defaults, attr))
+        for attr in init_const_defaults
+        if hasattr(coord_defaults, attr)
+        and getattr(coord_defaults, attr) != init_const_defaults[attr]
+    }
+    assert not wrong, (
+        "make_coordinator sets wrong default value(s) vs __init__: "
+        + ", ".join(f"{a}: expected {exp!r} got {got!r}" for a, (exp, got) in sorted(wrong.items()))
+        + " — update tests/ble_mock.py"
     )
 
 
@@ -223,6 +253,15 @@ async def test_on_battery_applies_state():
     assert coord._state["battery_charging"] is True
 
 
+async def test_on_battery_clamps_over_100_percent():
+    """fw0.3.3 reports >100% on wall power (105–106 observed live
+    2026-07-02); the parser must clamp to the sane 0–100 range."""
+    coord = make_coordinator()
+    coord._on_battery(MagicMock(), bytearray(b"106,1,1,0"))
+    await asyncio.sleep(0)
+    assert coord._state["battery_percent"] == 100
+
+
 async def test_on_battery_ignores_malformed():
     coord = make_coordinator()
     coord._on_battery(MagicMock(), bytearray(b"garbage"))
@@ -273,6 +312,47 @@ async def test_on_ble_disconnect_resets_and_fails_future():
     assert coord._ble_connected is False
     assert coord._ble_client is None
     assert coord._phantom_session_initialized is False
+    # B1: the waiter rejection is now marshalled onto the loop (set_exception
+    # is not thread-safe), so it resolves on the next loop turn — not inline.
+    await asyncio.sleep(0)
+    with pytest.raises(ConnectionError):
+        fut.result()
+    # B7: the disconnect fan-out pushes a dict copy, not the live _state.
+    pushed = coord.async_set_updated_data.call_args.args[0]
+    assert pushed == coord._state
+    assert pushed is not coord._state
+
+
+async def test_on_ble_disconnect_rejects_future_on_loop_thread():
+    """B1 thread-safety: bleak disconnect callbacks may run off the event
+    loop, and asyncio.Future.set_exception is NOT thread-safe. Deliver the
+    disconnect from a worker thread and assert the future rejection executes
+    on the LOOP thread. Before the fix set_exception ran on the worker thread.
+    """
+    import threading
+
+    coord = make_coordinator(ble_connected=True)
+    fut = coord.hass.loop.create_future()
+    coord._move_done_future = fut
+
+    loop_thread_ident = threading.get_ident()
+    reject_thread: dict = {}
+    real_reject = coord._reject_move_done_future  # staticmethod → plain function
+
+    def _spy_reject(f):
+        reject_thread["ident"] = threading.get_ident()
+        return real_reject(f)
+
+    coord._reject_move_done_future = _spy_reject
+
+    t = threading.Thread(target=coord._on_ble_disconnect, args=(MagicMock(),))
+    t.start()
+    t.join(timeout=5)
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if reject_thread:
+            break
+    assert reject_thread.get("ident") == loop_thread_ident
     with pytest.raises(ConnectionError):
         fut.result()
 
@@ -291,11 +371,33 @@ async def test_matrix_poll_loop_reads_then_stops():
     coord = make_coordinator(client=client)
     coord._handle_matrix_bytes = MagicMock()
     coord._handle_firmware_mode_bytes = MagicMock()
-    with patch.object(coord_mod.asyncio, "sleep", AsyncMock(side_effect=asyncio.CancelledError)):
+    with patch.object(coord_mod, "_sleep", AsyncMock(side_effect=asyncio.CancelledError)):
         await coord._matrix_poll_loop()
     coord._handle_matrix_bytes.assert_called_once()
     coord._handle_firmware_mode_bytes.assert_called_once()
     assert coord._state["battery_percent"] == 55
+
+
+async def test_matrix_poll_loop_battery_clamps_over_100_percent():
+    """E4: the battery clamp lives in the shared _parse_battery_payload, so
+    the 2s poll-read path inherits it too — not just the notify callback.
+    fw0.3.3 reports 105–106% on wall power; the poll must clamp to 100.
+
+    Falsifiable: with the clamp removed from _parse_battery_payload the poll
+    path would surface the raw 106 (both paths call the same parser)."""
+    client = FakeBleakClient(
+        read_values={
+            const.UUID_SEND_MATRIX: b"CLEAN: Match.,,",
+            const.UUID_FIRMWARE_STATE: b"Running",
+            const.UUID_BATTERY_INFO: b"106,1,1,0",
+        }
+    )
+    coord = make_coordinator(client=client)
+    coord._handle_matrix_bytes = MagicMock()
+    coord._handle_firmware_mode_bytes = MagicMock()
+    with patch.object(coord_mod, "_sleep", AsyncMock(side_effect=asyncio.CancelledError)):
+        await coord._matrix_poll_loop()
+    assert coord._state["battery_percent"] == 100
 
 
 async def test_matrix_poll_loop_exits_on_stop_event():
@@ -342,7 +444,7 @@ async def test_ble_loop_runs_once_then_stops():
         coord._stop_event.set()
 
     coord._ble_connect_and_run = fake_connect
-    with patch.object(coord_mod.asyncio, "sleep", AsyncMock()):
+    with patch.object(coord_mod, "_sleep", AsyncMock()):
         await coord._ble_loop()
     assert calls["n"] == 1
 
@@ -358,7 +460,7 @@ async def test_ble_loop_logs_and_retries_on_exception():
         raise RuntimeError("link down")
 
     coord._ble_connect_and_run = failing_connect
-    with patch.object(coord_mod.asyncio, "sleep", AsyncMock()):
+    with patch.object(coord_mod, "_sleep", AsyncMock()):
         await coord._ble_loop()
     assert calls["n"] == 2
     assert coord._ble_connected is False
@@ -454,7 +556,7 @@ async def test_drop_to_home_times_out():
     client = FakeBleakClient()
     coord = make_coordinator(client=client)
     coord._state["firmware_mode"] = "Running"  # never HOME
-    with patch.object(coord_mod.asyncio, "sleep", AsyncMock()):
+    with patch.object(coord_mod, "_sleep", AsyncMock()):
         # loop.time advances via real loop; force a tiny timeout
         with pytest.raises(TimeoutError):
             await coord._phantom_drop_to_home(timeout=-1)

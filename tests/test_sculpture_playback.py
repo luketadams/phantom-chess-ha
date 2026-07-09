@@ -22,6 +22,7 @@ import chess
 import chess.pgn
 import pytest
 
+import custom_components.phantom_chess.coordinator as coord_mod
 from custom_components.phantom_chess.coordinator import PhantomChessCoordinator
 from custom_components.phantom_chess.const import SCULPTURE_GAMES
 
@@ -85,7 +86,7 @@ def _no_sleep(monkeypatch):
     async def _instant(_seconds):
         return None
 
-    monkeypatch.setattr(asyncio, "sleep", _instant)
+    monkeypatch.setattr(coord_mod, "_sleep", _instant)
 
 
 # Scholar's mate — 7 plies ending in checkmate.
@@ -213,14 +214,12 @@ async def test_transient_ble_drop_is_re_driven(monkeypatch):
 
     stub._phantom_execute_position = AsyncMock(side_effect=_execute)
 
-    import custom_components.phantom_chess.coordinator as coord_mod
-
     async def _reconnecting_sleep(_seconds):
         if not stub._ble_connected:
             stub._ble_connected = True
         return None
 
-    monkeypatch.setattr(coord_mod.asyncio, "sleep", _reconnecting_sleep)
+    monkeypatch.setattr(coord_mod, "_sleep", _reconnecting_sleep)
 
     await stub._sculpture_loop(moves)
 
@@ -262,3 +261,18 @@ def test_catalog_records_have_player_names():
     for label, rec in catalog.items():
         assert rec.get("white"), f"{label} missing white"
         assert rec.get("black"), f"{label} missing black"
+
+
+def test_catalog_records_have_display_metadata():
+    """C4: every game carries the full display-metadata set so the
+    dashboard can render its card straight from the sculpture-select
+    attributes (the old 55-line inline Jinja dict is deleted).
+
+    Falsifiable: before C4 enriched sculpture_games.json, ``site`` and
+    ``significance`` lived ONLY in the dashboard's inline dict, so this
+    assertion fails on the pre-C4 catalog.
+    """
+    catalog = _load_catalog()
+    for label, rec in catalog.items():
+        for field in ("date", "eco", "result", "site", "significance"):
+            assert rec.get(field), f"{label} missing {field}"

@@ -4,7 +4,10 @@
     "contexts": [
       "matrix-tests (3.12)",
       "matrix-tests (3.13)",
-      "lint"
+      "lint",
+      "ha-tests",
+      "typecheck",
+      "ruff"
     ]
   },
   "enforce_admins": false,

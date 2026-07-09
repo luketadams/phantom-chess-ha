@@ -23,8 +23,11 @@ from homeassistant.helpers.issue_registry import async_delete_issue
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    AI_ECHO_BACKSTOP_SECONDS,
+    AI_ECHO_MOVE_DONE_GRACE_SECONDS,
     BLE_MAX_RETRY_SECONDS,
     BLE_RETRY_SECONDS,
+    CLASSIFICATION_UNKNOWN,
     CONF_BLE_ADDRESS,
     CONF_LICHESS_TOKEN,
     DOMAIN,
@@ -35,7 +38,10 @@ from .const import (
     LICHESS_RESIGN_URL,
     LICHESS_RETRY_SECONDS,
     MODE_CHESS_PLAY,
+    MOVE_DEDUP_WINDOW_SECONDS,
     MOVE_PREFIX,
+    PHANTOM_EXEC_FAILURE_LIMIT,
+    POST_GAME_MIN_ANALYZED_FRACTION,
     STATUS_CHECKMATE,
     STATUS_DRAW,
     STATUS_IDLE,
@@ -57,6 +63,10 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Module-level sleep indirection so tests can monkeypatch coordinator sleeps
+# without patching the stdlib asyncio module process-wide (C8b).
+_sleep = asyncio.sleep
 
 # AI-vs-AI: minimum inter-move settle (seconds) AFTER a two-step physical
 # move (capture or castle). The board reports BLE_MOVE_DONE on CLEAN: Match,
@@ -125,6 +135,31 @@ def _rotate_uci_180(uci: str) -> str:
         return uci
     # Mirror ranks and swap from-to in one shot.
     return f"{t_file}{t_rank_m}{f_file}{f_rank_m}{promotion}"
+
+
+def _is_move_frame(payload_str: str) -> bool:
+    """True if an opcode-stripped game-channel payload is a physical-move
+    notification the discovery callback would try to apply.
+
+    Recognizes the firmware-0.3.0 forms ``"M <n> <from>-<to>"`` / ``"SQ ..."``
+    and a bare ``<sq><sep><sq>`` square-pair. Extracted (audit M4) so the
+    heartbeat/status ``last_seen`` dedup gate and the move-apply branch share a
+    single definition of "is a move" and can never disagree — a repeated move
+    frame must reach the apply path (where the ~400 ms double-fire window, M2,
+    owns move de-duplication) rather than being silently swallowed as a
+    duplicate heartbeat.
+    """
+    return (
+        payload_str.startswith("M ")
+        or payload_str.startswith("SQ ")
+        or (
+            len(payload_str) >= 4
+            and payload_str[0] in "abcdefgh"
+            and payload_str[1] in "12345678"
+            and payload_str[2] in "abcdefgh-x"
+            and payload_str[3] in "abcdefgh12345678"
+        )
+    )
 
 
 # ── Matrix-state notification parsing (UUID_SEND_MATRIX, firmware 0.3.0) ──────
@@ -343,6 +378,13 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_ai_uci: str | None = None
         self._last_ai_uci_rotated: str | None = None
         self._last_ai_uci_set_at: float = 0.0
+        # M9: loop-time deadline after which the AI echo set is cleared. Armed
+        # (to now + AI_ECHO_MOVE_DONE_GRACE_SECONDS) when BLE_MOVE_DONE resolves
+        # the move future — the natural "magnet sequence complete" boundary —
+        # and consumed lazily by `_is_ai_echo`. 0.0 = disarmed. The grace lets a
+        # castle's trailing rook echo (which can land just after BLE_MOVE_DONE)
+        # stay suppressed. See AI_ECHO_MOVE_DONE_GRACE_SECONDS.
+        self._ai_echo_move_done_expire_at: float = 0.0
         # Set of UCIs the firmware may emit `\x03M` notifications for as
         # the magnet executes the most-recent AI move. Always includes
         # the primary UCI plus its 180°-rotated form. For castling, ALSO
@@ -355,6 +397,16 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the firmware, causing the board to stop responding on the move
         # AFTER a castle.
         self._last_ai_echo_ucis: set[str] = set()
+
+        # M2: the UCI + loop-monotonic timestamp of the most-recent APPLIED
+        # human move (set in the discovery move-apply path). Used to drop a
+        # firmware double-fire — a second `\x03M` for one physical slide that
+        # resolves to the same UCI (or its 180° rotation) within
+        # MOVE_DEDUP_WINDOW_SECONDS. Only human-move applies write these;
+        # AI moves go through `async_phantom_apply_ai_move` and are handled by
+        # the echo set instead.
+        self._last_applied_move_uci: str | None = None
+        self._last_applied_move_ts: float = 0.0
 
         # ── Snapshot move protocol state (validated 2026-05-13) ────────────────
         # On firmware 0.3.0, the first GAME_START in a BLE session is treated as
@@ -431,7 +483,15 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception:
                     decoded = "(binary)"
                 line = f"{datetime.now(timezone.utc).isoformat()} | hex={data.hex()} | str={decoded!r}\n"
-                self.hass.async_add_executor_job(self._append_matrix_log, line)
+                # B1 thread-safety: _handle_matrix_bytes runs on the bleak
+                # notify thread, but `async_add_executor_job` is a loop-thread-
+                # only API (it touches the loop's executor + creates a Future).
+                # Marshal the scheduling onto the loop; the file write itself
+                # still runs in the executor. Fire-and-forget — the debug log is
+                # best-effort, so the returned Future is intentionally dropped.
+                self.hass.loop.call_soon_threadsafe(
+                    self.hass.async_add_executor_job, self._append_matrix_log, line
+                )
             except Exception:
                 pass
 
@@ -487,7 +547,12 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._state["matrix_raw"] = parsed["raw"]
         self._state["piece_grid"] = parsed["piece_grid"]
         self._state["sensor_bitmap"] = parsed["sensor_bitmap"]
-        self._state["live_fen"] = fen_board
+        # fen_board is None when the grid is valid but not FEN-expressible
+        # (fw0.3.2 'X'/'Z' promoted-pawn markers, doc §9.2 — side mapping
+        # undocumented). Keep the last-known-good FEN rather than clearing
+        # or corrupting the live board view.
+        if fen_board is not None:
+            self._state["live_fen"] = fen_board
         self._state["matrix_last_updated"] = datetime.now(timezone.utc).isoformat()
         self._state["position_consistent"] = consistent
         self._state["matrix_mismatches"] = mismatches
@@ -640,12 +705,12 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             self._apply_battery_state(*parsed)
                     except Exception as err:
                         _LOGGER.debug("battery poll read failed: %s", err)
-                await asyncio.sleep(2)
+                await _sleep(2)
             except asyncio.CancelledError:
                 return
             except Exception as err:
                 _LOGGER.debug("matrix_poll_loop error: %s", err)
-                await asyncio.sleep(2)
+                await _sleep(2)
 
     def _blank_state(self) -> dict[str, Any]:
         # Seed live_fen + piece_grid from the starting position so the dashboard
@@ -762,8 +827,13 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 pass
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Called by the coordinator on its polling interval — return cached state."""
-        return self._state
+        """Called by the coordinator on its polling interval — return cached state.
+
+        B7: return a snapshot copy, not the live mutable dict, so
+        ``coordinator.data`` is a stable value between pushes and entities
+        (e.g. image.py's change-detection) never observe a half-mutated state.
+        """
+        return dict(self._state)
 
     # ── BLE loop ──────────────────────────────────────────────────────────────
 
@@ -810,9 +880,9 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         retry_delay,
                     )
                 self._ble_connected = False
-                self.async_set_updated_data(self._state)
+                self.async_set_updated_data(dict(self._state))
 
-            await asyncio.sleep(retry_delay)
+            await _sleep(retry_delay)
             retry_delay = min(retry_delay * 2, BLE_MAX_RETRY_SECONDS)
 
     async def _ble_connect_and_run(self) -> None:
@@ -924,29 +994,34 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     _LOGGER.info("Characteristic %s not present on this firmware — skipping", label)
 
             # ── DISCOVERY MODE ────────────────────────────────────────────────
-            # Read all readable characteristics and write to file (avoids log deduplication).
-            _SKIP_READ = {
-                "93601602-bbc2-4e53-95bd-a3ba326bc04b",  # OTA
-                "b583ff00-b77a-42f5-a53f-a9bf4c291d80",  # FACTORY_RESET
-            }
-            read_lines = ["=== Phantom characteristic values ===\n"]
-            for service in client.services:
-                for char in service.characteristics:
-                    if "read" not in char.properties:
-                        continue
-                    if char.uuid.lower() in _SKIP_READ:
-                        continue
-                    try:
-                        val = await client.read_gatt_char(char.uuid)
-                        try:
-                            decoded = val.decode("utf-8", errors="replace").strip()
-                        except Exception:
-                            decoded = "(binary)"
-                        read_lines.append(f"  {char.uuid}  hex={val.hex()!r}  str={decoded!r}\n")
-                    except Exception as read_err:
-                        read_lines.append(f"  {char.uuid}  ERROR={read_err}\n")
-            # Write characteristic values dump when debug_dump enabled.
+            # Read all readable characteristics and write to file (avoids log
+            # deduplication). C1: this full GATT read sweep is a debug-only
+            # diagnostic — gate the whole loop (not just the file write) on
+            # debug_dump. In production it forced dozens of sequential GATT
+            # round-trips through the ESPHome proxy on EVERY reconnect, exactly
+            # when the link should come back fast (e.g. an AI-vs-AI mid-game
+            # reconnect → re-drive).
             if self._debug_dump_enabled():
+                _SKIP_READ = {
+                    "93601602-bbc2-4e53-95bd-a3ba326bc04b",  # OTA
+                    "b583ff00-b77a-42f5-a53f-a9bf4c291d80",  # FACTORY_RESET
+                }
+                read_lines = ["=== Phantom characteristic values ===\n"]
+                for service in client.services:
+                    for char in service.characteristics:
+                        if "read" not in char.properties:
+                            continue
+                        if char.uuid.lower() in _SKIP_READ:
+                            continue
+                        try:
+                            val = await client.read_gatt_char(char.uuid)
+                            try:
+                                decoded = val.decode("utf-8", errors="replace").strip()
+                            except Exception:
+                                decoded = "(binary)"
+                            read_lines.append(f"  {char.uuid}  hex={val.hex()!r}  str={decoded!r}\n")
+                        except Exception as read_err:
+                            read_lines.append(f"  {char.uuid}  ERROR={read_err}\n")
                 await self.hass.async_add_executor_job(self._write_char_values, read_lines)
                 _LOGGER.debug("DISCOVERY: characteristic values written to %s",
                               self._debug_path("char_values.txt"))
@@ -1028,11 +1103,29 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 except Exception:
                                     payload_str = ""
 
-                            # Suppress repeated identical values (e.g. constant "HOME" heartbeat)
-                            prev = last_seen.get(u)
-                            if decoded == prev:
-                                return
-                            last_seen[u] = decoded
+                            # M4: scope the raw-payload dedup to non-actionable
+                            # chatter. Classify the frame BEFORE de-duplicating
+                            # so a legitimately repeated move or a repeated
+                            # BLE_MOVE_DONE (0x0c) is never swallowed here:
+                            #  - move frames: a firmware double-fire is handled
+                            #    downstream by the ~400 ms window (M2), which can
+                            #    tell a refire from a legit back-to-back move;
+                            #    last_seen cannot, and would also drop a real
+                            #    repeated move (e.g. Ng1-f3-g1).
+                            #  - 0x0c: each BLE_MOVE_DONE must reach its handler
+                            #    (future resolve + settle/echo release); dropping
+                            #    a repeat could starve a waiter.
+                            # Everything else (HOME heartbeats, status/matrix
+                            # chatter) is still de-duplicated as before.
+                            _is_move = _is_move_frame(payload_str)
+                            _is_move_done = (
+                                u.lower() == UUID_GAME and opcode_byte == 0x0c
+                            )
+                            if not _is_move and not _is_move_done:
+                                prev = last_seen.get(u)
+                                if decoded == prev:
+                                    return
+                                last_seen[u] = decoded
 
                             # Matrix-state notification: parse and update sensors.
                             # Two channels carry matrix payloads on firmware 0.3.0:
@@ -1073,17 +1166,44 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             # authoritative release condition (not CLEAN: Match,
                             # which can still be followed by sensor recalibration
                             # noise for several more seconds).
-                            if (
-                                u.lower() == UUID_GAME
-                                and opcode_byte == 0x0c
-                            ):
-                                if (
-                                    self._move_done_future is not None
-                                    and not self._move_done_future.done()
-                                ):
-                                    self._move_done_future.set_result(True)
-                                if self._activation_settle_until > 0:
-                                    self._activation_settle_until = 0.0
+                            if _is_move_done:
+                                # B1 thread-safety: bleak can deliver this 0x0c
+                                # off the event loop. asyncio Futures are NOT
+                                # thread-safe (a cross-thread set_result races
+                                # `asyncio.wait_for` in _phantom_execute_position
+                                # — lost wakeup / InvalidStateError), and both
+                                # `_activation_settle_until` and
+                                # `_ai_echo_move_done_expire_at` are loop-affine
+                                # fields the on-loop M9 lazy-expiry logic reads.
+                                # Marshal the whole handler onto the loop (same
+                                # call_soon_threadsafe discipline as _apply_move
+                                # below); FIFO ordering is preserved.
+                                def _apply_move_done() -> None:
+                                    if (
+                                        self._move_done_future is not None
+                                        and not self._move_done_future.done()
+                                    ):
+                                        self._move_done_future.set_result(True)
+                                    if self._activation_settle_until > 0:
+                                        self._activation_settle_until = 0.0
+                                    # M9: BLE_MOVE_DONE is the authoritative
+                                    # "magnet sequence complete" boundary. Arm a
+                                    # short grace, then let `_is_ai_echo` clear
+                                    # the AI echo set — so a genuinely new human
+                                    # move matching a stale echo UCI stops being
+                                    # suppressed once the AI's magnet motion is
+                                    # done, instead of waiting out the (now
+                                    # settle-aligned) time backstop. The grace
+                                    # holds the set long enough for a castle's
+                                    # trailing rook echo — its `\x03M` can land
+                                    # just AFTER move-done — to stay suppressed.
+                                    # Only arm while an echo set exists.
+                                    if self._last_ai_echo_ucis:
+                                        self._ai_echo_move_done_expire_at = (
+                                            self.hass.loop.time()
+                                            + AI_ECHO_MOVE_DONE_GRACE_SECONDS
+                                        )
+                                self.hass.loop.call_soon_threadsafe(_apply_move_done)
 
                             # CLEAN: Match notification (opcode 0x08 with that exact
                             # status string) means the firmware's sensor matrix now
@@ -1103,27 +1223,35 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 and "CLEAN: Match" in payload_str
                                 and self._last_target_fen is not None
                             ):
-                                self._state["live_fen"] = self._last_target_fen
-                                self.hass.loop.call_soon_threadsafe(
-                                    self.async_set_updated_data, self._state
-                                )
+                                # B1 thread-safety: the live_fen write and the
+                                # fan-out both belong on the loop (this branch
+                                # runs on the bleak notify thread). AUDIT FIX
+                                # (beta5 audit U1, 2026-07-08): read
+                                # _last_target_fen at EXECUTION time, inside the
+                                # marshalled closure — NOT snapshotted at
+                                # schedule time. call_soon_threadsafe is FIFO,
+                                # so when a move frame and a CLEAN: Match frame
+                                # arrive back-to-back, _apply_move runs first
+                                # and updates _last_target_fen to the post-move
+                                # board; a schedule-time snapshot captured the
+                                # STALE pre-move target and reverted live_fen
+                                # (matrix pushes don't fire during Board
+                                # Playing, so the revert persisted until the
+                                # next move). B7: fan out a dict copy.
+                                def _apply_clean_match() -> None:
+                                    fen = self._last_target_fen
+                                    if fen is None:
+                                        return
+                                    self._state["live_fen"] = fen
+                                    self.async_set_updated_data(dict(self._state))
+                                self.hass.loop.call_soon_threadsafe(_apply_clean_match)
 
                             # Detect physical moves. In firmware 0.3.0 on cc68a66e, the
                             # human-move notification looks like:
                             #     b"\x03M 1 e2-e4"
                             # — i.e. opcode 0x03 (movementVerify) prefix, then "M <n> <from>-<to>".
-                            # We pattern-match on payload_str (with the opcode stripped).
-                            _is_move = (
-                                payload_str.startswith("M ")
-                                or payload_str.startswith("SQ ")
-                                or (
-                                    len(payload_str) >= 4
-                                    and payload_str[0] in "abcdefgh"
-                                    and payload_str[1] in "12345678"
-                                    and payload_str[2] in "abcdefgh-x"
-                                    and payload_str[3] in "abcdefgh12345678"
-                                )
-                            )
+                            # `_is_move` was resolved above (via _is_move_frame) so the
+                            # dedup gate and this apply branch share one definition (M4).
                             if _is_move:
                                 # Suppress echoes of OUR last AI move using content-based
                                 # detection. This replaces the old time-window kludge that
@@ -1131,222 +1259,260 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 # confirmed via Efraín's doc that the board has no chess
                                 # intelligence, so every \\x03M notification is either an
                                 # echo of our snapshot OR a real human move.
-                                if self._is_ai_echo(payload_str):
+                                # M5 race fix (audit 2026-06-09 §M5): everything below reads and
+                                # mutates self._board / self._state / self._last_target_fen —
+                                # loop-affine objects. bleak can deliver notifications on a
+                                # non-loop thread, so the whole apply (echo/settle/reset
+                                # filtering, legality check, board push, state fan-out, ack) is
+                                # marshalled onto the event loop, serializing it with entity
+                                # reads and every other loop-side mutator — the same pattern
+                                # _on_battery uses (audit §1.5). call_soon_threadsafe preserves
+                                # FIFO order, so rapid successive moves apply in arrival order.
+                                def _apply_move() -> None:
+                                    if self._is_ai_echo(payload_str):
+                                        _LOGGER.debug(
+                                            "DISCOVERY: skipping AI-echo on uuid=%s  payload=%r (matches last AI move=%s)",
+                                            u, payload_str, self._last_ai_uci,
+                                        )
+                                        return
+                                    # Suppress magnet-driven moves during the
+                                    # post-activation settle window. Set to
+                                    # `loop.time() + 45` by every GAME_START
+                                    # write in `_phantom_execute_position`,
+                                    # cleared early on CLEAN: Match arrival.
+                                    # This catches the bug class where firmware
+                                    # emits an `\x03M` notification AFTER it has
+                                    # transitioned to "Board Playing" but BEFORE
+                                    # the magnet has fully settled — the
+                                    # firmware_mode-based filter below misses
+                                    # this window because firmware_mode is not
+                                    # yet "Setting Up". Reproduced 2026-05-25
+                                    # with a spurious `M 1 e8-g8` after a
+                                    # start_local_game from a previously-active
+                                    # board state.
+                                    if self.hass.loop.time() < self._activation_settle_until:
+                                        _LOGGER.debug(
+                                            "DISCOVERY: skipping post-activation move on uuid=%s  payload=%r (settle window %.1fs remaining)",
+                                            u, payload_str,
+                                            self._activation_settle_until - self.hass.loop.time(),
+                                        )
+                                        from datetime import datetime, timezone
+                                        self._state["firmware_last_move"] = payload_str
+                                        self._state["firmware_last_move_updated"] = datetime.now(timezone.utc).isoformat()
+                                        self.hass.loop.call_soon_threadsafe(
+                                            self.async_set_updated_data, dict(self._state)
+                                        )
+                                        return
+                                    # Suppress magnet-driven moves during firmware reset/setup
+                                    # phases. When the firmware drives the magnet to reposition
+                                    # pieces (Managing Mismatch / Setting Up / Snapping Pieces),
+                                    # it emits a `\x03M ...` notification for every magnet move
+                                    # — including long-distance cross-board drags like d2xd7.
+                                    # These are NOT human moves and applying them to self._board
+                                    # corrupts game state. Surface them on firmware_last_move so
+                                    # the dashboard can see the reset progress, but don't push.
+                                    _reset_modes = {"Managing Mismatch", "Setting Up", "Snapping Pieces"}
+                                    if self._state.get("firmware_mode") in _reset_modes:
+                                        _LOGGER.debug(
+                                            "DISCOVERY: skipping magnet-reset move on uuid=%s  payload=%r (firmware_mode=%s)",
+                                            u, payload_str, self._state.get("firmware_mode"),
+                                        )
+                                        # Still record it as the last firmware-emitted move so the
+                                        # dashboard can show "the magnet just moved X-Y."
+                                        from datetime import datetime, timezone
+                                        self._state["firmware_last_move"] = payload_str
+                                        self._state["firmware_last_move_updated"] = datetime.now(timezone.utc).isoformat()
+                                        self.hass.loop.call_soon_threadsafe(
+                                            self.async_set_updated_data, dict(self._state)
+                                        )
+                                        return
+                                    # M2: drop a firmware double-fire. A slow
+                                    # physical slide can emit a SECOND `\x03M`
+                                    # for the SAME move — sometimes as a distinct
+                                    # placement string that is legal in the new
+                                    # position and would be applied as a phantom
+                                    # second move. If this frame resolves to the
+                                    # last APPLIED move's UCI (or its 180°
+                                    # rotation) within MOVE_DEDUP_WINDOW_SECONDS,
+                                    # it's a refire — drop it WITHOUT touching
+                                    # firmware_last_move. Distinct moves inside
+                                    # the window (blitz premoves) fall through.
+                                    # Echo suppression already ran above, so this
+                                    # only handles the HUMAN-move double-fire.
+                                    if self._is_double_fire_refire(payload_str):
+                                        _LOGGER.debug(
+                                            "DISCOVERY: dropping double-fire refire on uuid=%s  "
+                                            "payload=%r (matches last applied move=%s within %.0fms)",
+                                            u, payload_str, self._last_applied_move_uci,
+                                            MOVE_DEDUP_WINDOW_SECONDS * 1000,
+                                        )
+                                        return
                                     _LOGGER.debug(
-                                        "DISCOVERY: skipping AI-echo on uuid=%s  payload=%r (matches last AI move=%s)",
-                                        u, payload_str, self._last_ai_uci,
-                                    )
-                                    return
-                                # Suppress magnet-driven moves during the
-                                # post-activation settle window. Set to
-                                # `loop.time() + 45` by every GAME_START
-                                # write in `_phantom_execute_position`,
-                                # cleared early on CLEAN: Match arrival.
-                                # This catches the bug class where firmware
-                                # emits an `\x03M` notification AFTER it has
-                                # transitioned to "Board Playing" but BEFORE
-                                # the magnet has fully settled — the
-                                # firmware_mode-based filter below misses
-                                # this window because firmware_mode is not
-                                # yet "Setting Up". Reproduced 2026-05-25
-                                # with a spurious `M 1 e8-g8` after a
-                                # start_local_game from a previously-active
-                                # board state.
-                                if self.hass.loop.time() < self._activation_settle_until:
-                                    _LOGGER.debug(
-                                        "DISCOVERY: skipping post-activation move on uuid=%s  payload=%r (settle window %.1fs remaining)",
+                                        "DISCOVERY: MOVE on uuid=%s  move=%r (opcode=%s) — acking + queuing",
                                         u, payload_str,
-                                        self._activation_settle_until - self.hass.loop.time(),
+                                        hex(opcode_byte) if opcode_byte is not None else None,
                                     )
+                                    # Surface the move on the firmware_last_move sensor so the
+                                    # dashboard can show the most recent physical move.
                                     from datetime import datetime, timezone
                                     self._state["firmware_last_move"] = payload_str
                                     self._state["firmware_last_move_updated"] = datetime.now(timezone.utc).isoformat()
-                                    self.hass.loop.call_soon_threadsafe(
-                                        self.async_set_updated_data, dict(self._state)
-                                    )
-                                    return
-                                # Suppress magnet-driven moves during firmware reset/setup
-                                # phases. When the firmware drives the magnet to reposition
-                                # pieces (Managing Mismatch / Setting Up / Snapping Pieces),
-                                # it emits a `\x03M ...` notification for every magnet move
-                                # — including long-distance cross-board drags like d2xd7.
-                                # These are NOT human moves and applying them to self._board
-                                # corrupts game state. Surface them on firmware_last_move so
-                                # the dashboard can see the reset progress, but don't push.
-                                _reset_modes = {"Managing Mismatch", "Setting Up", "Snapping Pieces"}
-                                if self._state.get("firmware_mode") in _reset_modes:
-                                    _LOGGER.debug(
-                                        "DISCOVERY: skipping magnet-reset move on uuid=%s  payload=%r (firmware_mode=%s)",
-                                        u, payload_str, self._state.get("firmware_mode"),
-                                    )
-                                    # Still record it as the last firmware-emitted move so the
-                                    # dashboard can show "the magnet just moved X-Y."
-                                    from datetime import datetime, timezone
-                                    self._state["firmware_last_move"] = payload_str
-                                    self._state["firmware_last_move_updated"] = datetime.now(timezone.utc).isoformat()
-                                    self.hass.loop.call_soon_threadsafe(
-                                        self.async_set_updated_data, dict(self._state)
-                                    )
-                                    return
-                                _LOGGER.debug(
-                                    "DISCOVERY: MOVE on uuid=%s  move=%r (opcode=%s) — acking + queuing",
-                                    u, payload_str,
-                                    hex(opcode_byte) if opcode_byte is not None else None,
-                                )
-                                # Surface the move on the firmware_last_move sensor so the
-                                # dashboard can show the most recent physical move.
-                                from datetime import datetime, timezone
-                                self._state["firmware_last_move"] = payload_str
-                                self._state["firmware_last_move_updated"] = datetime.now(timezone.utc).isoformat()
 
-                                # Apply the move to our internal python-chess board so
-                                # live_position can update without relying on a firmware
-                                # matrix push (which doesn't fire during Board Playing).
-                                #
-                                # Firmware coordinate quirk (2026-05-10): black-piece
-                                # sensor events are reported with a 180° rotation applied
-                                # (rank-mirror + from-to-swap). White-piece events are
-                                # reported as-is. The integration disambiguates by
-                                # trying both interpretations against legal_moves and
-                                # preferring the as-is one when both are legal.
-                                try:
-                                    raw_uci = _phantom_to_uci(payload_str)
-                                    if raw_uci and len(raw_uci) >= 4:
-                                        rotated_uci = _rotate_uci_180(raw_uci)
-                                        # Build legality-ranked candidates: prefer as-is when both legal.
-                                        candidates: list[tuple[str, chess.Move, str]] = []
-                                        for label, candidate_uci in (("as-is", raw_uci), ("rotated", rotated_uci)):
-                                            if candidate_uci == raw_uci and label == "rotated":
-                                                continue  # identical (palindromic) — skip duplicate try
-                                            try:
-                                                _mv = chess.Move.from_uci(candidate_uci)
-                                            except Exception:
-                                                continue
-                                            if _mv in self._board.legal_moves:
-                                                candidates.append((candidate_uci, _mv, label))
-                                        if candidates:
-                                            uci, mv, chosen_label = candidates[0]
-                                            self._board.push(mv)
-                                            self._state["live_fen"] = self._board.board_fen()
-                                            self._state["last_move"] = uci
-                                            grid = self._build_phantom_matrix_from_fen(self._board.fen())
-                                            self._state["piece_grid"] = grid
-                                            self._state["piece_count"] = sum(1 for c in grid if c != ".")
-                                            self._state["matrix_last_updated"] = self._state["firmware_last_move_updated"]
-                                            # Update CLEAN: Match parser's cache so subsequent
-                                            # firmware "match" notifications don't revert live_fen
-                                            # to a stale earlier snapshot target.
-                                            self._last_target_fen = self._board.board_fen()
-                                            # Human-move TTS: don't announce the move itself
-                                            # (player just made it), but DO announce check/mate
-                                            # events triggered by the move. Active-game gate
-                                            # excludes sculpture-mode echoes.
-                                            if self._should_announce_active_game():
-                                                event_speech = self._post_move_event_speech()
-                                                if event_speech:
-                                                    self.hass.async_create_task(
-                                                        self._announce_via_tts(event_speech)
-                                                    )
-                                            _LOGGER.debug(
-                                                "DISCOVERY: applied %s (raw=%s, rotated=%s, chosen=%s)",
-                                                uci, raw_uci, rotated_uci, chosen_label,
-                                            )
-                                            # FIX (2026-05-14, post-Efraín-doc audit):
-                                            # ONLY queue moves that passed the legality check —
-                                            # and queue the resolved UCI (not raw payload_str).
-                                            # Previously the queue insertion was UNCONDITIONAL
-                                            # right after this if/else, which meant illegal moves
-                                            # (e.g. firmware sensor-echoes of AI moves like the
-                                            # AI-piece-just-moved triggering "M 1 e4-e2" notifications
-                                            # for a black e7→e5 move with the 180° rotation) got
-                                            # POSTed to Lichess → rejection cascade. By moving the
-                                            # queue insert inside `if candidates:` and storing the
-                                            # already-disambiguated UCI, _drain_physical_move_queue
-                                            # also no longer needs to re-parse via _phantom_to_uci.
-                                            if self._local_game_active:
-                                                # Funnel through the
-                                                # serialized replacement
-                                                # helper so we can't race
-                                                # against an in-flight AI
-                                                # turn that's already
-                                                # scheduled by some other
-                                                # path. The lambda wraps
-                                                # the async call so
-                                                # call_soon_threadsafe
-                                                # doesn't receive a
-                                                # coroutine.
-                                                self.hass.loop.call_soon_threadsafe(
-                                                    lambda: self.hass.loop.create_task(
-                                                        self._replace_local_game_task(
-                                                            name=f"{DOMAIN}_local_ai_after_human",
-                                                        ),
-                                                        name=f"{DOMAIN}_local_ai_replace_after_human",
-                                                    )
+                                    # Apply the move to our internal python-chess board so
+                                    # live_position can update without relying on a firmware
+                                    # matrix push (which doesn't fire during Board Playing).
+                                    #
+                                    # Firmware coordinate quirk (2026-05-10): black-piece
+                                    # sensor events are reported with a 180° rotation applied
+                                    # (rank-mirror + from-to-swap). White-piece events are
+                                    # reported as-is. The integration disambiguates by
+                                    # trying both interpretations against legal_moves and
+                                    # preferring the as-is one when both are legal.
+                                    try:
+                                        raw_uci = _phantom_to_uci(payload_str)
+                                        if raw_uci and len(raw_uci) >= 4:
+                                            rotated_uci = _rotate_uci_180(raw_uci)
+                                            # Build legality-ranked candidates: prefer as-is when both legal.
+                                            candidates: list[tuple[str, chess.Move, str]] = []
+                                            for label, candidate_uci in (("as-is", raw_uci), ("rotated", rotated_uci)):
+                                                if candidate_uci == raw_uci and label == "rotated":
+                                                    continue  # identical (palindromic) — skip duplicate try
+                                                try:
+                                                    _mv = chess.Move.from_uci(candidate_uci)
+                                                except Exception:
+                                                    continue
+                                                if _mv in self._board.legal_moves:
+                                                    candidates.append((candidate_uci, _mv, label))
+                                            if candidates:
+                                                uci, mv, chosen_label = candidates[0]
+                                                self._board.push(mv)
+                                                # M2: remember this applied move so
+                                                # a firmware double-fire arriving in
+                                                # the next MOVE_DEDUP_WINDOW_SECONDS
+                                                # is recognised as a refire.
+                                                self._last_applied_move_uci = uci
+                                                self._last_applied_move_ts = self.hass.loop.time()
+                                                self._state["live_fen"] = self._board.board_fen()
+                                                self._state["last_move"] = uci
+                                                grid = self._build_phantom_matrix_from_fen(self._board.fen())
+                                                self._state["piece_grid"] = grid
+                                                self._state["piece_count"] = sum(1 for c in grid if c != ".")
+                                                self._state["matrix_last_updated"] = self._state["firmware_last_move_updated"]
+                                                # Update CLEAN: Match parser's cache so subsequent
+                                                # firmware "match" notifications don't revert live_fen
+                                                # to a stale earlier snapshot target.
+                                                self._last_target_fen = self._board.board_fen()
+                                                # Human-move TTS: don't announce the move itself
+                                                # (player just made it), but DO announce check/mate
+                                                # events triggered by the move. Active-game gate
+                                                # excludes sculpture-mode echoes.
+                                                if self._should_announce_active_game():
+                                                    event_speech = self._post_move_event_speech()
+                                                    if event_speech:
+                                                        self.hass.async_create_task(
+                                                            self._announce_via_tts(event_speech)
+                                                        )
+                                                _LOGGER.debug(
+                                                    "DISCOVERY: applied %s (raw=%s, rotated=%s, chosen=%s)",
+                                                    uci, raw_uci, rotated_uci, chosen_label,
                                                 )
-                                            elif self._two_player_active:
-                                                # v0.4-beta2 two-player recording: analyze the just-pushed move
-                                                # (eval meter, classification glyphs, move history via the shared
-                                                # learning-view pipeline) and check for game end. No AI or Lichess
-                                                # response — both sides are humans moving the physical pieces.
-                                                _mover_white = (self._board.turn == chess.BLACK)
-                                                self.hass.loop.call_soon_threadsafe(
-                                                    self._record_and_analyze_local_move, mv, _mover_white
-                                                )
-                                                if self._board.is_game_over():
+                                                # FIX (2026-05-14, post-Efraín-doc audit):
+                                                # ONLY queue moves that passed the legality check —
+                                                # and queue the resolved UCI (not raw payload_str).
+                                                # Previously the queue insertion was UNCONDITIONAL
+                                                # right after this if/else, which meant illegal moves
+                                                # (e.g. firmware sensor-echoes of AI moves like the
+                                                # AI-piece-just-moved triggering "M 1 e4-e2" notifications
+                                                # for a black e7→e5 move with the 180° rotation) got
+                                                # POSTed to Lichess → rejection cascade. By moving the
+                                                # queue insert inside `if candidates:` and storing the
+                                                # already-disambiguated UCI, _drain_physical_move_queue
+                                                # also no longer needs to re-parse via _phantom_to_uci.
+                                                if self._local_game_active:
+                                                    # Funnel through the
+                                                    # serialized replacement
+                                                    # helper so we can't race
+                                                    # against an in-flight AI
+                                                    # turn that's already
+                                                    # scheduled by some other
+                                                    # path. The lambda wraps
+                                                    # the async call so
+                                                    # call_soon_threadsafe
+                                                    # doesn't receive a
+                                                    # coroutine.
                                                     self.hass.loop.call_soon_threadsafe(
                                                         lambda: self.hass.loop.create_task(
-                                                            self._finalize_two_player_game(),
-                                                            name=f"{DOMAIN}_two_player_finalize",
+                                                            self._replace_local_game_task(
+                                                                name=f"{DOMAIN}_local_ai_after_human",
+                                                            ),
+                                                            name=f"{DOMAIN}_local_ai_replace_after_human",
                                                         )
                                                     )
-                                            elif self._game_id:
-                                                self.hass.loop.call_soon_threadsafe(
-                                                    self._physical_move_queue.put_nowait, uci
-                                                )
-                                                self.hass.loop.call_soon_threadsafe(
-                                                    lambda: self.hass.loop.create_task(
-                                                        self._drain_physical_move_queue(),
-                                                        name=f"{DOMAIN}_lichess_drain",
+                                                elif self._two_player_active:
+                                                    # v0.4-beta2 two-player recording: analyze the just-pushed move
+                                                    # (eval meter, classification glyphs, move history via the shared
+                                                    # learning-view pipeline) and check for game end. No AI or Lichess
+                                                    # response — both sides are humans moving the physical pieces.
+                                                    _mover_white = (self._board.turn == chess.BLACK)
+                                                    self.hass.loop.call_soon_threadsafe(
+                                                        self._record_and_analyze_local_move, mv, _mover_white
                                                     )
-                                                )
-                                        else:
-                                            _LOGGER.warning(
-                                                "DISCOVERY: neither raw=%s nor rotated=%s is legal in current position; recording firmware_last_move only — NOT queuing to Lichess",
-                                                raw_uci, rotated_uci,
-                                            )
-                                            # v0.4-beta2: in two-player recording an
-                                            # illegal physical move was silently dropped
-                                            # (2026-06-03 live-test gap — the player's
-                                            # later checkmate never registered because
-                                            # self._board had stalled). Surface it so the
-                                            # player knows to undo the piece, and offer
-                                            # the resync action.
-                                            if self._two_player_active:
-                                                self.hass.loop.call_soon_threadsafe(
-                                                    self._flag_two_player_out_of_sync,
+                                                    if self._board.is_game_over():
+                                                        self.hass.loop.call_soon_threadsafe(
+                                                            lambda: self.hass.loop.create_task(
+                                                                self._finalize_two_player_game(),
+                                                                name=f"{DOMAIN}_two_player_finalize",
+                                                            )
+                                                        )
+                                                elif self._game_id:
+                                                    self.hass.loop.call_soon_threadsafe(
+                                                        self._physical_move_queue.put_nowait, uci
+                                                    )
+                                                    self.hass.loop.call_soon_threadsafe(
+                                                        lambda: self.hass.loop.create_task(
+                                                            self._drain_physical_move_queue(),
+                                                            name=f"{DOMAIN}_lichess_drain",
+                                                        )
+                                                    )
+                                            else:
+                                                _LOGGER.warning(
+                                                    "DISCOVERY: neither raw=%s nor rotated=%s is legal in current position; recording firmware_last_move only — NOT queuing to Lichess",
                                                     raw_uci, rotated_uci,
                                                 )
-                                except Exception as conv_err:
-                                    _LOGGER.debug("DISCOVERY: move-decode failed: %s", conv_err)
+                                                # v0.4-beta2: in two-player recording an
+                                                # illegal physical move was silently dropped
+                                                # (2026-06-03 live-test gap — the player's
+                                                # later checkmate never registered because
+                                                # self._board had stalled). Surface it so the
+                                                # player knows to undo the piece, and offer
+                                                # the resync action.
+                                                if self._two_player_active:
+                                                    self.hass.loop.call_soon_threadsafe(
+                                                        self._flag_two_player_out_of_sync,
+                                                        raw_uci, rotated_uci,
+                                                    )
+                                    except Exception as conv_err:
+                                        _LOGGER.debug("DISCOVERY: move-decode failed: %s", conv_err)
 
-                                # Push state to entities.
-                                self.hass.loop.call_soon_threadsafe(
-                                    self.async_set_updated_data, dict(self._state)
-                                )
+                                    # Push state to entities.
+                                    self.hass.loop.call_soon_threadsafe(
+                                        self.async_set_updated_data, dict(self._state)
+                                    )
 
-                                # Acknowledge on cc68a66e with movementVerify "1"
-                                # (firmware 0.3.0 — UUID_CHECK_MOVE doesn't exist).
-                                async def _ack(move_str: str = payload_str):
-                                    try:
-                                        await client.write_gatt_char(
-                                            GAME_CHANNEL, b"\x031", response=True
-                                        )
-                                        _LOGGER.debug("DISCOVERY: movementVerify ack sent for %r", move_str)
-                                    except Exception as ack_err:
-                                        _LOGGER.warning("DISCOVERY: movementVerify ack failed: %s", ack_err)
-                                self.hass.loop.call_soon_threadsafe(
-                                    lambda: self.hass.loop.create_task(_ack())
-                                )
+                                    # Acknowledge on cc68a66e with movementVerify "1"
+                                    # (firmware 0.3.0 — UUID_CHECK_MOVE doesn't exist).
+                                    async def _ack(move_str: str = payload_str):
+                                        try:
+                                            await client.write_gatt_char(
+                                                GAME_CHANNEL, b"\x031", response=True
+                                            )
+                                            _LOGGER.debug("DISCOVERY: movementVerify ack sent for %r", move_str)
+                                        except Exception as ack_err:
+                                            _LOGGER.warning("DISCOVERY: movementVerify ack failed: %s", ack_err)
+                                    self.hass.loop.call_soon_threadsafe(
+                                        lambda: self.hass.loop.create_task(_ack())
+                                    )
+                                self.hass.loop.call_soon_threadsafe(_apply_move)
                         return _cb
 
                     try:
@@ -1356,7 +1522,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         _LOGGER.debug("DISCOVERY subscribe failed %s: %s", char.uuid, sub_err)
             # ── END DISCOVERY MODE ────────────────────────────────────────────
 
-            self.async_set_updated_data(self._state)
+            self.async_set_updated_data(dict(self._state))
 
             # Start the matrix poll loop (firmware 0.3.0 doesn't push matrix
             # notifications for human-induced sensor changes).
@@ -1369,7 +1535,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 # Block here until disconnected or stop requested
                 while not self._stop_event.is_set() and client.is_connected:
-                    await asyncio.sleep(1)
+                    await _sleep(1)
             finally:
                 if self._matrix_poll_task and not self._matrix_poll_task.done():
                     self._matrix_poll_task.cancel()
@@ -1433,19 +1599,34 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         with open(path, "w") as f:
             f.writelines(lines)
 
+    @staticmethod
+    def _reject_move_done_future(fut: "asyncio.Future") -> None:
+        """Reject a pending BLE_MOVE_DONE waiter — runs on the event loop.
+
+        Re-checks ``done()`` because the future may have been resolved (by a
+        late 0x0c handler) between the disconnect callback scheduling this and
+        the loop running it. (B1)
+        """
+        if not fut.done():
+            fut.set_exception(
+                ConnectionError("BLE disconnected before BLE_MOVE_DONE")
+            )
+
     def _on_ble_disconnect(self, client: BleakClient) -> None:
         self._ble_connected = False
         self._ble_client = None
         # Reset session flag so the next reconnect re-initialises via GAME_END.
         self._phantom_session_initialized = False
         # Cancel any pending BLE_MOVE_DONE waiter — it'll never arrive now.
-        if self._move_done_future is not None and not self._move_done_future.done():
-            self._move_done_future.set_exception(
-                ConnectionError("BLE disconnected before BLE_MOVE_DONE")
-            )
+        # B1: bleak disconnect callbacks are not guaranteed to run on the event
+        # loop, and asyncio Futures are not thread-safe, so reject via the loop
+        # (call_soon_threadsafe) rather than calling set_exception inline.
+        fut = self._move_done_future
+        if fut is not None and not fut.done():
+            self.hass.loop.call_soon_threadsafe(self._reject_move_done_future, fut)
         _LOGGER.warning("Phantom board disconnected")
         self.hass.loop.call_soon_threadsafe(
-            self.async_set_updated_data, self._state
+            self.async_set_updated_data, dict(self._state)
         )
 
     def _on_physical_move(
@@ -1467,10 +1648,14 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         (_on_battery) and the 2s poll-read fallback in _matrix_poll_loop — on
         fw0.3.2 the BATTERY_INFO CCCD subscribe is rejected, so the poll read
         is the live source.
+
+        The percent is clamped to 0–100: fw0.3.3 reports raw values above
+        100 on wall power (105–106 observed live 2026-07-02), which leaks a
+        nonsensical battery reading into the sensor.
         """
         try:
             parts = data.decode().strip().split(",")
-            return int(parts[0]), parts[2] == "1"
+            return max(0, min(100, int(parts[0]))), parts[2] == "1"
         except Exception:
             return None
 
@@ -2088,7 +2273,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._state.get("firmware_mode") == "HOME":
                 _LOGGER.debug("Phantom: firmware reached HOME after GAME_END")
                 return
-            await asyncio.sleep(0.1)
+            await _sleep(0.1)
         raise TimeoutError(
             f"Firmware did not reach HOME within {timeout}s after GAME_END "
             f"(current mode: {self._state.get('firmware_mode')!r})"
@@ -2155,7 +2340,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if select_chess_mode and self._fw_at_least((0, 3, 2)):
             _LOGGER.debug("Phantom: entering chess-play mode (SELECT_MODE 2) before GAME_START")
             await self._phantom_select_chess_play_mode()
-            await asyncio.sleep(0.2)
+            await _sleep(0.2)
 
         # Cache target for the CLEAN: Match parser and the move-done future.
         self._last_target_fen = fen.split(" ")[0]
@@ -2180,7 +2365,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             while self.hass.loop.time() < deadline:
                 if self._state.get("firmware_mode") == "Waiting Side":
                     break
-                await asyncio.sleep(0.05)
+                await _sleep(0.05)
             else:
                 _LOGGER.warning(
                     "Phantom: Waiting Side not reached within 5s after GAME_START "
@@ -2188,7 +2373,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._state.get("firmware_mode"),
                 )
             # Small additional gap so SIDE write doesn't race the state-notify path
-            await asyncio.sleep(0.1)
+            await _sleep(0.1)
             await self._phantom_send_side(side_opcode)
             try:
                 await asyncio.wait_for(self._move_done_future, timeout=timeout_s)
@@ -2421,7 +2606,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._state.get("firmware_mode"),
         )
 
-    async def async_phantom_apply_ai_move(self, uci: str) -> None:
+    async def async_phantom_apply_ai_move(self, uci: str) -> bool:
         """Apply an AI/engine move using the snapshot protocol.
 
         Push the UCI move onto self._board, build the post-move matrix, drive
@@ -2445,6 +2630,14 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Snapshot-based moves remain available via _phantom_execute_position
         for any arbitrary state setting (move_piece, start_game reset).
+
+        Returns:
+            True if the move was delivered to the board (BLE_MOVE_DONE arrived,
+            or nothing needed driving); False if the underlying
+            ``_phantom_execute_position`` timed out (BLE_MOVE_DONE never came —
+            the wedge signal the mode-loop circuit breaker counts, M3). Raises
+            on a hard transport failure after retries (callers treat that as a
+            transient BLE drop and re-drive).
         """
 
         if not self._ble_connected:
@@ -2459,7 +2652,10 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "skipping; integration state may be out of sync",
                 uci, self._board.fen(),
             )
-            return
+            # Not a delivery failure — a state-desync no-op. Don't trip the
+            # wedge circuit breaker on legality (the wedge is BLE_MOVE_DONE
+            # timeouts, not illegal moves).
+            return True
 
         # Build TTS announcement BEFORE pushing (we need pre-move board state
         # to detect capture/castle/piece type). The announcement fires for AI
@@ -2522,6 +2718,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Combined fix for Tasks #6 and #13 (2026-05-16).
         max_attempts = 2
         last_err: Exception | None = None
+        exec_ok: bool = True
         for attempt in range(1, max_attempts + 1):
             try:
                 # After the AI move snapshot, it's the HUMAN's turn (board side),
@@ -2534,6 +2731,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     fen=post_fen, side=board_player_side, timeout_s=30.0,
                     side_opcode="1",
                 )
+                exec_ok = bool(ok)
                 if not ok:
                     _LOGGER.warning(
                         "apply_ai_move: BLE_MOVE_DONE timed out for %s; "
@@ -2549,7 +2747,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     attempt, max_attempts, uci,
                 )
                 if attempt < max_attempts:
-                    await asyncio.sleep(0.25)  # brief backoff before retry
+                    await _sleep(0.25)  # brief backoff before retry
                     continue
         if last_err is not None:
             # All retries exhausted. The physical board did not receive
@@ -2613,6 +2811,8 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(dict(self._state))
 
         _LOGGER.debug("Phantom AI move applied via snapshot: %s", uci)
+        # True unless the snapshot's BLE_MOVE_DONE timed out (M3 wedge signal).
+        return exec_ok
 
     # ── Game services (called from HA services) ───────────────────────────────
 
@@ -2732,7 +2932,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._game_id = game_data["id"]
         _LOGGER.info("Lichess game started: %s", self._game_id)
         self._state["lichess_game_id"] = self._game_id
-        self.async_set_updated_data(self._state)
+        self.async_set_updated_data(dict(self._state))
 
         # Cancel any existing Lichess task and start a new one
         if self._lichess_task and not self._lichess_task.done():
@@ -2764,7 +2964,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for _ in range(50):  # up to 5s in 100ms increments
             if self._our_color is not None:
                 break
-            await asyncio.sleep(0.1)
+            await _sleep(0.1)
         if self._our_color is not None:
             side_opcode = "1" if self._our_color == chess.WHITE else "2"
         else:
@@ -3221,7 +3421,10 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         no loop.
         """
         try:
-            await asyncio.sleep(self._sculpture_move_delay)
+            await _sleep(self._sculpture_move_delay)
+
+            # M3: consecutive move-delivery failures (see _ai_vs_ai_loop).
+            consecutive_delivery_failures = 0
 
             for uci in moves:
                 if not self._sculpture_active:
@@ -3244,8 +3447,9 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._board.is_capture(mv) or self._board.is_castling(mv)
                 )
 
+                ply_delivered: bool = True
                 try:
-                    await self.async_phantom_apply_ai_move(uci)
+                    ply_delivered = await self.async_phantom_apply_ai_move(uci)
                 except Exception as err:  # noqa: BLE001
                     # Transient BLE drop under stepper load — wait for the
                     # maintain loop to reconnect, then re-drive the absolute
@@ -3260,16 +3464,28 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         _LOGGER.warning("Sculpture: no reconnect; stopping")
                         break
                     try:
-                        await self._phantom_execute_position(
+                        ok = await self._phantom_execute_position(
                             fen=self._board.fen(), side="W",
                             timeout_s=30.0, side_opcode="1",
                         )
+                        ply_delivered = bool(ok)
                     except Exception as err2:  # noqa: BLE001
                         _LOGGER.warning(
                             "Sculpture: re-drive failed (%s) at ply %d; stopping",
                             err2, len(self._board.move_stack),
                         )
                         break
+
+                # M3 circuit breaker: stop cleanly if the board is wedged
+                # (consecutive move-delivery failures). Falls through to the
+                # terminal handling below, which reports "stopped early".
+                if ply_delivered is False:
+                    consecutive_delivery_failures += 1
+                    if consecutive_delivery_failures >= PHANTOM_EXEC_FAILURE_LIMIT:
+                        self._notify_wedge_circuit_breaker("Sculpture playback")
+                        break
+                else:
+                    consecutive_delivery_failures = 0
 
                 # Feed the analysis pipeline so the learning view populates.
                 try:
@@ -3281,7 +3497,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 settle = self._sculpture_move_delay
                 if is_two_step_move:
                     settle = max(settle, AI_VS_AI_TWO_STEP_SETTLE_S)
-                await asyncio.sleep(settle)
+                await _sleep(settle)
 
             # Terminal handling. If we played the whole game, report its
             # historic result; if stopped early, just go idle.
@@ -3351,7 +3567,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
         self._state["game_status"] = STATUS_RESIGNED
         self._game_id = None
-        self.async_set_updated_data(self._state)
+        self.async_set_updated_data(dict(self._state))
 
     async def async_send_move(self, uci: str) -> None:
         """Manually inject a move (for testing / external control).
@@ -3463,17 +3679,17 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._state["game_status"] = STATUS_CHECKMATE
                 self._local_game_active = False
                 self._state["local_game_active"] = False
-                self.async_set_updated_data(self._state)
+                self.async_set_updated_data(dict(self._state))
                 return
             if self._board.is_stalemate() or self._board.is_insufficient_material():
                 self._state["game_status"] = STATUS_DRAW
                 self._local_game_active = False
                 self._state["local_game_active"] = False
-                self.async_set_updated_data(self._state)
+                self.async_set_updated_data(dict(self._state))
                 return
 
             self._state["game_status"] = STATUS_PLAYING
-            self.async_set_updated_data(self._state)
+            self.async_set_updated_data(dict(self._state))
 
             # Trigger AI response via the serialized replacement helper
             # (audit §1.4) so we can't race against an in-flight turn
@@ -3615,7 +3831,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Mode 3 = pause, mode 2 = chess play
         mode = 3 if paused else MODE_CHESS_PLAY
         await self._ble_write(UUID_SELECT_MODE, str(mode).encode())
-        self.async_set_updated_data(self._state)
+        self.async_set_updated_data(dict(self._state))
 
     async def async_start_sculpture(self) -> None:
         """Enter sculpture mode (firmware mode 1).
@@ -3634,7 +3850,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .const import MODE_SCULPTURE
         # Clean any prior chess-play state.
         await self._phantom_send_game_end()
-        await asyncio.sleep(0.3)
+        await _sleep(0.3)
         # Switch to sculpture mode.
         await self._ble_write(UUID_SELECT_MODE, str(MODE_SCULPTURE).encode())
         _LOGGER.info(
@@ -3812,20 +4028,68 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             uci, sorted(echo_ucis),
         )
 
+    def _is_double_fire_refire(self, payload_str: str) -> bool:
+        """M2: True if this move frame is a firmware double-fire of the last
+        APPLIED human move.
+
+        A slow physical piece-slide can make the firmware emit two `\\x03M`
+        movementVerify notifications for one move; the second sometimes arrives
+        as a distinct placement string that is legal in the new position and
+        would be pushed as a phantom second move. We treat a frame as a refire
+        when it resolves (via ``_phantom_to_uci``) to the last applied move's
+        UCI — or its 180° rotation — AND lands within
+        ``MOVE_DEDUP_WINDOW_SECONDS`` of that apply (loop-monotonic clock).
+
+        Distinct moves inside the window (legitimate blitz premoves) do NOT
+        match, so they're still applied. Only the discovery move-apply path
+        records ``_last_applied_move_uci`` (human moves); AI-move echoes are
+        handled separately by ``_is_ai_echo``, which runs first.
+        """
+        last = self._last_applied_move_uci
+        if not last or self._last_applied_move_ts <= 0.0:
+            return False
+        if (self.hass.loop.time() - self._last_applied_move_ts) >= MOVE_DEDUP_WINDOW_SECONDS:
+            return False
+        try:
+            raw = _phantom_to_uci(payload_str)
+        except Exception:
+            return False
+        if not raw or len(raw) < 4:
+            return False
+        # {raw, rotate(raw)} vs last covers both report orientations, because
+        # rotate_180 is an involution.
+        return raw == last or _rotate_uci_180(raw) == last
+
     def _is_ai_echo(self, payload_str: str) -> bool:
         """True if the firmware notification matches any of the UCIs in the
         last AI move's echo set (primary, rotated, plus castle-rook
         variants if applicable). Used by the discovery callback to drop
         magnet-driven sensor events that arrive after every AI move.
         """
+        # M9: move-done-driven expiry. When BLE_MOVE_DONE fired, the discovery
+        # callback armed `_ai_echo_move_done_expire_at` (now + grace). Once that
+        # grace has elapsed the AI's magnet sequence — including a castle's
+        # trailing rook echo — is complete, so clear the echo set: a genuinely
+        # new human move that happens to match a stale echo UCI must no longer
+        # be suppressed. During the grace window we still suppress (the rook
+        # echo can straddle move-done). This is the fast path; the time backstop
+        # below only bites when BLE_MOVE_DONE never arrives.
+        expire_at = getattr(self, "_ai_echo_move_done_expire_at", 0.0)
+        if expire_at and self.hass.loop.time() >= expire_at:
+            self._last_ai_echo_ucis = set()
+            self._ai_echo_move_done_expire_at = 0.0
+            return False
         if not getattr(self, "_last_ai_echo_ucis", None):
             # Backward-compat: fall through to legacy single-UCI check
             # if the new set hasn't been populated yet.
             if self._last_ai_uci is None:
                 return False
         import time as _time
-        if _time.monotonic() - self._last_ai_uci_set_at > 60.0:
-            # Window expired — assume all echoes arrived or none will.
+        if _time.monotonic() - self._last_ai_uci_set_at > AI_ECHO_BACKSTOP_SECONDS:
+            # Time backstop expired — assume all echoes arrived or none will.
+            # Aligned to the 600 s activation-settle window (M9); this only
+            # applies when no BLE_MOVE_DONE was ever received (else the
+            # move-done expiry above clears the set within a few seconds).
             return False
         try:
             incoming_uci = _phantom_to_uci(payload_str)
@@ -4041,7 +4305,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         return
                     if resp.status != 200:
                         _LOGGER.warning("Lichess stream returned %s", resp.status)
-                        await asyncio.sleep(retry_delay)
+                        await _sleep(retry_delay)
                         continue
 
                     retry_delay = LICHESS_RETRY_SECONDS
@@ -4061,7 +4325,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
             except Exception as err:
                 _LOGGER.warning("Lichess stream error: %s, retrying in %ds", err, retry_delay)
-                await asyncio.sleep(retry_delay)
+                await _sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, 60)
 
     async def _handle_lichess_event(self, event: dict[str, Any]) -> None:
@@ -4209,7 +4473,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # filtered to the user's color; plus accuracy for both sides).
             self.hass.async_create_task(self._build_post_game_review())
 
-        self.async_set_updated_data(self._state)
+        self.async_set_updated_data(dict(self._state))
 
     def _on_game_finish(self, event: dict[str, Any]) -> None:
         status = event.get("status", {})
@@ -4219,7 +4483,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Reinforce terminal flags — defensive in case _on_game_state's
         # terminal branch missed an edge case.
         self._state["lichess_active"] = False
-        self.async_set_updated_data(self._state)
+        self.async_set_updated_data(dict(self._state))
 
     def _update_clocks_from_event(self, event: dict[str, Any]) -> None:
         """Pull wtime/btime (ms) from a Lichess event into the clock sensors.
@@ -4337,7 +4601,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._state["game_status"] = STATUS_PLAYING
 
-        self.async_set_updated_data(self._state)
+        self.async_set_updated_data(dict(self._state))
 
     # ── Lichess analysis pipeline (added 2026-05-14) ────────────────────────
     # See lichess_analysis.py for cloud-eval client + classification logic.
@@ -4601,19 +4865,60 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 })
             self._state["last_game_top_mistakes"] = top_with_best
 
-            # Accuracy — we don't store per-ply pre/post evals yet, so derive
-            # a coarse estimate by averaging absolute |cpl| → approx
-            # winning-pct loss. v1 placeholder; v2 retains per-ply evals so
-            # we can call compute_game_accuracy properly.
-            wlosses = [int(m.get("cpl") or 0) for m in history if m.get("side") == "white"]
-            blosses = [int(m.get("cpl") or 0) for m in history if m.get("side") == "black"]
-            self._state["last_game_accuracy_white"] = self._coarse_accuracy(wlosses)
-            self._state["last_game_accuracy_black"] = self._coarse_accuracy(blosses)
+            # Accuracy — coarse estimate from the per-ply CPLs, but ONLY over
+            # plies that were actually ANALYZED (a resolved Lichess/engine eval,
+            # classification != "unknown"). Task 5 (live bug 2026-07-02): the
+            # per-ply analysis is fire-and-forget, so during a fast sculpture
+            # playback most plies stay at their stub cpl=0 ("unknown") while a
+            # handful of resolved mate-swing plies read ~9999. Averaging that
+            # mix over ALL plies (the old behaviour) fabricated a 0.0/0.0 for a
+            # game that never got graded. Now: compute from the analyzed subset
+            # if it covers enough of that colour's plies, else report None so
+            # the sensor shows "unknown" instead of a made-up number. A fully
+            # analyzed game (e.g. a slow two-player game) is unaffected.
+            self._state["last_game_accuracy_white"] = self._accuracy_for_side(
+                history, "white"
+            )
+            self._state["last_game_accuracy_black"] = self._accuracy_for_side(
+                history, "black"
+            )
 
             self._state["lichess_review_ready"] = True
             self.async_set_updated_data(dict(self._state))
         except Exception as err:
             _LOGGER.debug("Post-game review build failed: %s", err)
+
+    @staticmethod
+    def _move_is_analyzed(m: dict[str, Any]) -> bool:
+        """True if a move-history entry carries a real analysis result rather
+        than the ``_record_history_stub`` placeholder. The stub sets
+        ``classification="unknown"``; ``_analyze_move`` overwrites it with a
+        real label + integer CPL once the eval resolves."""
+        cls = m.get("classification")
+        return bool(cls) and cls != CLASSIFICATION_UNKNOWN
+
+    @classmethod
+    def _accuracy_for_side(
+        cls, history: list[dict[str, Any]], side: str
+    ) -> float | None:
+        """Per-side accuracy from the ANALYZED plies only (Task 5).
+
+        Returns None (sensor → "unknown") when that colour has no analyzed
+        plies, or when the analyzed plies cover less than
+        ``POST_GAME_MIN_ANALYZED_FRACTION`` of the colour's total plies — too
+        sparse to be meaningful, and the case that used to fabricate a 0.0.
+        Otherwise defers to ``_coarse_accuracy`` over the analyzed CPLs, so a
+        fully-graded game reads exactly as before.
+        """
+        side_moves = [m for m in history if m.get("side") == side]
+        if not side_moves:
+            return None
+        analyzed = [m for m in side_moves if cls._move_is_analyzed(m)]
+        if not analyzed:
+            return None
+        if len(analyzed) / len(side_moves) < POST_GAME_MIN_ANALYZED_FRACTION:
+            return None
+        return cls._coarse_accuracy([int(m.get("cpl") or 0) for m in analyzed])
 
     @staticmethod
     def _coarse_accuracy(cpls: list[int]) -> float | None:
@@ -4713,7 +5018,13 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._analysis_client is None:
             return
         try:
-            ev = await self._analysis_client.get_eval(self._board.fen())
+            # AUDIT FIX (beta5 audit, 2026-07-08): pass bypass_cache=True —
+            # this service's whole purpose is a deliberate refresh, but the
+            # flag added for it in get_eval() was never wired to this caller,
+            # so a cached FEN made request_hint a no-op.
+            ev = await self._analysis_client.get_eval(
+                self._board.fen(), bypass_cache=True
+            )
             if ev is None:
                 _LOGGER.info("Hint: no cloud-eval data for current position")
                 return
@@ -5075,6 +5386,13 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._two_player_active = False
         self._state["two_player_active"] = False
+        # Clear the game marker like the sculpture loop does at completion —
+        # the dashboard's two-player branch keys on lichess_game_id ==
+        # "two_player", so leaving it set kept the recording view (and the
+        # lichess_game_id sensor) stuck after the game ended (observed live
+        # 2026-07-02: game_status idle + sensor still "two_player"). The
+        # post-game review view keys on lichess_review_ready, not game_id.
+        self._state["lichess_game_id"] = None
         self._state["lichess_review_ready"] = True
         self.async_set_updated_data(dict(self._state))
 
@@ -5252,17 +5570,17 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._state["game_status"] = STATUS_CHECKMATE
             self._local_game_active = False
             self._state["local_game_active"] = False
-            self.async_set_updated_data(self._state)
+            self.async_set_updated_data(dict(self._state))
             return
         elif self._board.is_stalemate() or self._board.is_insufficient_material():
             self._state["game_status"] = STATUS_DRAW
             self._local_game_active = False
             self._state["local_game_active"] = False
-            self.async_set_updated_data(self._state)
+            self.async_set_updated_data(dict(self._state))
             return
 
         self._state["game_status"] = STATUS_PLAYING
-        self.async_set_updated_data(self._state)
+        self.async_set_updated_data(dict(self._state))
 
         # Schedule AI response via the serialized replacement helper
         # (audit §1.4) so a concurrent dashboard / discovery-callback
@@ -5318,7 +5636,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         validates legality, dispatches, and then reads game-end state from
         the post-push board.
         """
-        await asyncio.sleep(0.5)  # Brief pause so board can settle
+        await _sleep(0.5)  # Brief pause so board can settle
         ai_uci = await self._get_ai_move(self._board)
         if not ai_uci:
             _LOGGER.error("Local AI: failed to get AI move")
@@ -5482,7 +5800,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._state["lichess_game_id"] = None
         self._state["local_game_active"] = False  # Task #9
         self._game_id = None
-        self.async_set_updated_data(self._state)
+        self.async_set_updated_data(dict(self._state))
         try:
             await self._ble_write(UUID_SELECT_MODE, b"3")  # pause/idle mode
         except Exception:
@@ -5641,10 +5959,53 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not _active():
                 return False
             if self._ble_connected:
-                await asyncio.sleep(2.0)
+                await _sleep(2.0)
                 return self._ble_connected and _active()
-            await asyncio.sleep(1.0)
+            await _sleep(1.0)
         return False
+
+    def _notify_wedge_circuit_breaker(self, loop_label: str) -> None:
+        """M3: log + raise a persistent notification when a mode loop stops
+        after ``PHANTOM_EXEC_FAILURE_LIMIT`` consecutive move-delivery failures.
+
+        A wedged board returns False from ``_phantom_execute_position`` every
+        ply (BLE_MOVE_DONE never arrives), so the loop would otherwise re-drive
+        forever, grinding the magnet. The caller breaks out of the loop right
+        after calling this; here we just surface the stop to the user and point
+        them at the recovery service. Notification failures are swallowed — a
+        UI hiccup must never keep the loop spinning.
+        """
+        _LOGGER.warning(
+            "%s: stopped after %d consecutive move-delivery failures — the "
+            "board appears wedged (no BLE_MOVE_DONE). Try the "
+            "phantom_chess.resync_detection service, then restart the mode.",
+            loop_label, PHANTOM_EXEC_FAILURE_LIMIT,
+        )
+        try:
+            self.hass.async_create_task(
+                self.hass.services.async_call(
+                    "persistent_notification", "create",
+                    {
+                        "title": "Phantom Chess: board stopped responding",
+                        "message": (
+                            f"{loop_label} was stopped after "
+                            f"{PHANTOM_EXEC_FAILURE_LIMIT} moves in a row failed "
+                            f"to reach the board (no BLE_MOVE_DONE) — the board "
+                            f"looks wedged, so it stopped rather than keep "
+                            f"grinding the magnet.\n\n"
+                            f"Try the **phantom_chess.resync_detection** service "
+                            f"(or the *Re-sync board detection* button) to "
+                            f"re-seed the firmware's expected matrix, then start "
+                            f"the mode again."
+                        ),
+                        "notification_id": "phantom_chess_wedge_circuit_breaker",
+                    },
+                )
+            )
+        except Exception as notif_err:  # noqa: BLE001
+            _LOGGER.debug(
+                "wedge circuit-breaker notification failed: %s", notif_err
+            )
 
     async def _ai_vs_ai_loop(self) -> None:
         """Background loop that plays both sides via local Stockfish.
@@ -5662,7 +6023,12 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Small initial pause so the activation snapshot from
             # async_phantom_start_game has time to settle before we fire
             # the first move.
-            await asyncio.sleep(self._ai_vs_ai_move_delay)
+            await _sleep(self._ai_vs_ai_move_delay)
+
+            # M3: consecutive move-delivery failures. A wedged board returns
+            # False from every snapshot; PHANTOM_EXEC_FAILURE_LIMIT in a row
+            # trips the circuit breaker below. Any delivered move resets it.
+            consecutive_delivery_failures = 0
 
             while self._ai_vs_ai_active and not self._board.is_game_over():
                 # Pick the level based on whose turn it is.
@@ -5704,8 +6070,9 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Apply via the canonical AI-move path so the snapshot
                 # protocol + echo suppression + analysis pipeline all
                 # behave identically to a normal local game.
+                ply_delivered: bool = True
                 try:
-                    await self.async_phantom_apply_ai_move(uci)
+                    ply_delivered = await self.async_phantom_apply_ai_move(uci)
                 except Exception as err:
                     # A transient BLE drop (common under sustained stepper
                     # load) shouldn't kill the whole spectator game. Wait for
@@ -5736,6 +6103,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             timeout_s=30.0,
                             side_opcode="1",
                         )
+                        ply_delivered = bool(ok)
                         if not ok:
                             _LOGGER.warning(
                                 "AI-vs-AI: re-drive after reconnect timed out "
@@ -5749,6 +6117,17 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             err2, len(self._board.move_stack),
                         )
                         break
+
+                # M3 circuit breaker: count consecutive delivery failures and
+                # stop cleanly (reusing the terminal handling below) once the
+                # board looks wedged, rather than grinding the magnet forever.
+                if ply_delivered is False:
+                    consecutive_delivery_failures += 1
+                    if consecutive_delivery_failures >= PHANTOM_EXEC_FAILURE_LIMIT:
+                        self._notify_wedge_circuit_breaker("AI-vs-AI")
+                        break
+                else:
+                    consecutive_delivery_failures = 0
 
                 # Fire the analysis pipeline for the move just played so
                 # the rich learning view's history populates. We pass
@@ -5771,7 +6150,7 @@ class PhantomChessCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 settle = self._ai_vs_ai_move_delay
                 if is_two_step_move:
                     settle = max(settle, AI_VS_AI_TWO_STEP_SETTLE_S)
-                await asyncio.sleep(settle)
+                await _sleep(settle)
 
             # Terminal handling.
             if self._board.is_checkmate():

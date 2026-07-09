@@ -92,53 +92,44 @@ def _find_strings(node: Any, needle: str) -> list[str]:
 # ─── card-count assertions ──────────────────────────────────────────────
 
 
-def test_total_tile_to_button_split(rendered_config: dict[str, Any]) -> None:
-    """Tile→button conversion ground-truth, re-baselined per template
-    structural change.
+def test_tile_and_action_control_split(rendered_config: dict[str, Any]) -> None:
+    """Structural ground-truth for the C7-dash action-button redesign.
 
-    Baseline history:
-      - alpha8: 21 buttons + 17 surviving tiles (initial conversion).
-      - alpha30: +3 buttons (Watch-AI-vs-AI mode-picker tile,
-        in-section back-to-modes tile, Start-AI-vs-AI tile) → 24 + 17.
-      - alpha32: +1 button (Reset-board tile in post-game review) → 25 + 17.
-      - alpha32: the in-game "State" info-tile (raw firmware_mode, which
-        flickered Setting Up↔Board Playing during AI-vs-AI) was replaced by
-        a markdown card showing a steady "AI vs AI — move N", so surviving
-        tiles 17 → 16. Buttons unchanged.
+    C7-dash replaced the oversized full-width vertical action tiles and
+    chunky 2-col tile grids with a compact hierarchy built entirely from
+    Mushroom cards:
+      - PRIMARY / SECONDARY actions → ``custom:mushroom-template-card``
+        (icon + short label, uniform ~56px).
+      - TERTIARY nav (Back to modes / status strip) →
+        ``custom:mushroom-chips-card``.
+    Consequently NO action-shaped ``type: tile`` remains, so the
+    ``_convert_action_tiles_to_buttons`` pass produces ZERO ``type: button``
+    cards. The mode-picker mascot picture buttons (``type: picture``) are
+    untouched and asserted separately.
 
-    A regression here means either the template changed (re-baseline)
-    or the detection logic in ``_convert_action_tiles_to_buttons``
-    slipped (investigate).
+    A regression here means either the template's control structure changed
+    (re-baseline) or an action tile slipped back in (investigate — it would
+    re-expose the icon-popup bug the mushroom cards avoid).
     """
     cards = list(_walk_cards(rendered_config))
     tiles = [c for c in cards if c.get("type") == "tile"]
     buttons = [c for c in cards if c.get("type") == "button"]
-    # beta3: +1 surviving tile — the always-visible "Voice announcements"
-    # master-mute toggle (tap_action: toggle, same shape as the
-    # training-wheels toggle, so it stays a tile): 17 → 18.
-    # beta3 sculpture rework: the sculpture-playback view dropped its info
-    # "Firmware state" tile, but the new "Running / board busy" interstitial
-    # adds a "Firmware state" info tile: net 18 → 19.
-    assert len(tiles) == 19, f"expected 19 surviving tiles, got {len(tiles)}"
-    # beta1: the 5 mode-picker tiles became custom ghost-mascot picture
-    # buttons (type: picture, not action-tiles), so they no longer convert
-    # to `button` cards: 25 → 20. beta2 added the 2-player Start button (+1 button)
-    # and the training-wheels toggle tile (+1 tile). beta2 also added the
-    # 2-player "Resync board" tile — Case-C shape (binary_sensor connected +
-    # hide_state + phantom_chess.* action) so it converts to a button: 21 → 22.
-    # beta3: +4 "Back to modes" buttons added to the firmware-state
-    # interstitials (Snapping Pieces, Snap to Center, Calibrating, Setting
-    # Up) — these `script.phantom_back_to_modes` tiles convert to buttons so
-    # the user can always escape a stand-by screen: 22 → 26.
-    # beta3: +2 "Re-sync board detection" recovery buttons on the two
-    # Snapping-Pieces cards (the wedge state) calling
-    # phantom_chess.resync_detection: 26 → 28.
-    # beta3 sculpture rework: +2 buttons — the sculpture-playback "Stop & back
-    # to modes" button and the "Running / board busy" interstitial's "Back to
-    # modes" button (both script.phantom_back_to_modes → Case-C conversion):
-    # 28 → 30.
-    # Launcher asserted in test_mode_picker_buttons_target_setup_mode_select.
-    assert len(buttons) == 30, f"expected 30 buttons, got {len(buttons)}"
+    mushroom = [c for c in cards if c.get("type") == "custom:mushroom-template-card"]
+    chips = [c for c in cards if c.get("type") == "custom:mushroom-chips-card"]
+
+    # No tile converts to a button any more — all actions are mushroom cards.
+    assert len(buttons) == 0, f"expected 0 converted buttons, got {len(buttons)}"
+    # Surviving tiles are all info / features (select-options) / toggle:
+    #   1 Voice-announcements toggle, 1 Bluetooth-connection info,
+    #   4 select-options config tiles (2× My color, 2× AI level),
+    #   1 Choose-a-game select tile, 7 Firmware-state info tiles
+    #   (Snapping/Snap/Calibrating/Setting Up/Ending/Initializing/Running),
+    #   2 bare-board info tiles (Last move, Pieces) = 16.
+    assert len(tiles) == 16, f"expected 16 surviving tiles, got {len(tiles)}"
+    # Every action button + interstitial banner is a mushroom-template-card;
+    # every tertiary nav / status strip is a mushroom-chips-card.
+    assert len(mushroom) == 24, f"expected 24 mushroom-template-cards, got {len(mushroom)}"
+    assert len(chips) == 13, f"expected 13 mushroom-chips-cards, got {len(chips)}"
 
 
 # ─── "what should be gone" assertions ───────────────────────────────────
@@ -244,57 +235,70 @@ def test_surviving_tiles_are_info_features_or_toggle(
 # ─── content assertions: known buttons exist ────────────────────────────
 
 
-def _button_named(config: dict[str, Any], name: str) -> dict[str, Any] | None:
+def _action_controls_labeled(config: dict[str, Any], label: str) -> list[dict[str, Any]]:
+    """Return every C7-dash action control whose visible label is ``label``.
+
+    An action control is a ``custom:mushroom-template-card`` (label in
+    ``primary``) or a ``custom:mushroom-chips-card`` template chip (label in
+    ``content``). Several labels recur across submode contexts (e.g. multiple
+    "Back to modes" / "Resign"), so this returns all matches.
+    """
+    matches: list[dict[str, Any]] = []
     for c in _walk_cards(config):
-        if c.get("type") == "button" and c.get("name") == name:
-            return c
-    return None
+        if c.get("type") == "custom:mushroom-template-card" and c.get("primary") == label:
+            matches.append(c)
+        elif c.get("type") == "custom:mushroom-chips-card":
+            for chip in c.get("chips", []):
+                if chip.get("content") == label:
+                    matches.append(chip)
+    return matches
 
 
 @pytest.mark.parametrize(
-    "name,service",
+    "label,service",
     [
-        ("Back to modes", "phantom_chess.back_to_modes"),
+        ("Back to modes", "phantom_chess.back_to_modes"),          # chip
+        ("Re-sync detection", "phantom_chess.resync_detection"),   # chip
         ("Start Lichess game", "phantom_chess.start_lichess_configured"),
         ("Start game vs Stockfish", "phantom_chess.start_local_game"),
-        ("Play selected sculpture", "phantom_chess.play_selected_sculpture"),
+        ("Play selected game", "phantom_chess.play_selected_sculpture"),
+        ("Start recording", "phantom_chess.start_two_player_game"),
+        ("Start AI vs AI", "phantom_chess.start_ai_vs_ai_game"),
+        ("Resync board", "phantom_chess.resync_two_player"),
         ("Takeback", "phantom_chess.takeback"),
         ("Resign", "phantom_chess.resign"),
         ("Hint", "phantom_chess.request_hint"),
+        ("Reset board", "phantom_chess.reset_position"),
         ("New game", "select.select_option"),
     ],
 )
-def test_known_buttons_invoke_expected_service(
-    rendered_config: dict[str, Any], name: str, service: str
+def test_known_action_controls_invoke_expected_service(
+    rendered_config: dict[str, Any], label: str, service: str
 ) -> None:
-    """Smoke-check: each named button maps to its expected phantom_chess service.
+    """Smoke-check: each C7-dash action control maps to its expected service.
 
-    Several buttons appear multiple times in the template (e.g. multiple
-    Back-to-modes for different submode contexts). This test finds the
-    first one and verifies the tap_action service. Any rename of a
-    service in ``_SCRIPT_TO_SERVICE`` without updating the template would
-    fail one of these assertions.
+    Any rename of a phantom_chess service, or a helper-rewrite regression,
+    without updating the template would fail one of these assertions.
     """
-    button = _button_named(rendered_config, name)
-    assert button is not None, f"button named {name!r} not found in rendered config"
-    tap = button["tap_action"]
-    assert isinstance(tap, dict)
-    invoked = tap.get("perform_action") or tap.get("service")
-    assert invoked == service, f"{name!r} invokes {invoked!r}, expected {service!r}"
+    controls = _action_controls_labeled(rendered_config, label)
+    assert controls, f"action control labeled {label!r} not found in rendered config"
+    for ctrl in controls:
+        tap = ctrl["tap_action"]
+        assert isinstance(tap, dict)
+        invoked = tap.get("perform_action") or tap.get("service")
+        assert invoked == service, f"{label!r} invokes {invoked!r}, expected {service!r}"
 
 
-def test_resign_button_preserves_confirmation(
+def test_resign_control_preserves_confirmation(
     rendered_config: dict[str, Any],
 ) -> None:
-    """The Resign button's confirmation prompt must survive conversion."""
-    buttons = [
-        c for c in _walk_cards(rendered_config)
-        if c.get("type") == "button" and c.get("name") == "Resign"
-    ]
-    assert buttons, "no Resign button found"
-    for resign in buttons:
+    """The Resign action must keep its confirmation prompt (C7-dash requires
+    every existing tap_action/confirmation preserved verbatim)."""
+    resigns = _action_controls_labeled(rendered_config, "Resign")
+    assert resigns, "no Resign action control found"
+    for resign in resigns:
         tap = resign["tap_action"]
-        assert "confirmation" in tap, "Resign button lost confirmation block"
+        assert "confirmation" in tap, "Resign action lost confirmation block"
         assert "Resign" in tap["confirmation"].get("text", ""), (
             f"Resign confirmation text changed: {tap['confirmation']}"
         )
@@ -684,3 +688,97 @@ def test_copy_button_assets_provisions_pngs(tmp_path):
         "lichess.png", "stockfish.png", "historic.png",
         "two_player.png", "ai_vs_ai.png",
     } <= names
+
+
+# ─── B6: dashboards_collection path ─────────────────────────────────────
+
+
+import pytest as _pytest
+from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock
+
+from custom_components.phantom_chess.dashboard_provision import (
+    CONF_URL_PATH,
+    DASHBOARD_URL_PATH,
+    LOVELACE_DATA,
+    _try_register_via_collection,
+)
+
+
+def _make_collection(*, existing_items=None):
+    """Build a mock DashboardsCollection with async_items / async_create_item /
+    async_update_item."""
+    collection = _MagicMock()
+    items = list(existing_items or [])
+    collection.async_items = _MagicMock(return_value=items)
+    collection.async_create_item = _AsyncMock()
+    collection.async_update_item = _AsyncMock()
+    return collection
+
+
+@_pytest.mark.asyncio
+async def test_try_register_via_collection_creates_when_not_present():
+    """When the collection has no matching url_path row, async_create_item is
+    called with the full row dict.
+
+    Old code: _try_register_via_collection didn't exist → ImportError / AttributeError
+    → test fails.  New code: collection.async_create_item is called and the
+    function returns True.
+    """
+    collection = _make_collection()
+    lovelace = _MagicMock()
+    lovelace.dashboards_collection = collection
+
+    hass = _MagicMock()
+    hass.data = {LOVELACE_DATA: lovelace}
+
+    row = {"id": "phantom_chess", CONF_URL_PATH: DASHBOARD_URL_PATH, "mode": "storage"}
+
+    result = await _try_register_via_collection(hass, row)
+    assert result is True
+    collection.async_create_item.assert_awaited_once_with(row)
+    collection.async_update_item.assert_not_awaited()
+
+
+@_pytest.mark.asyncio
+async def test_try_register_via_collection_updates_when_present():
+    """When a matching row already exists, async_update_item is called instead
+    of async_create_item, using the existing row's id as the key."""
+    existing = {"id": "phantom_chess", CONF_URL_PATH: DASHBOARD_URL_PATH, "title": "old"}
+    collection = _make_collection(existing_items=[existing])
+    lovelace = _MagicMock()
+    lovelace.dashboards_collection = collection
+
+    hass = _MagicMock()
+    hass.data = {LOVELACE_DATA: lovelace}
+
+    row = {"id": "phantom_chess", CONF_URL_PATH: DASHBOARD_URL_PATH, "title": "new"}
+
+    result = await _try_register_via_collection(hass, row)
+    assert result is True
+    collection.async_update_item.assert_awaited_once_with("phantom_chess", row)
+    collection.async_create_item.assert_not_awaited()
+
+
+@_pytest.mark.asyncio
+async def test_try_register_via_collection_returns_false_when_no_collection():
+    """When lovelace_data has no dashboards_collection attribute, the helper
+    returns False so the caller falls back to the Store write."""
+    class _NoCollection:
+        pass
+
+    hass = _MagicMock()
+    hass.data = {LOVELACE_DATA: _NoCollection()}
+
+    row = {"id": "phantom_chess", CONF_URL_PATH: DASHBOARD_URL_PATH}
+    result = await _try_register_via_collection(hass, row)
+    assert result is False
+
+
+@_pytest.mark.asyncio
+async def test_try_register_via_collection_returns_false_when_no_lovelace_data():
+    """When LOVELACE_DATA is absent from hass.data, the helper returns False."""
+    hass = _MagicMock()
+    hass.data = {}
+    row = {"id": "phantom_chess", CONF_URL_PATH: DASHBOARD_URL_PATH}
+    result = await _try_register_via_collection(hass, row)
+    assert result is False

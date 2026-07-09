@@ -109,7 +109,7 @@ def _added(entities: MagicMock):
     "module,expected_count",
     [
         (sensor_mod, 28),
-        (bs_mod, 5),
+        (bs_mod, 6),
         (button_mod, 2),
         (switch_mod, 3),
         (select_mod, 4),
@@ -345,13 +345,72 @@ def test_connected_sensor(coord, entry):
     assert s.available is True
 
 
-def test_binary_base_available_gate(coord, entry):
-    """Base binary sensors (not the connected one) gate on BLE connection."""
-    s = bs_mod.PhantomLichessActiveSensor(coord, entry, ADDRESS, NAME)
-    coord.is_ble_connected = True
-    assert s.available is True
+def test_lichess_binary_sensors_available_when_ble_disconnected(coord, entry):
+    """Lichess binary sensors must remain available on BLE disconnect.
+
+    B4 fix: the pre-fix PhantomBaseBinary.available gated all binary sensors
+    on is_ble_connected, so a proxy blip silenced lichess_active /
+    lichess_review_ready / learning_view_active — collapsing the mid-game
+    learning view and killing the post-game review card.  This test fails on
+    the pre-B4 code and passes once the BLE gate is removed from the base.
+    """
     coord.is_ble_connected = False
-    assert s.available is False
+    for cls in (
+        bs_mod.PhantomLichessActiveSensor,
+        bs_mod.PhantomLichessReviewReadySensor,
+        bs_mod.PhantomLearningViewActiveSensor,
+        bs_mod.PhantomBoardIdleSensor,
+    ):
+        s = cls(coord, entry, ADDRESS, NAME)
+        assert s.available is True, (
+            f"{cls.__name__} must stay available when BLE disconnects"
+        )
+
+
+def test_board_sensor_ble_gate_still_present(coord, entry):
+    """Board-hardware sensors (battery, firmware_mode, etc.) must go
+    unavailable when BLE drops — the BLE gate moved to PhantomBleBaseSensor."""
+    coord.is_ble_connected = False
+    for cls in (
+        sensor_mod.PhantomBatterySensor,
+        sensor_mod.PhantomLivePositionSensor,
+        sensor_mod.PhantomPieceCountSensor,
+        sensor_mod.PhantomFirmwareModeSensor,
+        sensor_mod.PhantomMatrixStatusSensor,
+        sensor_mod.PhantomFirmwareLastMoveSensor,
+    ):
+        s = cls(coord, entry, ADDRESS, NAME)
+        assert s.available is False, (
+            f"{cls.__name__} must be unavailable when BLE disconnects"
+        )
+
+
+def test_lichess_sensor_available_when_ble_disconnected(coord, entry):
+    """Analysis/Lichess sensors must remain available when BLE drops.
+
+    B4 fix: removes the BLE gate from PhantomBaseSensor so Lichess/analysis
+    sensors stay alive during proxy blips, preserving post-game review.
+    This test fails on the pre-B4 code (all sensors gated on BLE).
+    """
+    coord.is_ble_connected = False
+    for cls in (
+        sensor_mod.PhantomLichessIdSensor,
+        sensor_mod.PhantomOpeningNameSensor,
+        sensor_mod.PhantomLichessWhiteNameSensor,
+        sensor_mod.PhantomLichessBlackNameSensor,
+        sensor_mod.PhantomEvalCpSensor,
+        sensor_mod.PhantomEvalMateSensor,
+        sensor_mod.PhantomBestMoveSanSensor,
+        sensor_mod.PhantomLastMoveClassificationSensor,
+        sensor_mod.PhantomLastGameResultSensor,
+        sensor_mod.PhantomLastGameAccuracyWhiteSensor,
+        sensor_mod.PhantomLastGameAccuracyBlackSensor,
+        sensor_mod.PhantomLastGameReviewSensor,
+    ):
+        s = cls(coord, entry, ADDRESS, NAME)
+        assert s.available is True, (
+            f"{cls.__name__} must remain available when BLE disconnects"
+        )
 
 
 def test_lichess_active_and_review_ready(coord, entry):
@@ -444,6 +503,113 @@ async def test_board_idle_will_remove_no_interval(coord, entry, monkeypatch):
     )
     s._unsub_interval = None
     await s.async_will_remove_from_hass()  # no crash
+
+
+def test_board_idle_has_no_device_class(coord, entry):
+    """D-block: board_idle must NOT carry a device_class.
+
+    Falsifiable: pre-D-block code set
+    ``_attr_device_class = BinarySensorDeviceClass.RUNNING`` here, which HA
+    renders as "Running" when the (idle!) sensor is on — the opposite of
+    the truth. Dropping it makes the state read as plain on/off.
+    """
+    s = bs_mod.PhantomBoardIdleSensor(coord, entry, ADDRESS, NAME)
+    assert s.device_class is None
+
+
+# ─── C3: picker_available binary sensor ──────────────────────────────────
+
+# Every firmware_mode label the picker gate must treat as "show the
+# picker" (board in a standby/home/transient state, no active game).
+_PICKER_MODES = sorted(bs_mod.PICKER_FIRMWARE_MODES)
+# Labels that mean the board is doing something the picker must yield to —
+# these have their own dedicated interstitial / live-game views. Includes
+# the four transient "magnet rearranging" labels owned by the stand-by
+# interstitials (deliberately excluded from PICKER_FIRMWARE_MODES).
+_NON_PICKER_MODES = [
+    "Running",
+    "Ending Game",
+    "Initializing",
+    "Paused",
+    "Snapping Pieces",
+    "Snap to Center",
+    "Calibrating",
+    "Setting Up",
+]
+
+
+@pytest.mark.parametrize("mode", _PICKER_MODES)
+def test_picker_available_on_for_every_standby_mode(coord, entry, mode):
+    """Connected + idle + no active game + a standby firmware_mode ⇒ on.
+
+    Falsifiable: covers every label in ``PICKER_FIRMWARE_MODES`` so adding
+    a label to the set without wiring it through here fails, and any regression
+    that drops a label from the gate flips its case to off.
+    """
+    s = bs_mod.PhantomPickerAvailableSensor(coord, entry, ADDRESS, NAME)
+    coord.is_ble_connected = True
+    coord.data = {"firmware_mode": mode}  # no move ts ⇒ idle
+    assert s.is_on is True
+
+
+@pytest.mark.parametrize("mode", _NON_PICKER_MODES)
+def test_picker_available_off_for_active_modes(coord, entry, mode):
+    """A live/transient firmware_mode outside the standby set ⇒ off."""
+    s = bs_mod.PhantomPickerAvailableSensor(coord, entry, ADDRESS, NAME)
+    coord.is_ble_connected = True
+    coord.data = {"firmware_mode": mode}
+    assert s.is_on is False
+
+
+def test_picker_available_none_mode_is_on(coord, entry):
+    """firmware_mode None (freshly connected) is picker-eligible — mirrors
+    the old dashboard's unknown/unavailable OR-branches."""
+    s = bs_mod.PhantomPickerAvailableSensor(coord, entry, ADDRESS, NAME)
+    coord.is_ble_connected = True
+    coord.data = {}
+    assert s.is_on is True
+
+
+def test_picker_available_off_when_disconnected(coord, entry):
+    s = bs_mod.PhantomPickerAvailableSensor(coord, entry, ADDRESS, NAME)
+    coord.is_ble_connected = False
+    coord.data = {"firmware_mode": "HOME"}
+    assert s.is_on is False
+
+
+def test_picker_available_off_when_lichess_active(coord, entry):
+    s = bs_mod.PhantomPickerAvailableSensor(coord, entry, ADDRESS, NAME)
+    coord.is_ble_connected = True
+    coord.data = {"firmware_mode": "Board Playing", "lichess_active": True}
+    assert s.is_on is False
+
+
+def test_picker_available_off_when_review_ready(coord, entry):
+    s = bs_mod.PhantomPickerAvailableSensor(coord, entry, ADDRESS, NAME)
+    coord.is_ble_connected = True
+    coord.data = {"firmware_mode": "HOME", "lichess_review_ready": True}
+    assert s.is_on is False
+
+
+@pytest.mark.parametrize("flag", ["local_game_active", "two_player_active"])
+def test_picker_available_off_during_any_active_game(coord, entry, flag):
+    """A local Stockfish / two-player game (not just Lichess) hides the
+    picker even if the firmware settles to a standby mode mid-game — so the
+    setup views never overlap the live learning view."""
+    s = bs_mod.PhantomPickerAvailableSensor(coord, entry, ADDRESS, NAME)
+    coord.is_ble_connected = True
+    coord.data = {"firmware_mode": "Board Playing", flag: True}
+    assert s.is_on is False
+
+
+def test_picker_available_off_when_mid_move_not_idle(coord, entry):
+    """A move within the last 60s means the board is mid-play — hide the
+    picker even in an otherwise-standby firmware_mode."""
+    s = bs_mod.PhantomPickerAvailableSensor(coord, entry, ADDRESS, NAME)
+    coord.is_ble_connected = True
+    recent = datetime.now(timezone.utc).isoformat()
+    coord.data = {"firmware_mode": "Board Playing", "firmware_last_move_updated": recent}
+    assert s.is_on is False
 
 
 # ─── button.py ──────────────────────────────────────────────────────────
@@ -591,6 +757,47 @@ async def test_sculpture_game_select(coord, entry):
     assert s.current_option == DEFAULT_SCULPTURE_GAME
     await s.async_select_option(SCULPTURE_GAMES[1])
     assert coord.selected_sculpture == SCULPTURE_GAMES[1]
+
+
+def test_sculpture_metadata_loader_strips_moves():
+    """C4: the loader keeps display metadata and drops the heavy move list."""
+    meta = select_mod._load_sculpture_metadata()
+    assert set(meta) == set(SCULPTURE_GAMES)
+    for label, rec in meta.items():
+        assert "moves" not in rec, f"{label} leaked moves into attributes"
+        for field in ("white", "black", "site", "significance"):
+            assert rec.get(field), f"{label} missing {field}"
+
+
+def test_sculpture_select_exposes_current_game_attributes(coord, entry):
+    """C4: extra_state_attributes surface the selected game's metadata so
+    the dashboard renders the card from attributes (no inline Jinja dict).
+
+    Falsifiable: the pre-C4 select had no extra_state_attributes, so this
+    key set is empty on the old code.
+    """
+    metadata = select_mod._load_sculpture_metadata()
+    s = select_mod.PhantomSculptureGameSelect(
+        coord, entry, ADDRESS, NAME, metadata
+    )
+    coord.selected_sculpture = SCULPTURE_GAMES[0]
+    attrs = s.extra_state_attributes
+    # Every declared field is present (empty string when unknown).
+    assert set(attrs) == set(select_mod._SCULPTURE_METADATA_FIELDS)
+    assert attrs["white"]  # first game (Immortal Game) has a white player
+    assert attrs["significance"]
+
+
+def test_sculpture_select_attributes_default_empty_for_unknown(coord, entry):
+    """A selection with no metadata still yields the full key set (empty
+    strings) so the dashboard Jinja can read them unconditionally."""
+    s = select_mod.PhantomSculptureGameSelect(
+        coord, entry, ADDRESS, NAME, {}
+    )
+    coord.selected_sculpture = SCULPTURE_GAMES[0]
+    attrs = s.extra_state_attributes
+    assert set(attrs) == set(select_mod._SCULPTURE_METADATA_FIELDS)
+    assert all(v == "" for v in attrs.values())
 
 
 async def test_restorable_select_added_to_hass(coord, entry, monkeypatch):

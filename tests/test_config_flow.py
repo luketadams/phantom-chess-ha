@@ -355,6 +355,47 @@ async def test_user_flow_lichess_network_error_falls_back_to_error(
         assert result["errors"] == {CONF_LICHESS_TOKEN: "invalid_lichess_token"}
 
 
+async def test_user_flow_lichess_timeout_falls_back_to_error(
+    hass: HomeAssistant,
+) -> None:
+    """C7: a token-validation TIMEOUT (asyncio.TimeoutError, e.g. the
+    ClientTimeout total elapsing) must land on the same `invalid_lichess_token`
+    form as a ClientError — not a generic "Unknown error" page.
+
+    Falsifiable: pre-C7 the except caught only aiohttp.ClientError, so the
+    TimeoutError escaped _validate_lichess_token and the flow raised / showed
+    the unknown-error page instead of this handled form."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    session = MagicMock()
+    timeout_cm = MagicMock()
+    timeout_cm.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError())
+    timeout_cm.__aexit__ = AsyncMock(return_value=None)
+    session.get = MagicMock(return_value=timeout_cm)
+
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_get_clientsession",
+        return_value=session,
+    ), patch(
+        "custom_components.phantom_chess.config_flow.async_discovered_service_info",
+        return_value=[],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_LICHESS_TOKEN: "some-token"},
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {CONF_LICHESS_TOKEN: "invalid_lichess_token"}
+
+
 # ─── Reauth-flow edge cases ─────────────────────────────────────────────
 
 

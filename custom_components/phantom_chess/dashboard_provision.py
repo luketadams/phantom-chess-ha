@@ -546,6 +546,37 @@ def _rewrite_script_turn_on_in_text(text: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
+async def _try_register_via_collection(
+    hass: HomeAssistant, row: dict[str, Any]
+) -> bool:
+    """Register or update the dashboard row via the in-memory DashboardsCollection.
+
+    Returns True if the collection was available and the call succeeded;
+    False if the collection isn't exposed or the call failed (caller falls
+    back to the direct Store write so persistence still happens).
+    """
+    lovelace_data = hass.data.get(LOVELACE_DATA)
+    collection = getattr(lovelace_data, "dashboards_collection", None)
+    if collection is None:
+        return False
+    try:
+        existing = next(
+            (item for item in collection.async_items()
+             if item.get(CONF_URL_PATH) == DASHBOARD_URL_PATH),
+            None,
+        )
+        if existing is not None:
+            await collection.async_update_item(existing["id"], row)
+        else:
+            await collection.async_create_item(row)
+        return True
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "dashboards_collection not usable — falling back to Store write"
+        )
+        return False
+
+
 async def _async_load_dashboards_store(hass: HomeAssistant) -> tuple[Store, list[dict]]:
     """Load the persistent lovelace_dashboards Store contents.
 
@@ -707,18 +738,23 @@ async def async_provision_dashboard(
         CONF_REQUIRE_ADMIN: False,
         "mode": MODE_STORAGE,
     }
-    store, items = await _async_load_dashboards_store(hass)
-    existing_idx: int | None = next(
-        (i for i, item in enumerate(items) if item.get(CONF_URL_PATH) == DASHBOARD_URL_PATH),
-        None,
-    )
-    if existing_idx is None:
-        items.append(row)
-    else:
-        # Update in place so title/icon changes (or recovery from a broken
-        # half-row) get applied without duplicating.
-        items[existing_idx] = {**items[existing_idx], **row}
-    await store.async_save({"items": items})
+    # Prefer the in-memory DashboardsCollection when available so core's
+    # in-memory state stays consistent with the Store.  Fallback to direct
+    # Store write for environments where the collection isn't exposed
+    # (e.g. YAML-mode Lovelace, older HA builds).
+    if not await _try_register_via_collection(hass, row):
+        store, items = await _async_load_dashboards_store(hass)
+        existing_idx: int | None = next(
+            (i for i, item in enumerate(items) if item.get(CONF_URL_PATH) == DASHBOARD_URL_PATH),
+            None,
+        )
+        if existing_idx is None:
+            items.append(row)
+        else:
+            # Update in place so title/icon changes (or recovery from a broken
+            # half-row) get applied without duplicating.
+            items[existing_idx] = {**items[existing_idx], **row}
+        await store.async_save({"items": items})
 
     # 3. Register the panel + LovelaceStorage in-memory so the user sees the
     #    sidebar entry immediately, without a restart.

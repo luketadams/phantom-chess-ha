@@ -25,6 +25,7 @@ import os
 import platform
 import stat
 import tarfile
+import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -135,10 +136,12 @@ class LichessAnalysisClient:
     def __init__(self, hass, stockfish_bin_dir: Path | str | None = None) -> None:
         self.hass = hass
         # Lazy session — fetched on first call so HA's event loop is up
-        self._eval_cache: OrderedDict[str, EvalResult | None] = OrderedDict()
+        self._eval_cache: OrderedDict[str, EvalResult] = OrderedDict()
         self._opening_cache: OrderedDict[str, tuple[str | None, str | None]] = OrderedDict()
         # Soft rate-limit: serialize calls to avoid hammering Lichess.
         self._eval_lock = asyncio.Lock()
+        # 429 Retry-After cooldown: monotonic time after which HTTP is allowed again.
+        self._rate_limit_until: float = 0.0
         # Local Stockfish fallback (used when cloud-eval misses, AND as
         # the AI engine for local-Stockfish-only games).
         self._stockfish: StockfishFallback | None = None
@@ -180,41 +183,32 @@ class LichessAnalysisClient:
         """
         if self._stockfish is None:
             return None
-        engine = await self._stockfish.ensure_engine()
-        if engine is None:
-            return None
         skill, depth = self._AI_LEVEL_TABLE.get(int(ai_level), self._AI_LEVEL_TABLE[8])
-        try:
-            await engine.configure({"Skill Level": skill})
-        except Exception as cfg_err:
-            # Some engine builds reject mid-session reconfigure; safe to log + continue.
-            _LOGGER.debug("engine.configure Skill Level=%d failed: %s", skill, cfg_err)
-        try:
-            result = await engine.play(board, chess.engine.Limit(depth=depth))
-        except Exception as play_err:
-            _LOGGER.warning("engine.play failed at level %d depth %d: %s",
-                            ai_level, depth, play_err)
-            return None
-        if result is None or result.move is None:
-            return None
-        return result.move.uci()
+        move = await self._stockfish.play_move(board, skill, depth)
+        return move.uci() if move is not None else None
 
     # ─── eval ─────────────────────────────────────────────────────────────
 
-    async def get_eval(self, fen: str, multi_pv: int = 1) -> EvalResult | None:
-        """Fetch cloud-eval for a FEN. None on cache miss + 404 (no Stockfish
-        fallback wired yet)."""
+    async def get_eval(
+        self, fen: str, multi_pv: int = 1, *, bypass_cache: bool = False
+    ) -> EvalResult | None:
+        """Fetch cloud-eval for a FEN. None on failure (transient results
+        are NOT cached so the next call retries).
+
+        Pass bypass_cache=True (e.g. from async_request_hint) to force a
+        fresh fetch even when a non-None result is already in cache.
+        """
         safe_fen = _safe_fen_for_eval(fen)
         # Cache key includes multi_pv (different multi_pv = different result).
         cache_key = f"{safe_fen}::{multi_pv}"
 
-        if cache_key in self._eval_cache:
+        if not bypass_cache and cache_key in self._eval_cache:
             self._eval_cache.move_to_end(cache_key)
             return self._eval_cache[cache_key]
 
         async with self._eval_lock:
-            # Double-check after acquiring the lock
-            if cache_key in self._eval_cache:
+            # Double-check after acquiring the lock (unless bypassing).
+            if not bypass_cache and cache_key in self._eval_cache:
                 self._eval_cache.move_to_end(cache_key)
                 return self._eval_cache[cache_key]
 
@@ -226,14 +220,24 @@ class LichessAnalysisClient:
                     safe_fen,
                 )
                 result = await self._stockfish.evaluate(safe_fen)
-            self._eval_cache[cache_key] = result
-            # LRU eviction
-            while len(self._eval_cache) > self.EVAL_CACHE_SIZE:
-                self._eval_cache.popitem(last=False)
+            # Only cache successes — transient failures (network, 429, 500)
+            # should not poison the LRU for the FEN's entire LRU lifetime.
+            if result is not None:
+                self._eval_cache[cache_key] = result
+                while len(self._eval_cache) > self.EVAL_CACHE_SIZE:
+                    self._eval_cache.popitem(last=False)
             return result
 
     async def _fetch_eval(self, fen: str, multi_pv: int) -> EvalResult | None:
         """One HTTP request to /api/cloud-eval. Returns None on 404 or error."""
+        loop = asyncio.get_running_loop()
+        if loop.time() < self._rate_limit_until:
+            _LOGGER.debug(
+                "cloud-eval rate-limited (%.0fs remaining), skipping %s",
+                self._rate_limit_until - loop.time(), fen,
+            )
+            return None
+
         from homeassistant.helpers.aiohttp_client import async_get_clientsession
         session = async_get_clientsession(self.hass)
         params = {"fen": fen, "multiPv": str(multi_pv)}
@@ -244,6 +248,16 @@ class LichessAnalysisClient:
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=self.HTTP_TIMEOUT_SEC),
             ) as resp:
+                if resp.status == 429:
+                    try:
+                        retry_after = float(resp.headers.get("Retry-After", 60))
+                    except (ValueError, TypeError):
+                        retry_after = 60.0
+                    self._rate_limit_until = loop.time() + retry_after
+                    _LOGGER.warning(
+                        "cloud-eval 429 — backing off %.0fs", retry_after
+                    )
+                    return None
                 if resp.status == 404:
                     _LOGGER.debug("cloud-eval cache miss for %s", fen)
                     return None
@@ -524,8 +538,8 @@ class StockfishFallback:
             _LOGGER.warning("Stockfish: cannot create %s: %s", self.bin_dir, err)
             return False
 
-        # Prepare a temp filename (synchronous filename allocation is fine).
-        tmp_path = self.bin_dir / f"download-{os.getpid()}.tar"
+        # uuid4 avoids collisions when two config entries download simultaneously.
+        tmp_path = self.bin_dir / f"download-{uuid.uuid4()}.tar"
 
         # Download to memory, then write to disk in an executor to avoid
         # blocking the event loop. Stockfish tar is ~3 MB so the in-memory
@@ -683,15 +697,46 @@ class StockfishFallback:
             raw=None,
         )
 
+    async def play_move(
+        self, board: "chess.Board", skill: int, depth: int
+    ) -> "chess.Move | None":
+        """Return the engine's best move under the shared _eval_lock.
+
+        Serializes with evaluate() so configure/play and analyse never
+        run concurrently on the same UciProtocol handle.
+        """
+        engine = await self.ensure_engine()
+        if engine is None:
+            return None
+        async with self._eval_lock:
+            try:
+                await engine.configure({"Skill Level": skill})
+            except Exception as cfg_err:
+                _LOGGER.debug("engine.configure Skill Level=%d failed: %s", skill, cfg_err)
+            try:
+                result = await engine.play(board, chess.engine.Limit(depth=depth))
+            except Exception as play_err:
+                _LOGGER.warning(
+                    "engine.play failed skill=%d depth=%d: %s", skill, depth, play_err
+                )
+                return None
+        if result is None or result.move is None:
+            return None
+        return result.move
+
     async def shutdown(self) -> None:
         """Cleanly stop the engine. Idempotent."""
-        if self._engine is not None:
+        engine, transport = self._engine, self._transport
+        self._engine = None
+        self._transport = None
+        if engine is not None:
             try:
-                await self._engine.quit()
+                await engine.quit()
             except Exception:
-                pass
-            self._engine = None
-            self._transport = None
+                # Engine died before quit() could finish — close the transport
+                # directly so the subprocess doesn't become a zombie.
+                if transport is not None:
+                    transport.close()
 
 
 # ── Move classification ──────────────────────────────────────────────────────

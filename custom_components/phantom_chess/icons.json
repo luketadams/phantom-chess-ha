@@ -31,6 +31,12 @@
         "state": {
           "on": "mdi:sleep"
         }
+      },
+      "picker_available": {
+        "default": "mdi:view-dashboard-variant-outline",
+        "state": {
+          "on": "mdi:view-dashboard-variant"
+        }
       }
     },
     "select": {

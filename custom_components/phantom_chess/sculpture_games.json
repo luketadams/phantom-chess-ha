@@ -7,6 +7,8 @@
    "date": "1851.06.21",
    "eco": "C33",
    "result": "1-0",
+   "site": "London ENG",
+   "significance": "The Immortal Game. In a casual King's Gambit, Anderssen sacrificed bishop, both rooks and his queen to mate Kieseritzky with three minor pieces. The defining example of 19th-century Romantic chess.",
    "moves": [
     "e2e4",
     "e7e5",
@@ -61,6 +63,8 @@
    "date": "1858.??.??",
    "eco": "C41",
    "result": "1-0",
+   "site": "Paris FRA",
+   "significance": "Known as the 'Opera Game,' this casual game saw Morphy demolish two noblemen in a brilliant display of attacking chess at an opera house.",
    "moves": [
     "e2e4",
     "e7e5",
@@ -103,6 +107,8 @@
    "date": "1907.12.26",
    "eco": "D32",
    "result": "0-1",
+   "site": "Lodz POL",
+   "significance": "Rubinstein's Immortal. After a quiet positional buildup, Rubinstein delivered a cascade of sacrifices culminating in 22...Rxc3!! 23.gxh4 Rd2!!, with every Black piece attacking and White helpless. A masterpiece of harmony.",
    "moves": [
     "d2d4",
     "d7d5",
@@ -162,6 +168,8 @@
    "date": "1924.03.22",
    "eco": "A15",
    "result": "1-0",
+   "site": "New York, NY USA",
+   "significance": "Capablanca, one of the greatest positional players, dismantled Réti’s hypermodern opening (Réti Opening) with precise play. This game highlighted the clash between classical and hypermodern chess philosophies.",
    "moves": [
     "g1f3",
     "g8f6",
@@ -232,6 +240,8 @@
    "date": "1933.??.??",
    "eco": "C70",
    "result": "1-0",
+   "site": "Princeton USA",
+   "significance": "This game is notable for its association with two of the 20th century’s most famous physicists. Einstein, the developer of the theory of relativity, and Oppenheimer, the scientific director of the Manhattan Project, reportedly played this game at Princeton. The game, if authentic, showcases Einstein’s surprising competence in chess, using a theoretical Ruy Lopez opening to outmaneuver Oppenheimer, who made several errors, leading to a quick collapse by move 24. However, the game’s authenticity is debated, as there’s no conclusive evidence that Einstein and Oppenheimer played chess together, and some suggest it could involve Hans Albert Einstein or another player named Einstein.",
    "moves": [
     "e2e4",
     "e7e5",
@@ -288,6 +298,8 @@
    "date": "1938.11.22",
    "eco": "E40",
    "result": "1-0",
+   "site": "The Netherlands",
+   "significance": "Botvinnik’s win over Capablanca, a former world champion, in a complex Nimzo-Indian Defense showcased his strategic depth and marked him as a rising star.",
    "moves": [
     "d2d4",
     "g8f6",
@@ -378,6 +390,8 @@
    "date": "1956.10.17",
    "eco": "D92",
    "result": "0-1",
+   "site": "New York, NY USA",
+   "significance": "Dubbed the 'Game of the Century,' this game featured a 13-year-old Fischer defeating master Donald Byrne with a stunning queen sacrifice in a Grünfeld Defense.",
    "moves": [
     "g1f3",
     "g8f6",
@@ -469,6 +483,8 @@
    "date": "1958.??.??",
    "eco": "A53",
    "result": "0-1",
+   "site": "Sochi URS",
+   "significance": "Nezhmetdinov's Immortal. With 24...Rxf4!! and a queen sacrifice on g3, Nezhmetdinov launched a king hunt that herded Polugaevsky's monarch from e3 to a5 across an open board. Often cited as the greatest attacking game of the 20th century.",
    "moves": [
     "d2d4",
     "g8f6",
@@ -544,6 +560,8 @@
    "date": "1967.10.15",
    "eco": "A07",
    "result": "1-0",
+   "site": "Sousse TUN",
+   "significance": "Known as Fischer’s 'King Hunt,' this game showcased Bobby Fischer’s attacking brilliance in a French Defense. His 18. Bxh7+ sacrifice initiated a devastating kingside attack, culminating in a decisive checkmate sequence, demonstrating his tactical genius.",
    "moves": [
     "e2e4",
     "e7e6",
@@ -614,6 +632,8 @@
    "date": "1972.07.23",
    "eco": "D59",
    "result": "1-0",
+   "site": "Reykjavik ISL",
+   "significance": "Known as the 'Game of the Century,' this game from the 1972 World Championship showcased Fischer’s brilliance against Spassky during the Cold War. Fischer’s strategic mastery in a Queen’s Gambit Declined led to a standing ovation from spectators, including Spassky himself.",
    "moves": [
     "c2c4",
     "e7e6",
@@ -704,6 +724,8 @@
    "date": "1985.10.15",
    "eco": "B44",
    "result": "0-1",
+   "site": "Moscow URS",
+   "significance": "In their intense 1985 World Championship rivalry, Karpov’s victory in this game kept him in contention against the young Kasparov. The game featured a Sicilian Defense with Karpov’s trademark precision.",
    "moves": [
     "e2e4",
     "c7c5",
@@ -793,6 +815,8 @@
    "date": "1997.05.11",
    "eco": "B17",
    "result": "1-0",
+   "site": "New York, NY USA",
+   "significance": "This game marked the first time a computer defeated a reigning world chess champion in a match under standard tournament conditions. Deep Blue’s victory over Kasparov in the 1997 rematch (3½–2½) was a pivotal moment for artificial intelligence, symbolizing the rise of machine intelligence. The game itself was a shocking defeat for Kasparov, who resigned after just 19 moves.",
    "moves": [
     "e2e4",
     "c7c6",
@@ -839,6 +863,8 @@
    "date": "1999.01.20",
    "eco": "B07",
    "result": "1-0",
+   "site": "Wijk aan Zee NED",
+   "significance": "Known as 'Kasparov’s Immortal,' this game featured a stunning rook sacrifice leading to a spectacular attack. Kasparov’s relentless pressure against Topalov’s Sicilian Defense showcased his tactical genius.",
    "moves": [
     "e2e4",
     "d7d6",
@@ -935,6 +961,8 @@
    "date": "2013.01.15",
    "eco": "D46",
    "result": "0-1",
+   "site": "Wijk aan Zee NED",
+   "significance": "Often called Anand's Immortal. In a Semi-Slav, Anand sacrificed a knight on move 13, then a rook on move 16, then his queen on move 22, dragging Aronian into a forced mating net. Considered one of the greatest games of the 21st century.",
    "moves": [
     "d2d4",
     "d7d5",
@@ -990,6 +1018,8 @@
    "date": "2015.07.03",
    "eco": "B40",
    "result": "1-0",
+   "site": "Danzhou CHN",
+   "significance": "Wei Yi, age 16, produced a Morphy-style king hunt against a 2669 grandmaster. The double sacrifice 22.Rxf7!! Kxf7 23.Qh7+ Ke6 24.exd5+!! dragged Black's king from e8 to h3. Widely hailed as the brilliancy of the decade.",
    "moves": [
     "e2e4",
     "c7c5",
@@ -1070,6 +1100,8 @@
    "date": "2016.11.30",
    "eco": "B54",
    "result": "1-0",
+   "site": "New York, NY USA",
+   "significance": "Title-clinching rapid tiebreak. Needing a win on demand, Carlsen finished with the immortal queen sacrifice 50.Qh6+!! gxh6 51.Rxf7# (or 50...Kxh6 51.Rh8#) - a storybook conclusion to retain his crown on his 26th birthday.",
    "moves": [
     "e2e4",
     "c7c5",
@@ -1178,6 +1210,8 @@
    "date": "2021.12.03",
    "eco": "D02",
    "result": "1-0",
+   "site": "Dubai UAE",
+   "significance": "At 136 moves and 7 hours 45 minutes, this is the longest game in World Championship history. Carlsen converted a queen-versus-rook-and-knight endgame in a brutal display of technique and stamina; widely called the game that broke Nepo and decided the match.",
    "moves": [
     "d2d4",
     "g8f6",
@@ -1458,6 +1492,8 @@
    "date": "2023.04.30",
    "eco": "C84",
    "result": "0-1",
+   "site": "Astana KAZ",
+   "significance": "The game that crowned the 17th undisputed World Champion. With minutes on his clock and facing a draw by repetition, Ding played the audacious 46...Rg6!? - Carlsen called it a self-pin for immortality. Nepo blundered 48.h4? and Ding converted to take the title.",
    "moves": [
     "e2e4",
     "e7e5",

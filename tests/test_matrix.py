@@ -132,6 +132,44 @@ def test_parse_matrix_notification_error() -> None:
     assert "do not match" in parsed["status_message"]
 
 
+def test_parse_matrix_notification_accepts_promoted_pawn_markers() -> None:
+    """fw0.3.2 doc §9.2: 'X'/'Z' mark promoted pawns. The grid must still
+    parse (occupancy diffing + piece counting work on opaque markers);
+    previously the whole payload was rejected right after any promotion."""
+    grid = build_matrix_from_fen(STARTING_FEN_BOARD)
+    # replace white e2 pawn's slot with a promoted-pawn marker
+    assert "P" in grid
+    grid_x = grid.replace("P", "X", 1)
+    grid_z = grid.replace("p", "Z", 1)
+    for g in (grid_x, grid_z):
+        payload = _synth_payload("CLEAN: Match.", g, "0" * 100)
+        parsed = parse_matrix_notification(payload)
+        assert parsed is not None
+        assert parsed["piece_grid"] == g
+        # markers count as occupied squares
+        assert sum(1 for c in parsed["piece_grid"] if c != ".") == 32
+
+
+def test_grid_to_fen_refuses_promoted_pawn_markers() -> None:
+    """'X'/'Z' have no documented side mapping (doc §9.2 'in some contexts'),
+    so FEN reconstruction returns None rather than emitting an invalid FEN.
+    The coordinator keeps its last-known-good live_fen in that case."""
+    grid = build_matrix_from_fen(STARTING_FEN_BOARD)
+    assert grid_to_fen(grid) == STARTING_FEN_BOARD  # sanity: normal grid works
+    assert grid_to_fen(grid.replace("P", "X", 1)) is None
+    assert grid_to_fen(grid.replace("p", "Z", 1)) is None
+
+
+def test_diff_grid_vs_sensor_treats_marker_as_occupied() -> None:
+    grid = build_matrix_from_fen(STARTING_FEN_BOARD).replace("P", "X", 1)
+    # sensor bitmap: everything empty → every occupied grid square is "missing"
+    diffs = diff_grid_vs_sensor(grid, "0" * 100)
+    assert len(diffs) == 32
+    # the marker square reports the generic fallback name, not a crash
+    marker_diffs = [d for d in diffs if d["piece"] == "piece"]
+    assert len(marker_diffs) == 1
+
+
 def test_parse_matrix_notification_rejects_garbage() -> None:
     assert parse_matrix_notification(b"random garbage") is None
     # CLEAN prefix but no grid/bitmap

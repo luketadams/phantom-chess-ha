@@ -48,9 +48,8 @@ def grid_index_to_square(idx: int) -> str | None:
 
     Returns None for gutter positions (cols 0/9 or rows 0/9).
 
-    Example: grid_index_to_square(14) → "a4" (col=1 → file 'a',
-    row=4 → rank '5'; wait let me recompute).
-    With idx 14: col=1, row=4 → file 'a', rank str(9-4)='5'. So a5.
+    Example: grid_index_to_square(14) → "a5" (idx 14 → col=1, row=4 →
+    file 'a', rank str(9-4)='5').
     """
     col, row = divmod(idx, 10)
     if not (1 <= col <= 8 and 1 <= row <= 8):
@@ -119,8 +118,15 @@ def grid_to_fen(grid: str) -> str | None:
     each non-gutter column holds [gutter, rank_8, rank_7, ..., rank_1, gutter].
     FEN ranks are listed rank 8 → rank 1 (left to right), with file a → file h
     within each rank.
+
+    Grids containing the fw0.3.2 promoted-pawn markers 'X'/'Z' (doc §9.2)
+    also return None: the doc doesn't define which side each marker maps to,
+    and emitting them verbatim would produce an invalid FEN. Callers keep
+    their last-known-good FEN instead.
     """
     if len(grid) != 100:
+        return None
+    if "X" in grid or "Z" in grid:
         return None
     rows = [grid[i*10:(i+1)*10] for i in range(10)]
     # playing[file_idx][rank_idx]: file 0=a..7=h, rank_idx 0=rank8..7=rank1
@@ -181,8 +187,15 @@ def parse_matrix_notification(data: bytes) -> dict[str, str | None] | None:
         status = "Other"
 
     parts = decoded.split(",")
+    # 'X'/'Z' are the fw0.3.2 promoted-pawn markers (EFRAIN_GAMEPLAY_DOC
+    # 2026-06-09 §9.2: "Special markers: 'X', 'Z' for promoted pawns in some
+    # contexts"). The doc does NOT define which side each maps to, so they are
+    # accepted as opaque occupied-square markers only — occupancy diffing,
+    # piece counting, and status all work; FEN reconstruction refuses to
+    # guess (see grid_to_fen). Previously grids containing them were rejected
+    # wholesale, blinding matrix state right after any pawn promotion.
     grid = next(
-        (p for p in parts if len(p) == 100 and all(c in ".PNBRQKpnbrqk" for c in p)),
+        (p for p in parts if len(p) == 100 and all(c in ".PNBRQKpnbrqkXZ" for c in p)),
         None,
     )
     bitmap = next(

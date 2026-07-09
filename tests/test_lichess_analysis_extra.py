@@ -158,14 +158,19 @@ async def test_get_eval_http_success_parses_and_caches() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_eval_404_no_stockfish_caches_none() -> None:
-    """404 with no Stockfish fallback caches (and returns) None."""
+async def test_get_eval_404_no_stockfish_returns_none_without_caching() -> None:
+    """404 with no Stockfish fallback returns None without caching it.
+
+    None is never cached — transient failures must not poison the LRU for
+    the FEN's entire eviction lifetime.  Old code cached None unconditionally,
+    so the assertion `not in client._eval_cache` would have failed there.
+    """
     client = _client()
     fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     with patch(_SESSION_TARGET, return_value=_session(status=404)):
         result = await client.get_eval(fen)
     assert result is None
-    assert f"{fen}::1" in client._eval_cache
+    assert f"{fen}::1" not in client._eval_cache
 
 
 @pytest.mark.asyncio
@@ -1018,3 +1023,174 @@ def test_detect_fork_from_empty_square_returns_false() -> None:
 
     with patch.object(chess.Board, "piece_at", fake):
         assert detect_fork(board, move) is False
+
+
+# ─── B5: shared engine lock (play_move serializes with evaluate) ─────────
+
+
+@pytest.mark.asyncio
+async def test_play_move_and_evaluate_do_not_overlap(tmp_path) -> None:
+    """play_move() and evaluate() never hold the engine simultaneously.
+
+    Without the _eval_lock in play_move, the two coroutines' engine
+    commands would interleave during the asyncio.sleep(0) yield points,
+    setting `active > 1` and flipping `overlap_detected`. With the lock
+    they strictly serialize.
+
+    Old code: play_move() didn't exist → AttributeError → test fails.
+    New code without lock: overlap_detected would be True → assertion fails.
+    New code with lock: overlap_detected stays False → test passes.
+    """
+    import asyncio as _asyncio
+
+    from custom_components.phantom_chess.lichess_analysis import StockfishFallback
+
+    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
+    engine = MagicMock()
+
+    active = 0
+    overlap_detected = False
+
+    async def slow_analyse(board, limit):
+        nonlocal active, overlap_detected
+        active += 1
+        if active > 1:
+            overlap_detected = True
+        await _asyncio.sleep(0)
+        active -= 1
+        score = chess.engine.PovScore(chess.engine.Cp(0), chess.WHITE)
+        return {"score": score, "depth": 5, "pv": []}
+
+    async def slow_configure(*args, **kwargs):
+        nonlocal active, overlap_detected
+        active += 1
+        if active > 1:
+            overlap_detected = True
+        await _asyncio.sleep(0)
+        active -= 1
+
+    async def slow_play(*args, **kwargs):
+        nonlocal active, overlap_detected
+        active += 1
+        if active > 1:
+            overlap_detected = True
+        await _asyncio.sleep(0)
+        active -= 1
+        return MagicMock(move=chess.Move.from_uci("e2e4"))
+
+    engine.analyse = AsyncMock(side_effect=slow_analyse)
+    engine.configure = AsyncMock(side_effect=slow_configure)
+    engine.play = AsyncMock(side_effect=slow_play)
+    sf._engine = engine
+    sf.ensure_engine = AsyncMock(return_value=engine)
+
+    await _asyncio.gather(
+        sf.evaluate(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        ),
+        sf.play_move(chess.Board(), skill=5, depth=5),
+    )
+    assert not overlap_detected
+
+
+# ─── B5: None not cached for transient failures ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_transient_failure_does_not_cache_none() -> None:
+    """A transient HTTP error (network down) does NOT cache None.
+
+    Old code cached None unconditionally, so the follow-up assertion
+    `not in client._eval_cache` would have failed. New code skips caching
+    on None so the next call retries the fetch.
+    """
+    import aiohttp
+
+    client = _client()
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    with patch(_SESSION_TARGET,
+               return_value=_session(raise_exc=aiohttp.ClientError("network down"))):
+        result = await client.get_eval(fen)
+    assert result is None
+    assert f"{fen}::1" not in client._eval_cache
+
+
+@pytest.mark.asyncio
+async def test_bypass_cache_forces_refetch() -> None:
+    """bypass_cache=True re-fetches even when the FEN is already cached."""
+    client = _client()
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    cached = EvalResult(cp=10, mate=None, depth=18, best_uci="e2e4")
+    client._eval_cache[f"{fen}::1"] = cached
+
+    fresh = EvalResult(cp=20, mate=None, depth=20, best_uci="d2d4")
+    payload = {"depth": 20, "pvs": [{"cp": 20, "moves": "d2d4"}]}
+    with patch(_SESSION_TARGET, return_value=_session(status=200, json_data=payload)):
+        result = await client.get_eval(fen, bypass_cache=True)
+    assert result is not None
+    assert result.cp == 20  # fresh value, not the cached 10
+
+
+# ─── B5: 429 Retry-After cooldown ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_429_sets_rate_limit_and_next_call_skips_http() -> None:
+    """A 429 response with Retry-After sets the cooldown; the next call
+    returns None immediately without making an HTTP request.
+
+    Old code had no rate-limit tracking, so both calls would hit the
+    session — the second patch.assert_not_called() would have failed.
+    """
+    import asyncio as _asyncio
+
+    client = _client()
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+    resp = MagicMock(
+        status=429,
+        headers={"Retry-After": "30"},
+        json=AsyncMock(return_value={}),
+        read=AsyncMock(return_value=b""),
+    )
+    resp_cm = MagicMock()
+    resp_cm.__aenter__ = AsyncMock(return_value=resp)
+    resp_cm.__aexit__ = AsyncMock(return_value=None)
+    session_429 = MagicMock()
+    session_429.get = MagicMock(return_value=resp_cm)
+
+    with patch(_SESSION_TARGET, return_value=session_429):
+        result1 = await client.get_eval(fen)
+    assert result1 is None
+    # Rate limit should be set now.
+    loop = _asyncio.get_event_loop()
+    assert client._rate_limit_until > loop.time()
+
+    # Second call — no HTTP should be made (rate-limited).
+    with patch(_SESSION_TARGET) as no_session:
+        result2 = await client.get_eval(fen)
+    assert result2 is None
+    no_session.assert_not_called()
+
+
+# ─── B5: shutdown closes transport on quit failure ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_shutdown_closes_transport_when_quit_fails(tmp_path) -> None:
+    """When engine.quit() raises, the transport is closed to avoid a zombie.
+
+    Old code: caught the exception, set both to None, but never called
+    transport.close() — so the subprocess stayed alive.  The assertion
+    `transport.close.assert_called_once()` would fail on old code.
+    """
+    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
+    engine = MagicMock()
+    engine.quit = AsyncMock(side_effect=RuntimeError("already dead"))
+    transport = MagicMock()
+    sf._engine = engine
+    sf._transport = transport
+    await sf.shutdown()
+    assert sf._engine is None
+    assert sf._transport is None
+    transport.close.assert_called_once()
