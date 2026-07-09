@@ -89,7 +89,7 @@
           "tts_media_player_entity_id": "Speaker for play-by-play",
           "tts_language": "Voice language",
           "tts_voice": "Voice",
-          "debug_dump": "Write developer-debug artifacts to <config>/phantom_chess/debug/",
+          "debug_dump": "Write developer-debug artifacts to the config directory under phantom_chess/debug/",
           "auto_provision_dashboard": "Auto-provision Chess dashboard"
         },
         "data_description": {

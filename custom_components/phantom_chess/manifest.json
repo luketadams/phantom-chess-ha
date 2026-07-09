@@ -1,22 +1,9 @@
 {
   "domain": "phantom_chess",
   "name": "Phantom Chess Board",
-  "version": "0.4.0b4",
-  "documentation": "https://github.com/luketadams/phantom-chess-ha",
-  "issue_tracker": "https://github.com/luketadams/phantom-chess-ha/issues",
-  "codeowners": [
-    "@luketadams"
-  ],
-  "integration_type": "device",
-  "dependencies": [
-    "bluetooth"
-  ],
   "after_dependencies": [
     "http",
     "lovelace"
-  ],
-  "requirements": [
-    "chess>=1.10.0,<2.0"
   ],
   "bluetooth": [
     {
@@ -24,7 +11,20 @@
       "connectable": true
     }
   ],
+  "codeowners": [
+    "@luketadams"
+  ],
   "config_flow": true,
+  "dependencies": [
+    "bluetooth"
+  ],
+  "documentation": "https://github.com/luketadams/phantom-chess-ha",
+  "integration_type": "device",
   "iot_class": "local_push",
-  "quality_scale": "silver"
+  "issue_tracker": "https://github.com/luketadams/phantom-chess-ha/issues",
+  "quality_scale": "silver",
+  "requirements": [
+    "chess>=1.10.0,<2.0"
+  ],
+  "version": "0.4.0b4"
 }

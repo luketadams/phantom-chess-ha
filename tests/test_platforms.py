@@ -120,7 +120,12 @@ def _added(entities: MagicMock):
 async def test_async_setup_entry(module, expected_count, coord, entry):
     entry.runtime_data = coord
     add = MagicMock()
-    await module.async_setup_entry(MagicMock(), entry, add)
+    # select.py's setup awaits hass.async_add_executor_job (sculpture
+    # metadata load) — a bare MagicMock isn't awaitable, so wire the
+    # executor to run the function inline (hassfest-CI failure 2026-07-08).
+    hass = MagicMock()
+    hass.async_add_executor_job = AsyncMock(side_effect=lambda f, *a: f(*a))
+    await module.async_setup_entry(hass, entry, add)
     ents = _added(add)
     assert len(ents) == expected_count
     # unique_ids all present and unique
