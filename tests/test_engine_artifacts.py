@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from custom_components.phantom_chess.engine_artifacts import (
-    ASSETS, GLIBC_BASELINE, MUSL_ARM, EngineAsset, ensure_verified_engine,
+    ASSETS, GLIBC_BASELINE, MUSL_ARM, MUSL_X86, EngineAsset, ensure_verified_engine,
 )
 from custom_components.phantom_chess.lichess_analysis import StockfishFallback
 
@@ -139,6 +139,45 @@ def test_platform_entries_are_real_and_do_not_assume_avx2():
     assert "avx2" not in GLIBC_BASELINE.url
     assert ASSETS["musl", "aarch64"] == MUSL_ARM
     assert ("glibc", "aarch64") not in ASSETS  # upstream does not ship that asset
+    for musl in (MUSL_X86, MUSL_ARM):
+        # Mirror first, then the rolling Alpine repository as a fallback.
+        assert musl.sources[0].startswith("https://github.com/")
+        assert musl.sources[-1].startswith("https://dl-cdn.alpinelinux.org/")
+
+
+def _routed(responses):
+    """Session whose GET returns a per-URL response (or raises it)."""
+    def get(url, **kwargs):
+        result = responses[url]
+        if isinstance(result, BaseException):
+            raise result
+        return result
+    return Mock(get=Mock(side_effect=get))
+
+
+@pytest.mark.parametrize("primary", ["http", "corrupt", "network"])
+async def test_falls_back_to_mirror_when_primary_fails(tmp_path, primary):
+    import aiohttp
+    data, asset = sample()
+    asset = replace(asset, mirrors=("https://mirror.invalid/engine.tar",))
+    bad = {"http": Response(data, status=404), "corrupt": Response(data[:-1] + b"x"),
+           "network": aiohttp.ClientConnectionError("down")}[primary]
+    remote = _routed({asset.url: bad, asset.mirrors[0]: Response(data)})
+    target = await ensure_verified_engine(Hass(), remote, tmp_path, asset, Mock())
+    assert target.read_bytes() == b"verified bytes"
+    assert [c.args[0] for c in remote.get.call_args_list] == list(asset.sources)
+    assert list(tmp_path.iterdir()) == [target]
+
+
+async def test_all_sources_failing_raises_last_error_and_keeps_old_engine(tmp_path):
+    old = tmp_path / "engine"
+    old.write_bytes(b"previous installation")
+    data, asset = sample()
+    asset = replace(asset, mirrors=("https://mirror.invalid/engine.tar",))
+    remote = _routed({asset.url: Response(data, status=503), asset.mirrors[0]: Response(data, status=410)})
+    with pytest.raises(ValueError, match="HTTP 410"):
+        await ensure_verified_engine(Hass(), remote, tmp_path, asset, Mock())
+    assert list(tmp_path.iterdir()) == [old]
 
 
 async def test_wrapper_exposes_install_failure_and_unsupported_platform(tmp_path):

@@ -23,6 +23,20 @@ class EngineAsset:
     binary_sha256: str
     archive_bytes: int
     binary_bytes: int
+    # Further byte-identical copies, tried in order after ``url``. Every copy
+    # must pass the same archive and binary digests, so a mirror adds
+    # availability without adding trust.
+    mirrors: tuple[str, ...] = ()
+
+    @property
+    def sources(self) -> tuple[str, ...]:
+        return (self.url, *self.mirrors)
+
+
+# Alpine ships Stockfish only in edge/testing, a rolling repository: a rebuild
+# (18-r1) or promotion removes the pinned 18-r0 package. The project mirror
+# holds the identical signed packages; see docs/ENGINE_ARTIFACTS.md.
+ENGINE_MIRROR = "https://github.com/luketadams/phantom-chess-engines/releases/download/stockfish-18"
 
 
 # The GitHub archive digests match release API metadata. Alpine archive and
@@ -46,19 +60,21 @@ GLIBC_BASELINE = EngineAsset(
 )
 
 MUSL_X86 = EngineAsset(
-    'https://dl-cdn.alpinelinux.org/alpine/edge/testing/x86_64/stockfish-18-r0.apk',
+    f'{ENGINE_MIRROR}/stockfish-18-r0-x86_64.apk',
     'usr/bin/stockfish',
     '804a4ae7d35ed55d30dd031e6e1c738a4d9d3e2cbe2c293495c12ec4c67271e1',
     'f641c102b2e46682a24284566e7bf1222600da594106f29d901e24b0460aeac9',
     75884923, 112982200,
+    mirrors=('https://dl-cdn.alpinelinux.org/alpine/edge/testing/x86_64/stockfish-18-r0.apk',),
 )
 
 MUSL_ARM = EngineAsset(
-    'https://dl-cdn.alpinelinux.org/alpine/edge/testing/aarch64/stockfish-18-r0.apk',
+    f'{ENGINE_MIRROR}/stockfish-18-r0-aarch64.apk',
     'usr/bin/stockfish',
     'be308a62ea3045a9e36b2336ebad7a6e38b9030285b1c7e4927249e97b21b9b4',
     'cc28730bcc22f1e510e82561846bef0aa5bddb92cd83441f1dc5d034a0cb3f8a',
     75887859, 112986200,
+    mirrors=('https://dl-cdn.alpinelinux.org/alpine/edge/testing/aarch64/stockfish-18-r0.apk',),
 )
 
 # The baseline x86 binary avoids assuming AVX2. Stockfish 18 does not publish
@@ -132,23 +148,37 @@ async def ensure_verified_engine(hass: Any, session: Any, directory: Path,
         status("verifying")
         if await hass.async_add_executor_job(_installed, target, asset):
             return target
-        status("downloading")
-        temporary = await hass.async_add_executor_job(_prepare, directory)
-        archive = temporary / "download"
-        try:
-            total = 0
-            async with session.get(asset.url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
-                if response.status != 200:
-                    raise ValueError(f"Engine download returned HTTP {response.status}")
-                async for chunk in response.content.iter_chunked(1024 * 1024):
-                    total += len(chunk)
-                    if total > asset.archive_bytes:
-                        raise ValueError("Engine download exceeds its expected size")
-                    await hass.async_add_executor_job(_append, archive, chunk)
-            if total != asset.archive_bytes:
-                raise ValueError("Engine download is incomplete")
-            status("installing")
-            await hass.async_add_executor_job(_verify_install, archive, target, asset)
-            return target
-        finally:
-            await hass.async_add_executor_job(shutil.rmtree, temporary, True)
+        last_error: BaseException | None = None
+        for url in asset.sources:
+            status("downloading")
+            try:
+                return await _download_and_install(hass, session, directory, target, asset, url, status, timeout)
+            except (ValueError, OSError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+                # Try the next byte-identical source; the working engine is untouched.
+                last_error = err
+        assert last_error is not None
+        raise last_error
+
+
+async def _download_and_install(hass: Any, session: Any, directory: Path, target: Path,
+                                asset: EngineAsset, url: str, status: Callable[[str], None],
+                                timeout: float) -> Path:
+    temporary = await hass.async_add_executor_job(_prepare, directory)
+    archive = temporary / "download"
+    try:
+        total = 0
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+            if response.status != 200:
+                raise ValueError(f"Engine download returned HTTP {response.status}")
+            async for chunk in response.content.iter_chunked(1024 * 1024):
+                total += len(chunk)
+                if total > asset.archive_bytes:
+                    raise ValueError("Engine download exceeds its expected size")
+                await hass.async_add_executor_job(_append, archive, chunk)
+        if total != asset.archive_bytes:
+            raise ValueError("Engine download is incomplete")
+        status("installing")
+        await hass.async_add_executor_job(_verify_install, archive, target, asset)
+        return target
+    finally:
+        await hass.async_add_executor_job(shutil.rmtree, temporary, True)

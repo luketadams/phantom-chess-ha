@@ -1,6 +1,6 @@
 # Verified Stockfish artifacts
 
-Build 0.5.0b3 pins both archive and executable SHA-256 values. New downloads are streamed in 1 MiB chunks under the exact expected byte limit, staged on the same filesystem, and checked before installation. Only the named regular binary member is copied; archive paths are never extracted into the configuration tree. Installation uses `os.replace`, so a failed download or validation keeps the previous executable intact. Concurrent boards sharing a binary directory share an installation lock.
+The integration pins both archive and executable SHA-256 values. New downloads are streamed in 1 MiB chunks under the exact expected byte limit, staged on the same filesystem, and checked before installation. Only the named regular binary member is copied; archive paths are never extracted into the configuration tree. Installation uses `os.replace`, so a failed download or validation keeps the previous executable intact. Concurrent boards sharing a binary directory share an installation lock.
 
 New glibc x86 installations use the upstream baseline build, without assuming AVX2. An existing official AVX2 binary is accepted only when its executable digest matches the pinned release. The selected platform's cached executable must have a known size and digest before launch. Linux ARM64 with musl uses Alpine's package. Stockfish 18 does not publish the integration's former `stockfish-ubuntu-arm64.tar` URL; glibc ARM64 now reports no verified package rather than attempting that URL. Other platforms also report unavailability explicitly.
 
@@ -36,6 +36,10 @@ New glibc x86 installations use the upstream baseline build, without assuming AV
 - Archive: `be308a62ea3045a9e36b2336ebad7a6e38b9030285b1c7e4927249e97b21b9b4` (75,887,859 bytes)
 - Executable `usr/bin/stockfish`: `cc28730bcc22f1e510e82561846bef0aa5bddb92cd83441f1dc5d034a0cb3f8a` (112,986,200 bytes)
 
+## Sources and mirror
+
+Alpine publishes Stockfish only in `edge/testing`, a rolling repository, so a rebuild (`18-r1`) or promotion removes the pinned `18-r0` package. Each artifact therefore has an ordered source list: the musl packages are fetched first from the project mirror, [phantom-chess-engines release `stockfish-18`](https://github.com/luketadams/phantom-chess-engines/releases/tag/stockfish-18), then from Alpine. The mirror holds the unmodified signed packages (digests re-verified on upload, September 26, 2026) with the GPLv3 text and source links. Any source that fails, returns wrong bytes or is interrupted is skipped in favour of the next; every source must pass the same archive and executable digests, and the working engine is never replaced by an unverified file. The official glibc builds come from the Stockfish GitHub release, whose assets are permanent.
+
 ## Maintenance
 
-An upstream version or byte change requires an explicit manifest update backed by publisher verification and tests. A moved/removed Alpine edge package fails visibly; do not bypass its digest check or fall back to an arbitrary executable. Downloaded binaries remain cached in the HA configuration and are not included in the integration ZIP.
+An upstream version or byte change requires an explicit manifest update backed by publisher verification and tests, plus a matching mirror release. Do not bypass a digest check or fall back to an arbitrary executable. Downloaded binaries remain cached in the HA configuration and are not included in the integration ZIP.
