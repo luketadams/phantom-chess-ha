@@ -2,6 +2,7 @@
   "domain": "phantom_chess",
   "name": "Phantom Chess Board",
   "after_dependencies": [
+    "assist_pipeline",
     "http",
     "lovelace"
   ],

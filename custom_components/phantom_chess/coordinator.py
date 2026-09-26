@@ -2432,8 +2432,9 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
                 return
             await _sleep(0.1)
         raise TimeoutError(
-            f"Firmware did not reach HOME within {timeout}s after GAME_END "
-            f"(current mode: {self._state.get('firmware_mode')!r})"
+            f"The board did not return to its home state within {timeout:.0f}s "
+            f"(firmware mode: {self._state.get('firmware_mode')!r}). Make sure no "
+            "piece is lifted or between squares, then try again."
         )
 
     async def _phantom_execute_position(

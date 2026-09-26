@@ -34,7 +34,7 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 - [ ] 0.4.0-beta4 → 0.5 upgrade: config-entry migration, orphaned entities, dashboard reprovision
 - [ ] Removal cleans up dashboard, `www` assets, engine binary and storage (or documents what remains)
 - [ ] Speech: generic media-player TTS works without the Apple TV integration; managed HomePod speech stays optional
-- [ ] Reset confirmation: a supervised reset (Sept 2026) never confirmed because firmware did not reach HOME within 30 s of GAME_END. Investigate the timeout and completion signal; fix or bound it
+- [x] Reset confirmation: the unconfirmed Sept 2026 reset (firmware stuck at `N b?-b1` after GAME_END) is not diagnosable without the board. The timeout message is now actionable; root cause moves to the M4 capture below
 
 ### M3 — Docs
 - [ ] README rewritten for 0.5: requirements, install, setup, dashboard tour, voice, services, privacy, troubleshooting, limits
@@ -44,6 +44,7 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 ### M4 — Hardware qualification (supervised, scripted, ~60–90 min)
 - [ ] Local game with capture, castling, en passant and promotion
 - [ ] Pause during motion; undo; reset; resign; back to modes
+- [ ] Reset capture: with `debug_dump` on, reset from a finished game and from a mid-game position; record `firmware_mode` transitions after GAME_END
 - [ ] Bluetooth loss mid-game (proxy power pulled); HA restart mid-game → resume
 - [ ] Voice start; speech for moves, check and mate
 - [ ] Lichess online game incl. takeback; two-player recording; one sculpture game
