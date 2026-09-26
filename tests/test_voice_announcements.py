@@ -44,7 +44,20 @@ def _stub(voice_on: bool) -> types.SimpleNamespace:
         bus=types.SimpleNamespace(async_fire=MagicMock()),
         services=types.SimpleNamespace(async_call=AsyncMock()),
     )
+    stub._state = {}
+    stub.async_set_updated_data = MagicMock()
     return stub
+
+
+def test_generic_tts_failure_is_surfaced_then_cleared() -> None:
+    stub = _stub(voice_on=True)
+    stub.hass.services.async_call.side_effect = RuntimeError("Entity not found")
+    asyncio.run(PhantomChessCoordinator._announce_via_tts(stub, "Check"))
+    assert stub._state["speech_error"] == "Speech unavailable: Entity not found"
+    assert stub.hass.services.async_call.call_args.kwargs["blocking"] is True
+    stub.hass.services.async_call.side_effect = None
+    asyncio.run(PhantomChessCoordinator._announce_via_tts(stub, "Check"))
+    assert stub._state["speech_error"] is None
 
 
 def test_mute_suppresses_tts_but_still_fires_event() -> None:

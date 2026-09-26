@@ -4506,17 +4506,24 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
                     service_data["language"] = tts_language
                 if tts_voice:
                     service_data["options"] = {"voice": tts_voice}
+                # Awaited like managed speech so a wrong engine, voice or
+                # player reaches the dashboard instead of failing silently.
                 await self.hass.services.async_call(
                     "tts", "speak",
                     service_data,
-                    blocking=False,
+                    blocking=True,
                 )
                 _LOGGER.debug("TTS dispatched via %s → %s (lang=%s voice=%s): %s",
                               tts_service, tts_media_player,
                               tts_language or "default", tts_voice or "default",
                               message)
+                if self._state.get("speech_error"):
+                    self._state["speech_error"] = None
+                    self.async_set_updated_data(dict(self._state))
             except Exception as e:
-                _LOGGER.debug("TTS speak failed (%s): %s", tts_service, e)
+                self._state["speech_error"] = f"Speech unavailable: {e}"
+                _LOGGER.warning("Phantom speech via %s failed: %s", tts_service, e)
+                self.async_set_updated_data(dict(self._state))
 
     def _should_announce_active_game(self) -> bool:
         """True if we're in an active Lichess or local Stockfish game.

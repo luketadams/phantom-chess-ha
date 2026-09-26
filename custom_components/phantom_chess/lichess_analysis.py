@@ -431,7 +431,7 @@ class StockfishFallback:
                 self._transport = transport
                 self._engine = engine
                 self._set_engine_state("ready")
-                _LOGGER.warning(
+                _LOGGER.info(
                     "Stockfish engine started from %s", self.binary_path
                 )
                 return engine
