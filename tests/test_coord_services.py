@@ -73,9 +73,11 @@ async def test_async_setup_creates_analysis_client_and_ble_task() -> None:
 
     fake_hass.loop.create_task = MagicMock(side_effect=_capture_task)
     coord.hass = fake_hass
+    store = AsyncMock()
+    store.async_load.return_value = None
     with patch(
         "custom_components.phantom_chess.lichess_analysis.LichessAnalysisClient"
-    ):
+    ), patch("homeassistant.helpers.storage.Store", return_value=store):
         await coord.async_setup()
     assert coord._analysis_client is not None
     # A BLE task was scheduled on the loop.
@@ -263,6 +265,7 @@ async def test_dashboard_move_local_playing_branch_triggers_ai() -> None:
 
     async def _apply(uci):
         coord._board.push_uci(uci)
+        return True
 
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
     coord._record_and_analyze_local_move = MagicMock()
@@ -284,6 +287,7 @@ async def test_dashboard_move_local_real_checkmate() -> None:
 
     async def _apply(uci):
         coord._board.push_uci(uci)
+        return True
 
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
     coord._record_and_analyze_local_move = MagicMock()
@@ -316,6 +320,7 @@ async def test_takeback_bad_count_raises() -> None:
 async def test_takeback_local_game_writes_opcode5() -> None:
     client = FakeBleakClient()
     coord = make_coordinator(client=client)
+    coord._await_takeback_completion = AsyncMock()
     coord._game_id = None
     coord._board = chess.Board()
     coord._board.push_uci("e2e4")
@@ -366,6 +371,7 @@ async def test_takeback_lichess_refusal_aborts_before_ble() -> None:
 async def test_takeback_lichess_accept_then_ble_write() -> None:
     client = FakeBleakClient()
     coord = make_coordinator(client=client)
+    coord._await_takeback_completion = AsyncMock()
     coord._game_id = "game123"
     coord._board = chess.Board()
     coord._board.push_uci("e2e4")
@@ -560,13 +566,14 @@ async def test_reset_position_finalizes_two_player() -> None:
     coord._finalize_two_player_game.assert_awaited_once()
 
 
-async def test_reset_position_logs_on_timeout() -> None:
+async def test_reset_position_timeout_reports_failure() -> None:
     coord = make_coordinator()
     coord._two_player_active = False
     coord._board = chess.Board()
     coord._phantom_execute_position = AsyncMock(return_value=False)
     # Should not raise even when the physical drive times out.
-    await coord.async_reset_position()
+    with pytest.raises(TimeoutError, match="did not confirm"):
+        await coord.async_reset_position()
     coord._phantom_execute_position.assert_awaited_once()
 
 

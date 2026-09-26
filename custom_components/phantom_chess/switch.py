@@ -14,6 +14,7 @@ from .const import (
     CONF_DEVICE_NAME,
     DOMAIN,
     ENTITY_PAUSE,
+    ENTITY_STUDY_VIEW,
     ENTITY_TRAINING_WHEELS,
     ENTITY_VOICE_ANNOUNCEMENTS,
 )
@@ -40,6 +41,7 @@ async def async_setup_entry(
         PhantomPauseSwitch(coordinator, entry, address, name),
         PhantomTrainingWheelsSwitch(coordinator, entry, address, name),
         PhantomVoiceAnnouncementsSwitch(coordinator, entry, address, name),
+        PhantomStudyViewSwitch(coordinator, entry, address, name),
     ])
 
 
@@ -199,4 +201,66 @@ class PhantomVoiceAnnouncementsSwitch(
 
     async def async_turn_off(self, **kwargs) -> None:
         self.coordinator.voice_announcements = False
+        self.async_write_ha_state()
+
+
+class PhantomStudyViewSwitch(
+    CoordinatorEntity[PhantomChessCoordinator], SwitchEntity, RestoreEntity
+):
+    """Study-mode display toggle (Luke, 2026-07-08). A single global
+    display-density preference available in every active-game view:
+
+    * OFF (default) — the dashboard renders the full-width board only
+      ("board status") across Lichess, local Stockfish, AI-vs-AI, two-player
+      recording, and sculpture playback.
+    * ON — the dashboard renders the rich learning layout (eval bar / board /
+      moves table / last-move strip) for those same modes.
+
+    This is a DISPLAY toggle only: zero coordinator gameplay behaviour hangs
+    off ``study_view``. It is deliberately NOT ``training_wheels`` (which
+    gates engine-hint coaching) — the two are independent.
+
+    Pure-local config storage (no BLE write), so it works whether or not the
+    board is connected. State persists across HA restarts via
+    ``RestoreEntity``.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "study_view"
+    _attr_icon = "mdi:book-open-variant"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: PhantomChessCoordinator,
+        entry: ConfigEntry,
+        address: str,
+        device_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{address}_{ENTITY_STUDY_VIEW}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, address)},
+            "name": device_name,
+            "manufacturer": "Phantom",
+            "model": "Phantom Chess Board",
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is None or last.state in (None, "unknown", "unavailable"):
+            return
+        self.coordinator.study_view = last.state == "on"
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self.coordinator.study_view)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self.coordinator.study_view = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self.coordinator.study_view = False
         self.async_write_ha_state()

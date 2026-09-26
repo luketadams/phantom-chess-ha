@@ -18,12 +18,12 @@
       },
       "lichess_token": {
         "title": "Lichess Board API Token",
-        "description": "Enter your Lichess Board API token for **{device}**.\n\nCreate one at {token_url} — enable **Board API** scope.",
+        "description": "Enter your Lichess Board API token for **{device}**.\n\nCreate one at {token_url} \u2014 enable **Board API** scope.",
         "data": {
           "lichess_token": "Lichess Board API Token"
         },
         "data_description": {
-          "lichess_token": "A personal-access token generated on Lichess with the Board API scope enabled. Used only for streaming your active board games and posting moves on your behalf — never read."
+          "lichess_token": "A personal-access token generated on Lichess with the Board API scope enabled. Used only for streaming your active board games and posting moves on your behalf \u2014 never read."
         }
       },
       "reauth_confirm": {
@@ -48,35 +48,35 @@
       },
       "reconfigure": {
         "title": "Reconfigure Phantom Chess",
-        "description": "Update the configuration for **{device}** (currently linked to Lichess account: `{current_user}`).\n\nLeave the Lichess token field blank to keep the existing token. The BLE address can't be changed here — that would mean a different physical board; remove this entry and add a new one if you've swapped boards.",
+        "description": "Update the configuration for **{device}** (currently linked to Lichess account: `{current_user}`).\n\nLeave the Lichess token field blank to keep the existing token. The BLE address can't be changed here \u2014 that would mean a different physical board; remove this entry and add a new one if you've swapped boards.",
         "data": {
           "ble_address": "Board Bluetooth Address (read-only)",
           "lichess_token": "New Lichess Board API Token (optional)"
         },
         "data_description": {
-          "ble_address": "The BLE address of the board this entry is configured for. Changing it isn't supported — submit a different address and the flow will abort.",
+          "ble_address": "The BLE address of the board this entry is configured for. Changing it isn't supported \u2014 submit a different address and the flow will abort.",
           "lichess_token": "Optional. Paste a fresh Lichess token here to rotate it preemptively (e.g. before expiry). Leave blank if you only want to confirm the existing config."
         }
       }
     },
     "error": {
-      "invalid_lichess_token": "Invalid Lichess token — check that the token has Board API scope and try again.",
+      "invalid_lichess_token": "Invalid Lichess token \u2014 check that the token has Board API scope and try again.",
       "invalid_ble_address": "That doesn't look like a Bluetooth MAC address. Expected 6 hex pairs separated by colons or dashes, e.g. C8:C9:A3:F2:7C:0A.",
-      "unknown": "Unexpected error — see Home Assistant logs."
+      "unknown": "Unexpected error \u2014 see Home Assistant logs."
     },
     "abort": {
       "already_configured": "This board is already configured.",
       "no_devices_found": "No Phantom Chess Boards were discovered. Make sure the board is powered on and in Bluetooth range.",
-      "reauth_successful": "Lichess token updated — integration reloaded.",
-      "reconfigure_successful": "Configuration confirmed — no changes needed.",
-      "reconfigure_entry_not_found": "Couldn't find the integration entry to reconfigure. Try again from Settings → Devices & Services.",
+      "reauth_successful": "Lichess token updated \u2014 integration reloaded.",
+      "reconfigure_successful": "Configuration confirmed \u2014 no changes needed.",
+      "reconfigure_entry_not_found": "Couldn't find the integration entry to reconfigure. Try again from Settings \u2192 Devices & Services.",
       "ble_address_mismatch": "The BLE address you submitted differs from this entry's board. To set up a different board, delete this integration and add a new one with the new address."
     }
   },
   "issues": {
     "missing_frontend_deps": {
       "title": "Phantom Chess dashboard is missing HACS plugins",
-      "description": "The auto-provisioned Chess dashboard at /phantom-chess uses these HACS frontend plugins for its visual polish: **{missing}**.\n\nThe dashboard still loads, but tiles will render with broken styling and template substitutions won't run. Install the missing plugins via HACS → Frontend, then reload the Phantom Chess integration (or restart Home Assistant) to clear this notice.\n\nIf you've intentionally turned off the auto-provisioned dashboard via the integration's options (Configure → Auto-provision dashboard), you can dismiss this issue — it won't reappear until you re-enable the dashboard."
+      "description": "The auto-provisioned Chess dashboard at /phantom-chess uses these HACS frontend plugins for its visual polish: **{missing}**.\n\nThe dashboard still loads, but tiles will render with broken styling and template substitutions won't run. Install the missing plugins via HACS \u2192 Frontend, then reload the Phantom Chess integration (or restart Home Assistant) to clear this notice.\n\nIf you've intentionally turned off the auto-provisioned dashboard via the integration's options (Configure \u2192 Auto-provision dashboard), you can dismiss this issue \u2014 it won't reappear until you re-enable the dashboard."
     }
   },
   "options": {
@@ -90,7 +90,9 @@
           "tts_language": "Voice language",
           "tts_voice": "Voice",
           "debug_dump": "Write developer-debug artifacts to the config directory under phantom_chess/debug/",
-          "auto_provision_dashboard": "Auto-provision Chess dashboard"
+          "auto_provision_dashboard": "Auto-provision Chess dashboard",
+          "homepod_speech": "Speak through HomePod using my preferred voice assistant",
+          "speech_volume": "Speech volume (0 to 1)"
         },
         "data_description": {
           "tts_service": "Optional. Pick a text-to-speech entity to speak move announcements and coaching aloud. Leave blank to only fire the `phantom_chess_announce` event for your own automation.",
@@ -98,7 +100,8 @@
           "tts_language": "Optional. Force a language for the chosen engine. For Home Assistant Cloud use a locale like en-GB. Leave blank for the engine default.",
           "tts_voice": "Optional. Force a specific voice. For Home Assistant Cloud use a short neural voice name like RyanNeural. Leave blank for the engine default.",
           "debug_dump": "Off by default. Only enable when troubleshooting an issue.",
-          "auto_provision_dashboard": "On by default. When enabled the integration creates and maintains the /phantom-chess dashboard automatically. Disable if you prefer to author your own dashboard — the existing /phantom-chess dashboard will be removed on the next reload."
+          "auto_provision_dashboard": "On by default. When enabled the integration creates and maintains the /phantom-chess dashboard automatically. Disable if you prefer to author your own dashboard \u2014 the existing /phantom-chess dashboard will be removed on the next reload.",
+          "homepod_speech": "Use the selected media player from the Apple TV integration. Follows the preferred Assist pipeline voice. Disable any separate announcement automation to avoid duplicates."
         }
       }
     }
@@ -126,6 +129,9 @@
       },
       "voice_announcements": {
         "name": "Voice announcements"
+      },
+      "study_view": {
+        "name": "Study mode"
       }
     },
     "select": {
@@ -274,13 +280,13 @@
   },
   "exceptions": {
     "no_board_configured": {
-      "message": "No Phantom Chess Board configured. Add one via Settings → Devices & Services before calling phantom_chess.* services."
+      "message": "No Phantom Chess Board configured. Add one via Settings \u2192 Devices & Services before calling phantom_chess.* services."
     },
     "unknown_entry_id": {
       "message": "entry_id {entry_id} does not match any configured Phantom Chess Board (known: {known})"
     },
     "ambiguous_target_entry": {
-      "message": "{count} Phantom Chess Boards configured — service call must include an entry_id field to target one specifically. Known entry_ids: {known}"
+      "message": "{count} Phantom Chess Boards configured \u2014 service call must include an entry_id field to target one specifically. Known entry_ids: {known}"
     }
   },
   "services": {
@@ -294,7 +300,7 @@
     },
     "start_local_game": {
       "name": "Start Local Game",
-      "description": "Start a game against the built-in AI — no Lichess account required."
+      "description": "Start a game against the built-in AI \u2014 no Lichess account required."
     },
     "stop_local_game": {
       "name": "Stop Local Game",
@@ -338,7 +344,7 @@
     },
     "debug_ble_write": {
       "name": "Debug BLE Write",
-      "description": "Diagnostic — write an arbitrary payload to a BLE characteristic."
+      "description": "Diagnostic \u2014 write an arbitrary payload to a BLE characteristic."
     },
     "diagnose_game_start": {
       "name": "Diagnose Game Start",
@@ -362,7 +368,7 @@
     },
     "move_piece": {
       "name": "Move Piece",
-      "description": "Low-level move primitive — instructs firmware to move a piece via the magnet."
+      "description": "Low-level move primitive \u2014 instructs firmware to move a piece via the magnet."
     },
     "start_sculpture": {
       "name": "Start Sculpture Mode",

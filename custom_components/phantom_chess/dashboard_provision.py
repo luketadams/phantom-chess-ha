@@ -1,53 +1,8 @@
-"""Auto-provision a Lovelace dashboard for a Phantom Chess board.
+"""Provision the bundled native Phantom Chess card as a Home Assistant dashboard.
 
-The integration's v0.3.x release shipped a 1083-line "rich" dashboard in
-``examples/dashboard-rich.yaml`` that the user had to copy by hand and run a
-find/replace on the YOUR_BOARD_MAC placeholder. v0.4 promotes this dashboard
-to a first-class integration deliverable: on config-entry setup we render the
-template against the user's board MAC and install it as a real
-``select.phantom-chess`` dashboard in the sidebar.
-
-Strategy
---------
-1. ``dashboard_template.yaml`` (bundled in the integration package) is the
-   v0.3 rich template, unchanged. Keeping the template in YAML rather than
-   building cards in Python keeps the dashboard editable by humans and easy
-   to diff.
-2. At provision time we apply a small set of text substitutions:
-     - MAC slug (``YOUR_BOARD_MAC`` → ``aa_bb_cc_dd_ee_ff``).
-     - Helper entities (``input_select.phantom_chess_*`` →
-       ``select.phantom_<mac>_*``, ``input_number.*`` → ``number.*``,
-       ``input_boolean.phantom_chess_training_wheels`` →
-       ``switch.phantom_<mac>_training_wheels``).
-     - Helper service domains (``input_select.select_option`` →
-       ``select.select_option``, etc.).
-     - Script tile references and tap_actions
-       (``script.phantom_back_to_modes`` → ``phantom_chess.back_to_modes``
-       service call, and the tile itself is rewritten to a ``type: button``
-       card so the icon and body share one tap_action — eliminating HA's
-       default icon-tap "more-info" popup at the source).
-3. The rendered YAML is parsed and written to ``.storage/lovelace.<id>``
-   via ``LovelaceStorage.async_save``.
-4. The dashboard registration row is appended to ``.storage/lovelace_dashboards``
-   via the same ``Store`` helper Home Assistant's
-   ``DashboardsCollection`` uses. We write storage directly because the
-   collection object is only kept as a closure inside ``lovelace.async_setup``
-   and has no public accessor — see core/homeassistant/components/lovelace/__init__.py.
-5. A Lovelace panel is registered in-memory via
-   ``frontend.async_register_built_in_panel`` so the dashboard appears in the
-   sidebar without a restart.
-6. The ``LovelaceStorage`` instance is added to
-   ``hass.data[LOVELACE_DATA].dashboards[url_path]`` so the websocket
-   ``lovelace/config`` lookup finds it.
-
-The provision is idempotent: ``async_panel_exists`` is checked first so a
-restart, second config entry, or reload doesn't duplicate the row.
-
-Unprovision (called from ``async_remove_entry``) reverses all four side
-effects. ``async_unload_entry`` does NOT unprovision — the dashboard is
-meant to survive reload, and users who delete a single config entry but
-keep the integration installed get to keep their dashboard until they
-remove the integration entirely.
+The default dashboard uses dashboard_app.yaml and packaged JavaScript. The
+optional classic renderer retains entity resolution for existing custom layouts.
+Lovelace storage and sidebar registration are idempotent across entry reloads.
 """
 
 from __future__ import annotations
@@ -458,7 +413,7 @@ def _convert_tile_to_button(card: dict[str, Any], tap_action: dict[str, Any]) ->
 
 
 async def build_dashboard_config(
-    hass: HomeAssistant, ble_address: str
+    hass: HomeAssistant, ble_address: str, *, classic: bool = False
 ) -> dict[str, Any]:
     """Render the bundled template and parse to dict.
 
@@ -483,7 +438,7 @@ async def build_dashboard_config(
     """
     entity_map = _resolve_entity_ids(hass, ble_address)
     yaml_text: str = await asyncio.to_thread(
-        _TEMPLATE_PATH.read_text, encoding="utf-8"
+        (_TEMPLATE_PATH if classic else _TEMPLATE_PATH.with_name("dashboard_app.yaml")).read_text, encoding="utf-8"
     )
 
     # text-level pass needs `script.turn_on` tap_action rewrites collapsed
@@ -698,8 +653,6 @@ async def async_provision_dashboard(
     persisted row), this function just refreshes the storage config so the
     panel always reflects the current MAC.
     """
-    # Make the launcher's mascot button images available at /local/.
-    await hass.async_add_executor_job(_copy_button_assets, hass)
 
     ble_address = entry.data.get(CONF_BLE_ADDRESS)
     if not ble_address:
@@ -714,6 +667,9 @@ async def async_provision_dashboard(
     except Exception:  # noqa: BLE001 — surface template errors loudly
         _LOGGER.exception("Failed to render Phantom Chess dashboard template")
         return
+
+    # Frontend is ready when Lovelace provisions the dashboard.
+    frontend.add_extra_js_url(hass, "/phantom_chess_static/phantom-chess-card.js?v=0.5.0b7")
 
     # 1. Persist the per-dashboard config (lovelace.<id> store).
     storage_meta = {"id": DASHBOARD_ID, CONF_URL_PATH: DASHBOARD_URL_PATH}
@@ -791,7 +747,7 @@ async def async_provision_dashboard(
     # plugins they need to install. Non-fatal — the dashboard works
     # without them, just looks broken.
     try:
-        _sync_frontend_deps_issue(hass)
+        ir.async_delete_issue(hass, DOMAIN, MISSING_DEPS_ISSUE_ID)
     except Exception:  # noqa: BLE001 — never block provision on diagnostics
         _LOGGER.exception("Failed to sync frontend-deps issue")
 

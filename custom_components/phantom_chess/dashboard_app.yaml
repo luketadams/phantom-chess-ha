@@ -1,0 +1,66 @@
+title: Phantom Chess
+views:
+  - title: Play
+    path: main
+    icon: mdi:chess
+    panel: true
+    cards:
+      - type: custom:phantom-chess-card
+        view: play
+        entity: sensor.phantom_YOUR_BOARD_MAC_live_position
+        paused: switch.phantom_YOUR_BOARD_MAC_paused
+        voice: switch.phantom_YOUR_BOARD_MAC_voice_announcements
+        training: switch.phantom_YOUR_BOARD_MAC_training_wheels
+        level: select.phantom_YOUR_BOARD_MAC_ai_level
+        color: select.phantom_YOUR_BOARD_MAC_player_color
+        connected: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+        battery: sensor.phantom_YOUR_BOARD_MAC_battery
+        firmware: sensor.phantom_YOUR_BOARD_MAC_firmware_version
+  - title: Learn
+    path: learn
+    icon: mdi:school-outline
+    panel: true
+    cards:
+      - type: custom:phantom-chess-card
+        view: learn
+        entity: sensor.phantom_YOUR_BOARD_MAC_live_position
+        paused: switch.phantom_YOUR_BOARD_MAC_paused
+        voice: switch.phantom_YOUR_BOARD_MAC_voice_announcements
+        training: switch.phantom_YOUR_BOARD_MAC_training_wheels
+        level: select.phantom_YOUR_BOARD_MAC_ai_level
+        color: select.phantom_YOUR_BOARD_MAC_player_color
+        connected: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+        battery: sensor.phantom_YOUR_BOARD_MAC_battery
+        firmware: sensor.phantom_YOUR_BOARD_MAC_firmware_version
+  - title: Review
+    path: review
+    icon: mdi:history
+    panel: true
+    cards:
+      - type: custom:phantom-chess-card
+        view: review
+        entity: sensor.phantom_YOUR_BOARD_MAC_live_position
+        paused: switch.phantom_YOUR_BOARD_MAC_paused
+        voice: switch.phantom_YOUR_BOARD_MAC_voice_announcements
+        training: switch.phantom_YOUR_BOARD_MAC_training_wheels
+        level: select.phantom_YOUR_BOARD_MAC_ai_level
+        color: select.phantom_YOUR_BOARD_MAC_player_color
+        connected: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+        battery: sensor.phantom_YOUR_BOARD_MAC_battery
+        firmware: sensor.phantom_YOUR_BOARD_MAC_firmware_version
+  - title: Board & settings
+    path: board
+    icon: mdi:cog-outline
+    panel: true
+    cards:
+      - type: custom:phantom-chess-card
+        view: settings
+        entity: sensor.phantom_YOUR_BOARD_MAC_live_position
+        paused: switch.phantom_YOUR_BOARD_MAC_paused
+        voice: switch.phantom_YOUR_BOARD_MAC_voice_announcements
+        training: switch.phantom_YOUR_BOARD_MAC_training_wheels
+        level: select.phantom_YOUR_BOARD_MAC_ai_level
+        color: select.phantom_YOUR_BOARD_MAC_player_color
+        connected: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+        battery: sensor.phantom_YOUR_BOARD_MAC_battery
+        firmware: sensor.phantom_YOUR_BOARD_MAC_firmware_version

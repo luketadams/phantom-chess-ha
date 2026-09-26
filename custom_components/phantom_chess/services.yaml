@@ -663,3 +663,94 @@ execute_move:
       required: false
       selector:
         text:
+
+speak_homepod:
+  name: Speak through HomePod
+  description: Speak a complete message through a paired Apple TV integration HomePod, without touching music queues.
+  fields:
+    media_player_entity_id:
+      required: true
+      selector:
+        entity:
+          domain: media_player
+          integration: apple_tv
+    tts_entity_id:
+      description: Optional override. Leave empty to follow the preferred Assist pipeline voice.
+      selector:
+        entity:
+          domain: tts
+    message:
+      required: true
+      selector:
+        text:
+          multiline: true
+    language:
+      default: en
+      selector:
+        text:
+    voice:
+      selector:
+        text:
+    volume_level:
+      default: 0.8
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.05
+
+save_game:
+  name: Save and pause game
+  description: Pause the current local game and save its legal position for recovery.
+  fields:
+    entry_id:
+      selector:
+        text:
+resume_game:
+  name: Resume saved game
+  description: Synchronize the board to a saved local position, then resume play after physical confirmation.
+  fields:
+    entry_id:
+      selector:
+        text:
+    game_id:
+      description: Saved-game ID. Omit to resume the interrupted game.
+      selector:
+        text:
+game_library:
+  name: Saved games
+  description: Manage saved games and start, inspect or cancel local game analysis. Review results survive restarts; practice creates a separate position.
+  fields:
+    entry_id:
+      selector:
+        text:
+    action:
+      default: list
+      selector:
+        select:
+          options: [list, import, export, delete, practice, analyze, reanalyze, review, cancel_review]
+    game_id:
+      selector:
+        text:
+    query:
+      selector:
+        text:
+    ply:
+      description: Position index for practice (0 is the starting position).
+      selector:
+        number:
+          min: 0
+          max: 4096
+          mode: box
+    pgn:
+      selector:
+        text:
+          multiline: true
+
+check_engine:
+  name: Check chess engine
+  description: Verify and prepare the local chess engine without moving the board or speaking. Retries a failed installation. End any active game first.
+  fields:
+    entry_id:
+      selector:
+        text:

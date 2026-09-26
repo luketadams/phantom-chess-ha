@@ -468,6 +468,9 @@ class PhantomChessOptionsFlow(OptionsFlow):
         current = self.config_entry.options or {}
         schema = vol.Schema(
             {
+                vol.Optional("homepod_speech", default=bool(current.get("homepod_speech", False))): bool,
+                vol.Optional("speech_volume", default=float(current.get("speech_volume", 0.8))):
+                    vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
                 vol.Optional(
                     "tts_service",
                     description={"suggested_value": current.get("tts_service", "")},

@@ -6,7 +6,7 @@ import logging
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
@@ -592,7 +592,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     enumerating ``hass.config_entries.async_entries(DOMAIN)`` and reading
     ``entry.runtime_data`` — see ``_get_coordinator``.
     """
+    from .homepod_speech import register_service
+
     _register_services(hass)
+    register_service(hass)
     await _register_static_paths(hass)
     return True
 
@@ -625,6 +628,7 @@ async def async_setup_entry(
     # entry.runtime_data, not hass.data[DOMAIN][entry.entry_id]. HA
     # garbage-collects this automatically on unload.
     entry.runtime_data = coordinator
+    coordinator._options_snapshot = dict(entry.options)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -672,7 +676,16 @@ async def async_setup_entry(
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Re-load the config entry when options change."""
+    """Apply speech preferences without interrupting a game."""
+    coordinator = getattr(entry, "runtime_data", None)
+    previous = getattr(coordinator, "_options_snapshot", None)
+    current = dict(entry.options)
+    speech_keys = {"homepod_speech", "speech_volume", "tts_service", "tts_media_player_entity_id", "tts_language", "tts_voice"}
+    if coordinator is not None and isinstance(previous, dict):
+        changed = {key for key in previous.keys() | current.keys() if previous.get(key) != current.get(key)}
+        if changed <= speech_keys:
+            coordinator._options_snapshot = current
+            return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -850,6 +863,56 @@ def _register_services(hass: HomeAssistant) -> None:
             },
         )
 
+    async def handle_save_game(call: ServiceCall) -> dict:
+        try:
+            return await _get_coordinator(call).async_save_game()
+        except (ValueError, RuntimeError, OSError) as err:
+            raise ServiceValidationError(str(err)) from err
+
+    async def handle_resume_game(call: ServiceCall) -> None:
+        try:
+            await _get_coordinator(call).async_resume_game(call.data.get("game_id"))
+        except (ValueError, RuntimeError, OSError) as err:
+            raise ServiceValidationError(str(err)) from err
+
+    async def handle_check_engine(call: ServiceCall) -> dict:
+        try:
+            return await _get_coordinator(call).async_check_engine()
+        except (ValueError, RuntimeError, OSError) as err:
+            raise ServiceValidationError(str(err)) from err
+
+    hass.services.async_register(
+        DOMAIN, "check_engine", handle_check_engine,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    async def handle_game_library(call: ServiceCall) -> dict:
+        try:
+            data = {k: v for k, v in call.data.items() if k not in ("entry_id", "action")}
+            return await _get_coordinator(call).async_game_library(call.data.get("action", "list"), **data)
+        except (ValueError, RuntimeError, OSError) as err:
+            raise ServiceValidationError(str(err)) from err
+
+    hass.services.async_register(
+        DOMAIN, "save_game", handle_save_game,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN, "resume_game", handle_resume_game,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("game_id"): cv.string}),
+    )
+    hass.services.async_register(
+        DOMAIN, "game_library", handle_game_library,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string,
+                           vol.Optional("action", default="list"): vol.In(["list", "import", "export", "delete", "practice", "analyze", "reanalyze", "review", "cancel_review"]),
+                           vol.Optional("game_id"): cv.string, vol.Optional("query"): cv.string,
+            vol.Optional("ply"): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                           vol.Optional("pgn"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
     async def handle_start_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
         if ai_level := call.data.get("ai_level"):
@@ -881,7 +944,10 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(call)
         if color := call.data.get("color"):
             coordinator.player_color = color
-        await coordinator.async_start_local_game()
+        try:
+            await coordinator.async_start_local_game()
+        except (RuntimeError, TimeoutError) as err:
+            raise ServiceValidationError(str(err)) from err
 
     async def handle_stop_local_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)

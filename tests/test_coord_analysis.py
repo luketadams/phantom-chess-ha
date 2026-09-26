@@ -420,7 +420,7 @@ async def test_maybe_announce_blunder_mate_transition():
     c.voice_announcements = True
     await c._maybe_announce_classification(const.CLASSIFICATION_BLUNDER, 9999, "")
     msg = c.hass.services.async_call.call_args.args[2]["message"]
-    assert "forced mate" in msg
+    assert "evaluation changed sharply" in msg
 
 
 async def test_maybe_announce_mistake():

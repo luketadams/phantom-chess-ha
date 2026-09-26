@@ -155,6 +155,9 @@ except ImportError:
         _PC_DIR / "lichess_analysis.py",
     )
 
+    _stage_pure_module("custom_components.phantom_chess.game_library", _PC_DIR / "game_library.py")
+    _stage_pure_module("custom_components.phantom_chess.sessions", _PC_DIR / "sessions.py")
+
     # coordinator.py: heavy module that pulls in HA's bluetooth +
     # aiohttp_client + update_coordinator helpers. Stub everything it
     # touches at module-load time. Only the pure-function helpers at the

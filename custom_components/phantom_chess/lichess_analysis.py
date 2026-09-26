@@ -3,7 +3,7 @@
 Provides:
 - Cloud-eval HTTP client (https://lichess.org/api/cloud-eval)
 - Opening explorer client (https://explorer.lichess.ovh/masters)
-- Move classifier (centipawn-loss diff → label per Lichess thresholds)
+- Shared chance-loss move classifier with centipawn-loss diagnostics
 - Threat detector (side-to-move "if I could move now" best capture/mate)
 - Fork detector (attacks ≥2 opponent pieces of higher/equal value)
 - Lichess accuracy metric (per-move and game-level)
@@ -23,9 +23,6 @@ import logging
 import math
 import os
 import platform
-import stat
-import tarfile
-import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,16 +32,17 @@ import aiohttp
 import chess
 import chess.engine
 
+from .engine_artifacts import ASSETS, ensure_verified_engine
+from .move_quality import chance_loss, quality_grade, winning_chances
+
 from .const import (
     CLASSIFICATION_BEST,
     CLASSIFICATION_BLUNDER,
     CLASSIFICATION_GOOD,
+    CLASSIFICATION_EXCELLENT,
     CLASSIFICATION_INACCURACY,
     CLASSIFICATION_MISTAKE,
     CLASSIFICATION_UNKNOWN,
-    CPL_GOOD_MAX,
-    CPL_INACCURACY_MAX,
-    CPL_MISTAKE_MAX,
     LICHESS_CLOUD_EVAL_URL,
     LICHESS_OPENING_URL,
 )
@@ -58,7 +56,7 @@ _LOGGER = logging.getLogger(__name__)
 class EvalResult:
     """One eval response. Fields normalized to white-positive perspective."""
     cp: int | None              # centipawns, white-positive. None if mate.
-    mate: int | None            # plies to mate, signed (positive = white mates). None if no mate.
+    mate: int | None            # moves to mate, signed (positive = white mates). None if no mate.
     depth: int | None           # engine depth
     best_uci: str | None        # engine's top move from this position (UCI)
     source: str = "lichess-cloud"   # "lichess-cloud", "stockfish-local", "stub"
@@ -84,9 +82,8 @@ class EvalResult:
     def from_mover_view(self, white_to_move: bool) -> int | None:
         """Return cp from the side-to-move's perspective.
 
-        Lichess cloud-eval already returns cp from the side-to-move's
-        perspective per their API docs, BUT we normalize internally to
-        white-positive in `cp`. So flip for black-to-move.
+        Both Lichess cloud scores and local engine results use White's
+        perspective internally. Flip only when a caller asks for Black's view.
         """
         if self.cp is None:
             return None
@@ -158,8 +155,8 @@ class LichessAnalysisClient:
     # and engine lifecycle.
 
     # Map ai_level 1-8 → (Stockfish Skill Level 0-20, search depth).
-    # Tuned to give comparable strength to Lichess's Stockfish levels so
-    # difficulty feels the same whether the user plays online or offline.
+    # Local standard-Stockfish settings; not calibrated to Lichess levels.
+    # The UI's benchmark Elo bands are references, not measured playing ratings.
     _AI_LEVEL_TABLE: dict[int, tuple[int, int]] = {
         1: (0, 5),    # Skill 0 = weakest standard; depth 5 = very fast
         2: (1, 5),
@@ -179,7 +176,7 @@ class LichessAnalysisClient:
         Uses the shared StockfishFallback engine — no separate subprocess
         spawn. Returns None if Stockfish isn't available (unsupported arch,
         download failed, engine spawn failed). Caller can fall back to
-        cloud-eval or a random legal move.
+        cloud-eval; no random-move failure fallback is used.
         """
         if self._stockfish is None:
             return None
@@ -280,18 +277,10 @@ class LichessAnalysisClient:
         moves_str = top.get("moves", "")
         best_uci = moves_str.split(" ")[0] if moves_str else None
 
-        # Lichess returns cp/mate from the side-to-move's perspective.
-        # Normalize to white-positive: flip sign when black is to move.
-        # Parse the side-to-move robustly — a board-only FEN (no fields)
-        # would IndexError on a naive split, so fall back to "white".
-        fen_fields = fen.split(" ")
-        white_to_move = len(fen_fields) < 2 or fen_fields[1] != "b"
+        # CloudEval.yaml explicitly defines both scores from White's view.
+        # Do not flip on Black's turn: that reverses advantage and grading.
         cp = top.get("cp")
         mate = top.get("mate")
-        if cp is not None and not white_to_move:
-            cp = -cp
-        if mate is not None and not white_to_move:
-            mate = -mate
 
         return EvalResult(
             cp=cp,
@@ -362,59 +351,8 @@ class LichessAnalysisClient:
 # "No such file or directory" on engine spawn (ENOENT from execve when the
 # kernel can't find the dynamic linker the binary asks for).
 
-# Official Stockfish release (glibc-linked).
-STOCKFISH_RELEASE_TAG = "sf_18"
-STOCKFISH_GLIBC_BASE = (
-    "https://github.com/official-stockfish/Stockfish/releases/download/"
-    + STOCKFISH_RELEASE_TAG
-)
-
-# Alpine packages (musl-linked). Pinned to the version that ships with sf_18.
-# edge/testing is the bleeding-edge branch; if the version moves we'll need
-# to bump these strings.
-STOCKFISH_MUSL_X86_URL = (
-    "https://dl-cdn.alpinelinux.org/alpine/edge/testing/x86_64/"
-    "stockfish-18-r0.apk"
-)
-STOCKFISH_MUSL_ARM_URL = (
-    "https://dl-cdn.alpinelinux.org/alpine/edge/testing/aarch64/"
-    "stockfish-18-r0.apk"
-)
-# Path of the binary inside the extracted Alpine apk tar tree.
-STOCKFISH_MUSL_INNER_PATH = "usr/bin/stockfish"
-
-# (libc, machine) → (URL, "inner path" of binary inside the archive)
-# inner_path of None means the official-release tar layout (top-level
-# directory "stockfish/" containing the binary file).
-#
-# ARM (aarch64) coverage added 2026-05-16 (Task #17) — HA on Raspberry Pi
-# 4/5, HA Yellow, HA Green is aarch64, which is the majority of HA installs.
-# Without these entries the integration silently failed local Stockfish on
-# those platforms.
-STOCKFISH_ASSET_MAP: dict[tuple[str, str], tuple[str, str | None]] = {
-    # x86_64 / amd64 ─────────────────────────────────────────────────────
-    ("musl",  "x86_64"): (STOCKFISH_MUSL_X86_URL, STOCKFISH_MUSL_INNER_PATH),
-    ("musl",  "amd64"):  (STOCKFISH_MUSL_X86_URL, STOCKFISH_MUSL_INNER_PATH),
-    ("glibc", "x86_64"): (
-        f"{STOCKFISH_GLIBC_BASE}/stockfish-ubuntu-x86-64-avx2.tar", None
-    ),
-    ("glibc", "amd64"): (
-        f"{STOCKFISH_GLIBC_BASE}/stockfish-ubuntu-x86-64-avx2.tar", None
-    ),
-    # aarch64 / arm64 ────────────────────────────────────────────────────
-    # musl: Alpine edge/testing apk (mirrors the x86 packaging layout).
-    ("musl",  "aarch64"): (STOCKFISH_MUSL_ARM_URL, STOCKFISH_MUSL_INNER_PATH),
-    ("musl",  "arm64"):   (STOCKFISH_MUSL_ARM_URL, STOCKFISH_MUSL_INNER_PATH),
-    # glibc: official release ships an ARM build (no AVX variants — ARM
-    # doesn't have AVX). The binary is named simply 'stockfish' in the tar.
-    ("glibc", "aarch64"): (
-        f"{STOCKFISH_GLIBC_BASE}/stockfish-ubuntu-arm64.tar", None
-    ),
-    ("glibc", "arm64"): (
-        f"{STOCKFISH_GLIBC_BASE}/stockfish-ubuntu-arm64.tar", None
-    ),
-}
-
+# Verified assets cover Linux x86 glibc/musl and ARM64 musl. Other platforms
+# report unavailability explicitly; no unverified or nonexistent URL is used.
 
 def _detect_libc() -> str:
     """Return 'musl' or 'glibc' based on what dynamic linker is present.
@@ -447,10 +385,12 @@ class StockfishFallback:
 
     DEPTH = 18
     TIME_LIMIT_SEC = 1.5
-    DOWNLOAD_TIMEOUT_SEC = 60.0
+    DOWNLOAD_TIMEOUT_SEC = 120.0
 
     def __init__(self, hass, bin_dir: Path | str) -> None:
         self.hass = hass
+        self.engine_state: dict[str, Any] = {"status": "not_checked", "error": None}
+        self.status_callback: Any = None
         self.bin_dir = Path(bin_dir)
         self.binary_path: Path | None = None
         # Concrete type unknown at class init (loop.subprocess_exec
@@ -461,7 +401,7 @@ class StockfishFallback:
         self._init_lock = asyncio.Lock()
         self._eval_lock = asyncio.Lock()
         self._unsupported_arch_warned = False
-        self._available = True  # Flips False on permanent failure
+        self._available = True  # Explicit engine check retries a failed installation/spawn.
 
     async def ensure_engine(self) -> chess.engine.UciProtocol | None:
         """Return a live UCI engine, or None if Stockfish isn't usable.
@@ -490,181 +430,68 @@ class StockfishFallback:
                     pass  # Some engine builds reject Configure mid-init; ignore.
                 self._transport = transport
                 self._engine = engine
+                self._set_engine_state("ready")
                 _LOGGER.warning(
                     "Stockfish engine started from %s", self.binary_path
                 )
                 return engine
             except Exception as err:
                 _LOGGER.warning("Stockfish engine spawn failed: %s", err)
+                self._set_engine_state("error", "The verified engine could not start. Check platform compatibility and retry.")
                 self._available = False
                 return None
 
+    def _set_engine_state(self, status: str, error: str | None = None) -> None:
+        self.engine_state = {"status": status, "error": error}
+        if self.status_callback is not None:
+            self.status_callback(dict(self.engine_state))
+
     async def _ensure_binary(self) -> bool:
-        """Verify the binary exists at self.binary_path; download if not.
-
-        Returns True if a usable binary is now present.
-
-        Notes on layout:
-          The official Stockfish release tar extracts to a directory called
-          "stockfish/" (containing the binary, AUTHORS, etc.). We can't name
-          our canonical binary "stockfish" because that name collides with
-          the extraction directory. Use "engine" as the canonical filename
-          inside bin_dir/.
-        """
-        target = self.bin_dir / "engine"
-        if target.exists() and os.access(target, os.X_OK):
-            self.binary_path = target
-            return True
-
-        libc = _detect_libc()
-        machine = platform.machine().lower()
-        choice = STOCKFISH_ASSET_MAP.get((libc, machine))
-        if choice is None:
+        """Validate cached bytes or atomically install a pinned executable."""
+        libc, machine = _detect_libc(), platform.machine().lower()
+        asset = ASSETS.get((libc, machine))
+        if asset is None:
+            message = f"No verified engine package for {libc}/{machine}"
+            self._set_engine_state("unavailable", message)
             if not self._unsupported_arch_warned:
-                _LOGGER.warning(
-                    "Stockfish fallback unavailable: no binary for libc=%s arch=%s. "
-                    "Cloud-eval misses will surface as 'unknown' classifications.",
-                    libc, machine,
-                )
+                _LOGGER.warning(message)
                 self._unsupported_arch_warned = True
             return False
-        url, inner_path = choice
-
-        _LOGGER.warning("Stockfish: downloading %s → %s (libc=%s)", url, target, libc)
-
-        try:
-            self.bin_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as err:
-            _LOGGER.warning("Stockfish: cannot create %s: %s", self.bin_dir, err)
-            return False
-
-        # uuid4 avoids collisions when two config entries download simultaneously.
-        tmp_path = self.bin_dir / f"download-{uuid.uuid4()}.tar"
-
-        # Download to memory, then write to disk in an executor to avoid
-        # blocking the event loop. Stockfish tar is ~3 MB so the in-memory
-        # buffer is small.
         from homeassistant.helpers.aiohttp_client import async_get_clientsession
-        session = async_get_clientsession(self.hass)
         try:
-            async with session.get(
-                url,
-                timeout=aiohttp.ClientTimeout(total=self.DOWNLOAD_TIMEOUT_SEC),
-            ) as resp:
-                if resp.status != 200:
-                    _LOGGER.warning(
-                        "Stockfish download HTTP %s for %s", resp.status, url
-                    )
-                    return False
-                data = await resp.read()
-        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-            _LOGGER.warning("Stockfish download failed: %s", err)
-            return False
-
-        def _write_and_extract(payload: bytes, inner: str | None) -> Path | None:
-            try:
-                # Write archive to disk
-                with open(tmp_path, "wb") as fp:
-                    fp.write(payload)
-                # Extract. Both Alpine .apk and official .tar are gzipped
-                # tarballs; tarfile auto-detects compression.
-                with tarfile.open(tmp_path) as tar:
-                    if inner is not None:
-                        # Targeted extraction: we know the exact path.
-                        try:
-                            member = tar.getmember(inner)
-                        except KeyError:
-                            _LOGGER.warning(
-                                "Stockfish: %s not found in %s",
-                                inner, tmp_path,
-                            )
-                            return None
-                        # filter="data" strips absolute paths / traversal /
-                        # device members (safe-extraction hardening; also the
-                        # Python 3.14 default — silences the 3.12+
-                        # DeprecationWarning about unset filters).
-                        tar.extract(member, self.bin_dir, filter="data")
-                        return self.bin_dir / inner
-                    # Bulk extraction (official-release layout):
-                    # tar contains a top-level "stockfish/" directory.
-                    tar.extractall(self.bin_dir, filter="data")
-            except Exception as err:
-                _LOGGER.warning("Stockfish write/extract failed: %s", err)
-                return None
-            finally:
-                try:
-                    tmp_path.unlink()
-                except Exception:
-                    pass
-            # Find the binary in the extracted "stockfish/" subdir.
-            extracted_dir = self.bin_dir / "stockfish"
-            if extracted_dir.is_dir():
-                for candidate in extracted_dir.iterdir():
-                    if (
-                        candidate.is_file()
-                        and candidate.name.startswith("stockfish")
-                        and not candidate.name.endswith(".txt")
-                    ):
-                        return candidate
-            # Fallback: scan bin_dir directly
-            for candidate in self.bin_dir.iterdir():
-                if (
-                    candidate.is_file()
-                    and candidate.name.startswith("stockfish-")
-                ):
-                    return candidate
-            return None
-
-        found = await self.hass.async_add_executor_job(
-            _write_and_extract, data, inner_path
-        )
-        if not found:
-            _LOGGER.warning(
-                "Stockfish: extracted but no binary found in %s", self.bin_dir
+            self.binary_path = await ensure_verified_engine(
+                self.hass, async_get_clientsession(self.hass), self.bin_dir, asset, self._set_engine_state, timeout=self.DOWNLOAD_TIMEOUT_SEC,
             )
+            return True
+        except asyncio.CancelledError:
+            self._set_engine_state("not_checked")
+            raise
+        except Exception as err:
+            self._set_engine_state("error", str(err))
+            _LOGGER.warning("Stockfish verification/install failed: %s", err)
             return False
-
-        # Move/rename to canonical path and chmod +x. Sync ops, but small,
-        # so we run them in executor too for cleanliness.
-        def _install_binary(src: Path, dst: Path) -> bool:
-            try:
-                if dst.exists():
-                    dst.unlink()
-                src.rename(dst)
-                dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-                # Clean up the now-empty release directory if possible
-                try:
-                    src.parent.rmdir()
-                except OSError:
-                    pass  # not empty — leave it
-                return True
-            except Exception as err:
-                _LOGGER.warning("Stockfish: install (rename/chmod) failed: %s", err)
-                return False
-
-        ok = await self.hass.async_add_executor_job(_install_binary, found, target)
-        if not ok:
-            return False
-
-        self.binary_path = target
-        _LOGGER.warning("Stockfish: installed at %s", target)
-        return True
 
     async def evaluate(self, fen: str) -> EvalResult | None:
         """Analyze a FEN and return an EvalResult (white-positive)."""
-        engine = await self.ensure_engine()
-        if engine is None:
-            return None
         try:
             board = chess.Board(fen)
         except (ValueError, IndexError):
             return None
         async with self._eval_lock:
+            engine = await self.ensure_engine()
+            if engine is None:
+                return None
             try:
+                # Review strength must not inherit the last opponent level.
+                await engine.configure({"Skill Level": 20})
                 info = await engine.analyse(
                     board,
                     chess.engine.Limit(depth=self.DEPTH, time=self.TIME_LIMIT_SEC),
                 )
+            except chess.engine.EngineTerminatedError as err:
+                _LOGGER.warning("Stockfish terminated during analysis: %s", err)
+                await self.shutdown()
+                return None
             except chess.engine.EngineError as err:
                 _LOGGER.debug("Stockfish analyse error for %s: %s", fen, err)
                 return None
@@ -683,6 +510,10 @@ class StockfishFallback:
         mate: int | None = None
         if pov_white.is_mate():
             mate = pov_white.mate()
+            if mate == 0:
+                # python-chess .mate() conflates MateGiven and Mate(0).
+                # Its signed score conversion preserves the winner.
+                cp, mate = pov_white.score(mate_score=10000), None
         else:
             cp = pov_white.score(mate_score=10000)
 
@@ -694,7 +525,7 @@ class StockfishFallback:
             depth=info.get("depth"),
             best_uci=best_uci,
             source="stockfish-local",
-            raw=None,
+            raw={"pv": [move.uci() for move in pv[:8]]},
         )
 
     async def play_move(
@@ -705,10 +536,10 @@ class StockfishFallback:
         Serializes with evaluate() so configure/play and analyse never
         run concurrently on the same UciProtocol handle.
         """
-        engine = await self.ensure_engine()
-        if engine is None:
-            return None
         async with self._eval_lock:
+            engine = await self.ensure_engine()
+            if engine is None:
+                return None
             try:
                 await engine.configure({"Skill Level": skill})
             except Exception as cfg_err:
@@ -719,6 +550,7 @@ class StockfishFallback:
                 _LOGGER.warning(
                     "engine.play failed skill=%d depth=%d: %s", skill, depth, play_err
                 )
+                await self.shutdown()
                 return None
         if result is None or result.move is None:
             return None
@@ -747,17 +579,12 @@ def classify_move(
     move_uci: str,
     mover_is_white: bool,
 ) -> tuple[str, int]:
-    """Return (classification, cpl) for a move.
-
-    Convention:
-    - All cp values are white-positive (already normalized).
-    - For a white move, mover's gain = post_cp - pre_cp; loss = -gain.
-    - For a black move, mover's gain = pre_cp - post_cp; loss = -gain.
-    - CPL is clamped to ≥0. Gains (negative CPL) are mapped to 0 — a "good"
-      move doesn't lose material so it gets the best/good label depending on
-      whether it matched the engine's top recommendation.
-    """
+    """Use the same chance-loss grades as Review; retain CPL for diagnostics."""
     if pre_eval is None or post_eval is None:
+        return (CLASSIFICATION_UNKNOWN, 0)
+    before = winning_chances(pre_eval.cp, pre_eval.mate)
+    after = winning_chances(post_eval.cp, post_eval.mate)
+    if before is None or after is None:
         return (CLASSIFICATION_UNKNOWN, 0)
 
     # Mate handling — treat mate-in-N positions as ±10000 cp from white's view.
@@ -778,17 +605,8 @@ def classify_move(
     # but the numeric label gets messy).
     cpl = max(0, min(loss, 9999))
 
-    # If this move matched the engine's pre-move top choice → best
-    if pre_eval.best_uci and move_uci == pre_eval.best_uci:
-        return (CLASSIFICATION_BEST, cpl)
-
-    if cpl < CPL_GOOD_MAX:
-        return (CLASSIFICATION_GOOD, cpl)
-    if cpl < CPL_INACCURACY_MAX:
-        return (CLASSIFICATION_INACCURACY, cpl)
-    if cpl < CPL_MISTAKE_MAX:
-        return (CLASSIFICATION_MISTAKE, cpl)
-    return (CLASSIFICATION_BLUNDER, cpl)
+    best = bool(pre_eval.best_uci and move_uci == pre_eval.best_uci)
+    return quality_grade(chance_loss(before, after, mover_is_white), best), cpl
 
 
 # Color + glyph palette for classification badges. The dashboard reads these
@@ -796,6 +614,7 @@ def classify_move(
 CLASSIFICATION_DISPLAY = {
     "brilliant":  ("#00bcd4", "!!"),
     CLASSIFICATION_BEST:       ("#4caf50", "✓"),
+    CLASSIFICATION_EXCELLENT:  ("#4caf50", "!"),
     CLASSIFICATION_GOOD:       ("#8bc34a", "!"),
     "book":       ("#795548", "📖"),
     CLASSIFICATION_INACCURACY: ("#ffc107", "?!"),

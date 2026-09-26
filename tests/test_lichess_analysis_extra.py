@@ -31,8 +31,6 @@ Run:
 """
 from __future__ import annotations
 
-import tarfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import chess
@@ -506,264 +504,7 @@ async def test_ensure_engine_spawn_failure_marks_unavailable(tmp_path) -> None:
     assert sf._available is False
 
 
-# ─── StockfishFallback._ensure_binary ───────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_already_present(tmp_path) -> None:
-    """An existing +x binary at bin_dir/engine short-circuits to True."""
-    target = tmp_path / "engine"
-    target.write_text("#!/bin/sh\n")
-    target.chmod(0o755)
-    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
-    assert await sf._ensure_binary() is True
-    assert sf.binary_path == target
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_unsupported_arch(tmp_path) -> None:
-    """No asset-map entry for the (libc, arch) pair → warn once, return False."""
-    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="sparc64"):
-        assert await sf._ensure_binary() is False
-        assert sf._unsupported_arch_warned is True
-        # A second call takes the "already warned" branch.
-        assert await sf._ensure_binary() is False
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_download_http_error(tmp_path) -> None:
-    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET, return_value=_session(status=500)):
-        assert await sf._ensure_binary() is False
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_download_network_error(tmp_path) -> None:
-    import aiohttp
-
-    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(raise_exc=aiohttp.ClientError("boom"))):
-        assert await sf._ensure_binary() is False
-
-
-def _make_official_tar(dest: Path) -> bytes:
-    """Build a gzip tar mirroring the official-release layout:
-    top-level ``stockfish/`` dir containing a ``stockfish-...`` binary."""
-    import io
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo("stockfish/stockfish-ubuntu-x86-64-avx2")
-        data = b"binary-bytes"
-        info.size = len(data)
-        tar.addfile(info, io.BytesIO(data))
-        # A .txt sibling that must be ignored.
-        txt = tarfile.TarInfo("stockfish/Top CPU Contributors.txt")
-        tdata = b"names"
-        txt.size = len(tdata)
-        tar.addfile(txt, io.BytesIO(tdata))
-    return buf.getvalue()
-
-
-def _make_inner_path_tar() -> bytes:
-    """Build a gzip tar mirroring the Alpine apk layout: the binary lives
-    at ``usr/bin/stockfish`` (STOCKFISH_MUSL_INNER_PATH)."""
-    import io
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo("usr/bin/stockfish")
-        data = b"musl-binary"
-        info.size = len(data)
-        tar.addfile(info, io.BytesIO(data))
-    return buf.getvalue()
-
-
-class _RealExecutorHass:
-    """A hass double whose async_add_executor_job actually runs the job.
-
-    _ensure_binary offloads the write/extract/install to the executor;
-    running them inline (awaited) keeps the test single-threaded and lets
-    the real tarfile + filesystem logic execute against tmp_path.
-    """
-
-    async def async_add_executor_job(self, func, *args):
-        return func(*args)
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_official_tar_download_extract_install(tmp_path) -> None:
-    """Full glibc/x86_64 path: download tar → extractall → find binary in
-    stockfish/ subdir → rename to bin_dir/engine + chmod +x."""
-    tar_bytes = _make_official_tar(tmp_path)
-    sf = StockfishFallback(hass=_RealExecutorHass(), bin_dir=tmp_path / "bin")
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(status=200, read_data=tar_bytes)):
-        ok = await sf._ensure_binary()
-    assert ok is True
-    engine = tmp_path / "bin" / "engine"
-    assert engine.exists()
-    import os
-    assert os.access(engine, os.X_OK)
-    assert sf.binary_path == engine
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_inner_path_download_extract_install(tmp_path) -> None:
-    """Full musl/x86_64 path: targeted extract of usr/bin/stockfish → the
-    binary lands at bin_dir/usr/bin/stockfish → rename to engine + chmod."""
-    tar_bytes = _make_inner_path_tar()
-    sf = StockfishFallback(hass=_RealExecutorHass(), bin_dir=tmp_path / "bin")
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="musl"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(status=200, read_data=tar_bytes)):
-        ok = await sf._ensure_binary()
-    assert ok is True
-    assert (tmp_path / "bin" / "engine").exists()
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_inner_path_missing_member(tmp_path) -> None:
-    """A musl download whose tar lacks usr/bin/stockfish → extraction
-    returns None → _ensure_binary reports False."""
-    import io
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo("usr/bin/other")
-        info.size = 3
-        tar.addfile(info, io.BytesIO(b"abc"))
-    tar_bytes = buf.getvalue()
-    sf = StockfishFallback(hass=_RealExecutorHass(), bin_dir=tmp_path / "bin")
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="musl"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(status=200, read_data=tar_bytes)):
-        assert await sf._ensure_binary() is False
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_mkdir_failure(tmp_path) -> None:
-    """A bin_dir that can't be created aborts the download."""
-    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path / "bin")
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch.object(Path, "mkdir", side_effect=OSError("read-only fs")):
-        assert await sf._ensure_binary() is False
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_extract_finds_no_binary(tmp_path) -> None:
-    """A bulk (official-layout) download whose tar contains neither a
-    stockfish/ subdir nor a stockfish-* file → no binary found → False.
-
-    This exercises the bin_dir direct-scan fallback that returns None.
-    """
-    import io
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo("readme.md")
-        info.size = 3
-        tar.addfile(info, io.BytesIO(b"abc"))
-    tar_bytes = buf.getvalue()
-    sf = StockfishFallback(hass=_RealExecutorHass(), bin_dir=tmp_path / "bin")
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(status=200, read_data=tar_bytes)):
-        assert await sf._ensure_binary() is False
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_direct_scan_fallback(tmp_path) -> None:
-    """A bulk-extract tar with the binary at the top level (no stockfish/
-    subdir) as a 'stockfish-*' file is located via the direct bin_dir scan."""
-    import io
-
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        info = tarfile.TarInfo("stockfish-ubuntu-x86-64-avx2")
-        data = b"top-level-binary"
-        info.size = len(data)
-        tar.addfile(info, io.BytesIO(data))
-    tar_bytes = buf.getvalue()
-    sf = StockfishFallback(hass=_RealExecutorHass(), bin_dir=tmp_path / "bin")
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(status=200, read_data=tar_bytes)):
-        ok = await sf._ensure_binary()
-    assert ok is True
-    assert (tmp_path / "bin" / "engine").exists()
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_extract_raises_returns_false(tmp_path) -> None:
-    """A corrupt archive makes tarfile.open raise → write/extract returns
-    None → False. Also exercises the finally-block unlink."""
-    sf = StockfishFallback(hass=_RealExecutorHass(), bin_dir=tmp_path / "bin")
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(status=200, read_data=b"not-a-tar-archive")):
-        assert await sf._ensure_binary() is False
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_install_failure_returns_false(tmp_path) -> None:
-    """The binary is found in the extracted tree but the rename/chmod install
-    step fails → _ensure_binary reports False (line-629 branch)."""
-    tar_bytes = _make_official_tar(tmp_path)
-    sf = StockfishFallback(hass=_RealExecutorHass(), bin_dir=tmp_path / "bin")
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(status=200, read_data=tar_bytes)), \
-         patch.object(Path, "rename", side_effect=OSError("cross-device")):
-        assert await sf._ensure_binary() is False
-
-
-@pytest.mark.asyncio
-async def test_ensure_binary_install_unlinks_existing_engine(tmp_path) -> None:
-    """A stale bin_dir/engine (non-executable, so the fast-path is skipped)
-    is unlinked and replaced during install (line-614 branch)."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stale = bin_dir / "engine"
-    stale.write_text("old")
-    stale.chmod(0o644)  # not +x → fast-path `os.access(X_OK)` is False
-    tar_bytes = _make_official_tar(tmp_path)
-    sf = StockfishFallback(hass=_RealExecutorHass(), bin_dir=bin_dir)
-    with patch("custom_components.phantom_chess.lichess_analysis._detect_libc",
-               return_value="glibc"), \
-         patch("platform.machine", return_value="x86_64"), \
-         patch(_SESSION_TARGET,
-               return_value=_session(status=200, read_data=tar_bytes)):
-        ok = await sf._ensure_binary()
-    assert ok is True
-    assert stale.read_bytes() == b"binary-bytes"  # replaced
+# Verified installation behavior is covered in test_engine_artifacts.py.
 
 
 # ─── StockfishFallback.evaluate ─────────────────────────────────────────
@@ -788,6 +529,7 @@ async def test_evaluate_cp_score_normalizes_white(tmp_path) -> None:
     """A cp score is returned white-positive with best_uci from the PV."""
     sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
     engine = MagicMock()
+    engine.configure = AsyncMock()
     score = chess.engine.PovScore(chess.engine.Cp(120), chess.WHITE)
     engine.analyse = AsyncMock(return_value={
         "score": score,
@@ -797,6 +539,8 @@ async def test_evaluate_cp_score_normalizes_white(tmp_path) -> None:
     sf.ensure_engine = AsyncMock(return_value=engine)
     result = await sf.evaluate("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
     assert result is not None
+    engine.configure.assert_awaited_once_with({"Skill Level": 20})
+    assert result.raw["pv"] == ["e2e4"]
     assert result.cp == 120
     assert result.mate is None
     assert result.best_uci == "e2e4"
@@ -807,6 +551,7 @@ async def test_evaluate_cp_score_normalizes_white(tmp_path) -> None:
 async def test_evaluate_mate_score(tmp_path) -> None:
     sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
     engine = MagicMock()
+    engine.configure = AsyncMock()
     score = chess.engine.PovScore(chess.engine.Mate(3), chess.WHITE)
     engine.analyse = AsyncMock(return_value={"score": score, "depth": 20, "pv": []})
     sf.ensure_engine = AsyncMock(return_value=engine)
@@ -1123,7 +868,6 @@ async def test_bypass_cache_forces_refetch() -> None:
     cached = EvalResult(cp=10, mate=None, depth=18, best_uci="e2e4")
     client._eval_cache[f"{fen}::1"] = cached
 
-    fresh = EvalResult(cp=20, mate=None, depth=20, best_uci="d2d4")
     payload = {"depth": 20, "pvs": [{"cp": 20, "moves": "d2d4"}]}
     with patch(_SESSION_TARGET, return_value=_session(status=200, json_data=payload)):
         result = await client.get_eval(fen, bypass_cache=True)
@@ -1194,3 +938,14 @@ async def test_shutdown_closes_transport_when_quit_fails(tmp_path) -> None:
     assert sf._engine is None
     assert sf._transport is None
     transport.close.assert_called_once()
+
+@pytest.mark.parametrize("score,expected", [(chess.engine.MateGiven, 10000), (chess.engine.Mate(0), -10000)])
+async def test_mate_zero_preserves_winning_side(tmp_path, score, expected):
+    sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
+    engine = MagicMock()
+    engine.configure = AsyncMock()
+    engine.analyse = AsyncMock(return_value={"score": chess.engine.PovScore(score, chess.WHITE), "depth": 20, "pv": []})
+    sf.ensure_engine = AsyncMock(return_value=engine)
+    result = await sf.evaluate(chess.STARTING_FEN)
+    assert result.cp == expected
+    assert result.mate is None

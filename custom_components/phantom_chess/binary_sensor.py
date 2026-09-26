@@ -312,6 +312,8 @@ class PhantomPickerAvailableSensor(_PhantomPeriodicBinary):
         if not self.coordinator.is_ble_connected:
             return False
         data = self.coordinator.data or {}
+        if data.get("physical_operation") in ("moving", "undoing", "uncertain"):
+            return False
         # No active game (any mode) and no pending review — mirrors the
         # learning_view_active signals so the picker/setup views never
         # overlap the live learning view, even if a game stalls for >60s.

@@ -23,7 +23,7 @@
 
 title: Phantom Chess
 views:
-- title: Phantom Chess
+- title: Play
   path: main
   type: panel
   theme: Frosted Glass Dark Lite
@@ -32,16 +32,6 @@ views:
   cards:
   - type: vertical-stack
     cards:
-    # Always-visible master mute for the spoken play-by-play (TTS). Works
-    # in every mode and whether or not the board is connected (pure-local
-    # config switch). Tap to toggle the voiceover on/off.
-    - type: tile
-      entity: switch.phantom_YOUR_BOARD_MAC_voice_announcements
-      name: Voice announcements
-      icon: mdi:account-voice
-      color: blue
-      tap_action:
-        action: toggle
     - type: conditional
       conditions:
       - condition: state
@@ -64,6 +54,19 @@ views:
           icon: mdi:bluetooth-off
           color: grey
           hide_state: false
+    - type: markdown
+      content: >-
+        {% set operation = state_attr('sensor.phantom_YOUR_BOARD_MAC_live_position', 'physical_operation') %}
+        {% set engine_error = state_attr('sensor.phantom_YOUR_BOARD_MAC_live_position', 'engine_error') %}
+        {% if engine_error %}
+        **Game paused.** {{ engine_error }}
+        {% elif operation == 'uncertain' %}
+        **Board needs checking.** The last movement was not confirmed. Check the board and Bluetooth before continuing.
+        {% elif operation in ['moving', 'undoing'] %}
+        **Board is moving.** Please wait for the pieces to settle.
+        {% else %}
+        Say “I want to play chess” to start your usual game.
+        {% endif %}
     # ── Mode picker (C3: collapsed to picker_available + setup_mode) ────────
     - type: conditional
       conditions:
@@ -76,141 +79,74 @@ views:
       card:
         type: vertical-stack
         cards:
-        - type: grid
-          columns: 2
-          square: false
-          cards:
-          - type: markdown
-            content: ' '
-          - type: markdown
-            content: "{% set conn = is_state('binary_sensor.phantom_YOUR_BOARD_MAC_connected', 'on') %}{% set mode = states('sensor.phantom_YOUR_BOARD_MAC_firmware_mode') %}{% set batt = states('sensor.phantom_YOUR_BOARD_MAC_battery')\
-              \ %}{% set last = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{{ '\U0001F7E2' if conn else '\U0001F534' }} &nbsp; Battery: **{{ batt }}%** &nbsp;•&nbsp; Mode: **{{\
-              \ mode }}** &nbsp;•&nbsp; Last: `{{ last }}`"
         - type: markdown
-          content: '## What would you like to do?
+          content: >-
+            # Let's play chess
 
-            Pick a mode. Each shows its own controls and explainer.'
-        # NOTE: the mode-picker mascot picture buttons below are deliberately
-        # left as-is (they are the product's branded launcher). Do not
-        # restyle them into mushroom cards.
-        - type: grid
-          columns: 3
-          square: false
-          cards:
-          - type: vertical-stack
-            cards:
-            - type: picture
-              image: /local/phantom_chess/buttons/lichess.png?v=2
-              tap_action:
-                action: perform-action
-                perform_action: input_select.select_option
-                data:
-                  entity_id: input_select.phantom_chess_setup_mode
-                  option: Play with Lichess
-              card_mod:
-                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
-                  none; box-shadow: none; }
-
-                  '
-            - type: markdown
-              content: Play with Lichess
-              card_mod:
-                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
-
-                  '
-          - type: vertical-stack
-            cards:
-            - type: picture
-              image: /local/phantom_chess/buttons/stockfish.png
-              tap_action:
-                action: perform-action
-                perform_action: input_select.select_option
-                data:
-                  entity_id: input_select.phantom_chess_setup_mode
-                  option: Play with Stockfish
-              card_mod:
-                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
-                  none; box-shadow: none; }
-
-                  '
-            - type: markdown
-              content: Play with Stockfish
-              card_mod:
-                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
-
-                  '
-          - type: vertical-stack
-            cards:
-            - type: picture
-              image: /local/phantom_chess/buttons/historic.png
-              tap_action:
-                action: perform-action
-                perform_action: input_select.select_option
-                data:
-                  entity_id: input_select.phantom_chess_setup_mode
-                  option: Sculpture Library
-              card_mod:
-                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
-                  none; box-shadow: none; }
-
-                  '
-            - type: markdown
-              content: Watch historic games
-              card_mod:
-                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
-
-                  '
+            Start your usual game, or choose who to play with.
+        - type: custom:mushroom-template-card
+          primary: Play my usual game
+          secondary: Uses your saved color and difficulty
+          icon: mdi:chess-king
+          icon_color: amber
+          tap_action:
+            action: perform-action
+            perform_action: phantom_chess.start_local_game
+            data: {}
         - type: grid
           columns: 2
           square: false
           cards:
-          - type: vertical-stack
-            cards:
-            - type: picture
-              image: /local/phantom_chess/buttons/two_player.png
-              tap_action:
-                action: perform-action
-                perform_action: input_select.select_option
-                data:
-                  entity_id: input_select.phantom_chess_setup_mode
-                  option: 2-Player Game
-              card_mod:
-                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
-                  none; box-shadow: none; }
-
-                  '
-            - type: markdown
-              content: Two-player recording
-              card_mod:
-                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
-
-                  '
-          - type: vertical-stack
-            cards:
-            - type: picture
-              image: /local/phantom_chess/buttons/ai_vs_ai.png
-              tap_action:
-                action: perform-action
-                perform_action: input_select.select_option
-                data:
-                  entity_id: input_select.phantom_chess_setup_mode
-                  option: Watch AI vs AI
-              card_mod:
-                style: 'ha-card { max-width: 340px; margin: 0 auto; border: none; background:
-                  none; box-shadow: none; }
-
-                  '
-            - type: markdown
-              content: AI vs. AI
-              card_mod:
-                style: 'ha-card { text-align: center; border: none; background: none; box-shadow:
-                  none; padding: 4px 0 2px; font-weight: 500; font-size: 1.25em; }
-
-                  '
+          - type: custom:mushroom-template-card
+            primary: Choose my game
+            secondary: Color and difficulty
+            icon: mdi:chess-knight
+            tap_action:
+              action: perform-action
+              perform_action: input_select.select_option
+              data:
+                entity_id: input_select.phantom_chess_setup_mode
+                option: Play with Stockfish
+          - type: custom:mushroom-template-card
+            primary: Play someone here
+            secondary: Two people, one board
+            icon: mdi:account-multiple
+            tap_action:
+              action: perform-action
+              perform_action: input_select.select_option
+              data:
+                entity_id: input_select.phantom_chess_setup_mode
+                option: 2-Player Game
+          - type: custom:mushroom-template-card
+            primary: Play online
+            secondary: A game on your Lichess account
+            icon: mdi:web
+            tap_action:
+              action: perform-action
+              perform_action: input_select.select_option
+              data:
+                entity_id: input_select.phantom_chess_setup_mode
+                option: Play with Lichess
+          - type: custom:mushroom-template-card
+            primary: Watch a classic
+            secondary: Explore the game library
+            icon: mdi:book-open-variant
+            tap_action:
+              action: perform-action
+              perform_action: input_select.select_option
+              data:
+                entity_id: input_select.phantom_chess_setup_mode
+                option: Sculpture Library
+          - type: custom:mushroom-template-card
+            primary: Watch the computer play
+            secondary: Two computer opponents
+            icon: mdi:robot
+            tap_action:
+              action: perform-action
+              perform_action: input_select.select_option
+              data:
+                entity_id: input_select.phantom_chess_setup_mode
+                option: Watch AI vs AI
     # ── Lichess setup (C3 collapse + C7-dash compact buttons) ──────────────
     - type: conditional
       conditions:
@@ -228,7 +164,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -258,15 +194,32 @@ views:
           content: "### Time control\n{% set m = states('input_number.phantom_chess_lichess_clock_minutes') | int %}{% set i = states('input_number.phantom_chess_lichess_clock_increment') | int %}{% set\
             \ total = m * 60 + i * 40 %}{% if total < 180 %}{% set tclass = 'Bullet' %}{% elif total < 480 %}{% set tclass = 'Blitz' %}{% elif total < 1500 %}{% set tclass = 'Rapid' %}{% else %}{% set tclass\
             \ = 'Classical' %}{% endif %}**{{ tclass }}** — {{ m }} min + {{ i }} sec/move"
-        - type: entities
-          show_header_toggle: false
-          entities:
-          - entity: input_number.phantom_chess_lichess_clock_minutes
+        # Live-fix 2026-07-08: these two numbers are NumberMode.BOX — an
+        # entities-card row renders them as bare text inputs, which are
+        # white-on-white under some themes (Frosted Glass). Tile cards with
+        # the numeric-input buttons feature are theme-safe steppers.
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: tile
+            entity: input_number.phantom_chess_lichess_clock_minutes
             name: Base time (minutes)
             icon: mdi:timer-outline
-          - entity: input_number.phantom_chess_lichess_clock_increment
+            color: purple
+            features_position: bottom
+            features:
+            - type: numeric-input
+              style: buttons
+          - type: tile
+            entity: input_number.phantom_chess_lichess_clock_increment
             name: Increment per move (seconds)
             icon: mdi:plus-circle-outline
+            color: purple
+            features_position: bottom
+            features:
+            - type: numeric-input
+              style: buttons
         - type: markdown
           content: '### Game options'
         - type: tile
@@ -317,7 +270,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -398,7 +351,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -439,43 +392,69 @@ views:
           card_mod:
             style: |
               ha-card { min-height: 56px; }
-    # beta3: sculpture-playback view. The integration now DRIVES the selected
-    # historic game move-by-move (chess-play mode), so we gate on its own
-    # reliable signal — sensor.<mac>_lichess_game_id == "sculpture" — rather
-    # than the fragile firmware_mode strings (which cycle Setting Up / Snapping
-    # Pieces / Board Playing during playback). Hidden once the post-game review
-    # is ready, so the review view takes over cleanly.
+    # ── SIMPLE game view (Study mode OFF) — Luke 2026-07-08 ────────────────
+    # Generalises the old dedicated sculpture-playback view into the base
+    # "a game is running" presentation for EVERY mode (Lichess / Stockfish /
+    # AI-vs-AI / two-player recording / sculpture playback): a full-width
+    # board plus one mode-aware status line. Shown whenever Study mode is OFF
+    # (switch.<mac>_study_view). Study mode ON swaps in the RICH learning
+    # view below. Gated on a real "a game is live" signal — learning_view_active
+    # (Lichess / Stockfish / two-player) OR lichess_game_id == "sculpture"
+    # (driven historic playback) — rather than the fragile firmware_mode
+    # strings (which cycle Setting Up / Snapping Pieces / Board Playing during
+    # playback). Hidden once the post-game review is ready, so the review view
+    # takes over cleanly. The OR is a state-condition `condition: or` (conditional
+    # cards support and/or/not over state/numeric_state — NEVER condition:template,
+    # which renders "Configuration error"; see the 2026-07-08 live-fix below).
     - type: conditional
       conditions:
       - condition: state
-        entity: input_select.phantom_chess_setup_mode
-        state: Sculpture Library
-      - condition: state
-        entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
-        state: sculpture
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
+        state: 'on'
       - condition: state
         entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
         state: 'off'
       - condition: state
-        entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
-        state: 'on'
+        entity: switch.phantom_YOUR_BOARD_MAC_study_view
+        state: 'off'
+      - condition: or
+        conditions:
+        - condition: state
+          entity: binary_sensor.phantom_YOUR_BOARD_MAC_learning_view_active
+          state: 'on'
+        - condition: state
+          entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
+          state: sculpture
       card:
         type: vertical-stack
         cards:
         - type: custom:mushroom-chips-card
           alignment: justify
           chips:
+          # Back / Stop chip — same back_to_modes action; label + icon go
+          # "Stop & back to modes" during driven sculpture playback.
           - type: template
-            icon: mdi:stop
-            content: Stop & back to modes
+            icon: "{{ 'mdi:stop' if is_state('sensor.phantom_YOUR_BOARD_MAC_lichess_game_id', 'sculpture') else 'mdi:arrow-left' }}"
+            content: "{{ 'Stop & back to modes' if is_state('sensor.phantom_YOUR_BOARD_MAC_lichess_game_id', 'sculpture') else 'Back to Play' }}"
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
               data: {}
+          # Study-mode toggle chip (native integration switch, referenced
+          # directly — the provisioner's MAC rewrite resolves the placeholder).
           - type: template
-            icon: mdi:motion-play-outline
-            icon_color: purple
-            content: "▶ {{ states('select.phantom_YOUR_BOARD_MAC_sculpture_game') }}"
+            icon: "{{ 'mdi:book-open-page-variant' if is_state('switch.phantom_YOUR_BOARD_MAC_study_view', 'on') else 'mdi:book-open-variant' }}"
+            icon_color: "{{ 'teal' if is_state('switch.phantom_YOUR_BOARD_MAC_study_view', 'on') else 'grey' }}"
+            content: Study mode
+            tap_action:
+              action: perform-action
+              perform_action: switch.toggle
+              data:
+                entity_id: switch.phantom_YOUR_BOARD_MAC_study_view
+          - type: template
+            icon: "{{ 'mdi:bluetooth-connect' if is_state('binary_sensor.phantom_YOUR_BOARD_MAC_connected', 'on') else 'mdi:bluetooth-off' }}"
+            icon_color: "{{ 'green' if is_state('binary_sensor.phantom_YOUR_BOARD_MAC_connected', 'on') else 'red' }}"
+            content: "{{ states('sensor.phantom_YOUR_BOARD_MAC_battery') }}% · {{ states('sensor.phantom_YOUR_BOARD_MAC_firmware_mode') }}"
         - type: picture-entity
           entity: image.phantom_YOUR_BOARD_MAC_board
           show_state: false
@@ -485,14 +464,11 @@ views:
             action: none
           hold_action:
             action: none
+        # ONE mode-aware status line. Sculpture playback keeps its "sit back
+        # and watch" copy; every other mode gets the condensed learning header
+        # (setup_mode branch) plus the last firmware move.
         - type: markdown
-          content: "{% set w = states('sensor.phantom_YOUR_BOARD_MAC_lichess_white_name')\
-            \ %}{% set b = states('sensor.phantom_YOUR_BOARD_MAC_lichess_black_name') %}{%\
-            \ set n = states('sensor.phantom_YOUR_BOARD_MAC_move_history') %}{% set last =\
-            \ states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}**{{ w }}** vs\
-            \ **{{ b }}**\n\nMove **{{ n }}** &nbsp;•&nbsp; Last: `{{ last }}`\n\nThe board\
-            \ is playing this game out move-by-move — sit back and watch. Tap **Stop & back\
-            \ to modes** to end it early."
+          content: "{% set gid = states('sensor.phantom_YOUR_BOARD_MAC_lichess_game_id') %}{% if gid == 'sculpture' %}{% set w = states('sensor.phantom_YOUR_BOARD_MAC_lichess_white_name') %}{% set b = states('sensor.phantom_YOUR_BOARD_MAC_lichess_black_name') %}{% set n = states('sensor.phantom_YOUR_BOARD_MAC_move_history') %}{% set last = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}**{{ w }}** vs **{{ b }}**\n\nMove **{{ n }}** &nbsp;•&nbsp; Last: `{{ last }}`\n\nThe board is playing this game out move-by-move — sit back and watch. Tap **Stop & back to modes** to end it early.{% else %}{% set sm = states('select.phantom_YOUR_BOARD_MAC_setup_mode') %}{% set lvl = states('select.phantom_YOUR_BOARD_MAC_ai_level') %}{% set wl = states('number.phantom_YOUR_BOARD_MAC_white_ai_level') %}{% set bl = states('number.phantom_YOUR_BOARD_MAC_black_ai_level') %}{% set last = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{% if sm == 'Play with Lichess' %}### 🌐 Lichess — Level {{ lvl }}{% elif sm == 'Play with Stockfish' %}### 🤖 Stockfish — Level {{ lvl }}{% elif sm == 'Watch AI vs AI' %}### 🤖 AI vs AI — White L{{ wl }} · Black L{{ bl }}{% elif sm == '2-Player Game' %}### 👥 Two-player recording{% else %}### ♟ Game{% endif %}\n\n**Last:** `{{ last }}`{% endif %}"
     # ── Two-player recording setup (C3 collapse + C7-dash) ─────────────────
     - type: conditional
       conditions:
@@ -510,7 +486,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -585,7 +561,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -672,7 +648,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -735,7 +711,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -798,7 +774,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -853,7 +829,7 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
@@ -1009,14 +985,14 @@ views:
           chips:
           - type: template
             icon: mdi:chevron-left
-            content: Back to modes
+            content: Back to Play
             tap_action:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
               data: {}
         - type: custom:mushroom-template-card
           primary: Board is busy
-          secondary: "The board is running a built-in routine. Tap “Back to modes”\
+          secondary: "The board is running a built-in routine. Tap “Back to Play”\
             \ to return it to the mode picker."
           icon: mdi:cog-play-outline
           icon_color: blue
@@ -1144,20 +1120,35 @@ views:
             name: Mechanism speed
           - entity: number.phantom_YOUR_BOARD_MAC_sound_level
             name: Sound level
-    # ── Learning view (C5: mode-aware + side-to-move + oriented eval bar) ───
-    # Live-fix 2026-07-08: sculpture playback drives the analysis pipeline,
-    # which turns learning_view_active ON — without the exclusion below this
-    # view stacked a second board under the dedicated sculpture view (and
-    # offered nonsensical Hint/Takeback/Resign during playback).
+    # ── RICH learning view (Study mode ON) — C5 + Luke 2026-07-08 ──────────
+    # The rich learning layout (eval bar / board / moves table / last-move
+    # strip). This is the Study-mode-ON presentation of "a game is running"
+    # — the SIMPLE full-width-board view above is the Study-mode-OFF variant.
+    # Gated on study_view ON + a live-game signal: learning_view_active
+    # (Lichess / Stockfish / two-player) OR lichess_game_id == "sculpture".
+    # The old NOT-sculpture exclusion (2026-07-08 live-fix, which kept this
+    # off during sculpture playback) is REPLACED by the study gate: in Study
+    # mode, sculpture playback DOES get the rich layout — that's the point of
+    # the toggle. review_ready OFF keeps it disjoint from the post-game review
+    # view (game_id stays "sculpture" into review). All state conditions —
+    # NEVER condition:template in a conditional card (renders "Configuration
+    # error"; see the threat-banner live-fix below).
     - type: conditional
       conditions:
-      - entity: binary_sensor.phantom_YOUR_BOARD_MAC_learning_view_active
-        state: 'on'
       - condition: state
         entity: binary_sensor.phantom_YOUR_BOARD_MAC_connected
         state: 'on'
-      - condition: not
+      - condition: state
+        entity: binary_sensor.phantom_YOUR_BOARD_MAC_lichess_review_ready
+        state: 'off'
+      - condition: state
+        entity: switch.phantom_YOUR_BOARD_MAC_study_view
+        state: 'on'
+      - condition: or
         conditions:
+        - condition: state
+          entity: binary_sensor.phantom_YOUR_BOARD_MAC_learning_view_active
+          state: 'on'
         - condition: state
           entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
           state: sculpture
@@ -1174,6 +1165,17 @@ views:
               action: perform-action
               perform_action: phantom_chess.back_to_modes
               data: {}
+          # Study-mode toggle chip (native integration switch, referenced
+          # directly — the provisioner's MAC rewrite resolves the placeholder).
+          - type: template
+            icon: "{{ 'mdi:book-open-page-variant' if is_state('switch.phantom_YOUR_BOARD_MAC_study_view', 'on') else 'mdi:book-open-variant' }}"
+            icon_color: "{{ 'teal' if is_state('switch.phantom_YOUR_BOARD_MAC_study_view', 'on') else 'grey' }}"
+            content: Study mode
+            tap_action:
+              action: perform-action
+              perform_action: switch.toggle
+              data:
+                entity_id: switch.phantom_YOUR_BOARD_MAC_study_view
           - type: template
             icon: "{{ 'mdi:bluetooth-connect' if is_state('binary_sensor.phantom_YOUR_BOARD_MAC_connected', 'on') else 'mdi:bluetooth-off' }}"
             icon_color: "{{ 'green' if is_state('binary_sensor.phantom_YOUR_BOARD_MAC_connected', 'on') else 'red' }}"
@@ -1181,9 +1183,11 @@ views:
         # C5: mode-aware header. The old card hardcoded "### Lichess — Level N"
         # and always rendered the Lichess clocks, which read `unknown` in
         # local Stockfish / AI-vs-AI / two-player. Branch on setup_mode.
+        # Luke 2026-07-08: a Sculpture branch so driven playback shows the
+        # game title (🏛) instead of falling through to "♟ Game".
         - type: markdown
           content: >-
-            {% set sm = states('select.phantom_YOUR_BOARD_MAC_setup_mode') %}{% set lvl = states('select.phantom_YOUR_BOARD_MAC_ai_level') %}{% set wl = states('number.phantom_YOUR_BOARD_MAC_white_ai_level') %}{% set bl = states('number.phantom_YOUR_BOARD_MAC_black_ai_level') %}{% if sm == 'Play with Lichess' %}### 🌐 Lichess — Level {{ lvl }}{% elif sm == 'Play with Stockfish' %}### 🤖 Stockfish — Level {{ lvl }}{% elif sm == 'Watch AI vs AI' %}### 🤖 AI vs AI — White L{{ wl }} · Black L{{ bl }}{% elif sm == '2-Player Game' %}### 👥 Two-player recording{% else %}### ♟ Game{% endif %}
+            {% set sm = states('select.phantom_YOUR_BOARD_MAC_setup_mode') %}{% set lvl = states('select.phantom_YOUR_BOARD_MAC_ai_level') %}{% set wl = states('number.phantom_YOUR_BOARD_MAC_white_ai_level') %}{% set bl = states('number.phantom_YOUR_BOARD_MAC_black_ai_level') %}{% set gid = states('sensor.phantom_YOUR_BOARD_MAC_lichess_game_id') %}{% if sm == 'Play with Lichess' %}### 🌐 Lichess — Level {{ lvl }}{% elif sm == 'Play with Stockfish' %}### 🤖 Stockfish — Level {{ lvl }}{% elif sm == 'Watch AI vs AI' %}### 🤖 AI vs AI — White L{{ wl }} · Black L{{ bl }}{% elif sm == '2-Player Game' %}### 👥 Two-player recording{% elif gid == 'sculpture' %}### 🏛 {{ states('select.phantom_YOUR_BOARD_MAC_sculpture_game') }}{% else %}### ♟ Game{% endif %}
 
             {% set op = states('sensor.phantom_YOUR_BOARD_MAC_opening_name') %}{% if op not in ['unknown', 'unavailable', ''] %}*{{ op }}*  {% endif %}{% if sm == 'Play with Lichess' %}⏱ White **{{ states('sensor.phantom_YOUR_BOARD_MAC_lichess_white_clock_display') }}** · Black **{{ states('sensor.phantom_YOUR_BOARD_MAC_lichess_black_clock_display') }}**{% endif %}
         # Live-fix 2026-07-08: conditional cards don't support template
@@ -1304,56 +1308,68 @@ views:
             {% set mv = states('sensor.phantom_YOUR_BOARD_MAC_firmware_last_move') %}{% set cls = states('sensor.phantom_YOUR_BOARD_MAC_last_move_classification') %}{% set cpl = states('sensor.phantom_YOUR_BOARD_MAC_last_move_cpl') %}{% set motif = states('sensor.phantom_YOUR_BOARD_MAC_last_move_motif') %}{% set cp = states('sensor.phantom_YOUR_BOARD_MAC_eval_cp') %}{% set best = states('sensor.phantom_YOUR_BOARD_MAC_best_move_san') %}{% set src = states('sensor.phantom_YOUR_BOARD_MAC_eval_source') %}{% set color_map = {'brilliant':'#00bcd4','best':'#4caf50','good':'#8bc34a','book':'#795548','inaccuracy':'#ffc107','mistake':'#ff9800','blunder':'#f44336','unknown':'#9e9e9e'} %}{% set glyph_map = {'brilliant':'!!','best':'✓','good':'!','book':'📖','inaccuracy':'?!','mistake':'?','blunder':'??','unknown':'…'} %}{% set color = color_map.get(cls, '#9e9e9e') %}{% set glyph = glyph_map.get(cls, '…') %}{% if mv not in ['', 'unknown'] %}Last move: **{{ mv }}** {% if cls not in ['', 'unknown', 'unavailable'] %}&nbsp;&nbsp;<font color='{{ color }}'><b>{{ glyph }} {{ cls | title }}</b></font>{% endif %}{% if cpl not in ['', 'unknown', 'unavailable'] %}&nbsp;&nbsp;CPL: {{ cpl }}{% endif %}{% if motif not in ['', 'unknown', 'unavailable', 'none'] %}&nbsp;&nbsp;<font color='#80cbc4'>({{ motif | title }})</font>{% endif %}{% if cp not in ['', 'unknown', 'unavailable'] %}{% set cp_i = cp | int(0) %}&nbsp;&nbsp;Eval: **{{ '+' if cp_i >= 0 else '' }}{{ (cp_i/100.0) | round(1) }}**{% endif %}{% else %}*Waiting for first move…*{% endif %}
             {% if is_state('input_boolean.phantom_chess_training_wheels', 'on') and best not in ['', 'unknown', 'unavailable'] %}<font color='#80cbc4'>💡 Engine recommends: **{{ best }}**</font>{% if src not in ['', 'unknown'] %} ({{ src }}){% endif %}{% endif %}
         # SECONDARY actions — compact mushroom grid (C7-dash). Resign keeps
-        # its confirmation.
-        - type: grid
-          columns: 4
-          square: false
-          cards:
-          - type: custom:mushroom-template-card
-            primary: Hint
-            icon: mdi:lightbulb-outline
-            icon_color: amber
-            tap_action:
-              action: perform-action
-              perform_action: phantom_chess.request_hint
-              data: {}
-            card_mod:
-              style: |
-                ha-card { min-height: 56px; }
-          - type: custom:mushroom-template-card
-            primary: Takeback
-            icon: mdi:undo-variant
-            icon_color: blue
-            tap_action:
-              action: perform-action
-              perform_action: phantom_chess.takeback
-              data: {}
-            card_mod:
-              style: |
-                ha-card { min-height: 56px; }
-          - type: custom:mushroom-template-card
-            primary: Resign
-            icon: mdi:flag-outline
-            icon_color: red
-            tap_action:
-              action: perform-action
-              perform_action: phantom_chess.resign
-              data: {}
-              confirmation:
-                text: Resign this game?
-            card_mod:
-              style: |
-                ha-card { min-height: 56px; }
-          - type: custom:mushroom-template-card
-            primary: Training wheels
-            icon: mdi:school-outline
-            icon_color: "{{ 'amber' if is_state('input_boolean.phantom_chess_training_wheels', 'on') else 'grey' }}"
-            entity: input_boolean.phantom_chess_training_wheels
-            tap_action:
-              action: toggle
-            card_mod:
-              style: |
-                ha-card { min-height: 56px; }
+        # its confirmation. Luke 2026-07-08: wrapped in a `not sculpture`
+        # conditional — Hint / Takeback / Resign / Training-wheels are
+        # meaningless (and Resign / Takeback dangerous) during driven
+        # sculpture playback, where the rich layout is view-only. State
+        # condition only — NEVER condition:template in a conditional card.
+        - type: conditional
+          conditions:
+          - condition: not
+            conditions:
+            - condition: state
+              entity: sensor.phantom_YOUR_BOARD_MAC_lichess_game_id
+              state: sculpture
+          card:
+            type: grid
+            columns: 4
+            square: false
+            cards:
+            - type: custom:mushroom-template-card
+              primary: Hint
+              icon: mdi:lightbulb-outline
+              icon_color: amber
+              tap_action:
+                action: perform-action
+                perform_action: phantom_chess.request_hint
+                data: {}
+              card_mod:
+                style: |
+                  ha-card { min-height: 56px; }
+            - type: custom:mushroom-template-card
+              primary: Takeback
+              icon: mdi:undo-variant
+              icon_color: blue
+              tap_action:
+                action: perform-action
+                perform_action: phantom_chess.takeback
+                data: {}
+              card_mod:
+                style: |
+                  ha-card { min-height: 56px; }
+            - type: custom:mushroom-template-card
+              primary: Resign
+              icon: mdi:flag-outline
+              icon_color: red
+              tap_action:
+                action: perform-action
+                perform_action: phantom_chess.resign
+                data: {}
+                confirmation:
+                  text: Resign this game?
+              card_mod:
+                style: |
+                  ha-card { min-height: 56px; }
+            - type: custom:mushroom-template-card
+              primary: Training wheels
+              icon: mdi:school-outline
+              icon_color: "{{ 'amber' if is_state('input_boolean.phantom_chess_training_wheels', 'on') else 'grey' }}"
+              entity: input_boolean.phantom_chess_training_wheels
+              tap_action:
+                action: toggle
+              card_mod:
+                style: |
+                  ha-card { min-height: 56px; }
     # ── Post-game review (C7-dash compact buttons) ─────────────────────────
     - type: conditional
       conditions:
@@ -1381,22 +1397,10 @@ views:
               data: {}
         - type: markdown
           content: "### Game review\n{% set result = states('sensor.phantom_YOUR_BOARD_MAC_last_game_result') %}{% set wa = states('sensor.phantom_YOUR_BOARD_MAC_last_game_accuracy_white') %}{%\
-            \ set ba = states('sensor.phantom_YOUR_BOARD_MAC_last_game_accuracy_black') %}Result: **{{ result if result not in ['', 'unknown'] else '—' }}**  \nAccuracy — White {{ wa if wa\
+            \ set ba = states('sensor.phantom_YOUR_BOARD_MAC_last_game_accuracy_black') %}Result: **{{ result if result not in ['', 'unknown'] else '—' }}**  \nEstimated move accuracy — White {{ wa if wa\
             \ not in ['', 'unknown'] else '—' }}% \xB7 Black {{ ba if ba not in ['', 'unknown'] else '—' }}%"
         - type: markdown
-          card_mod:
-            style: 'ha-card { background: var(--card-background-color, #1a1a1a) !important; border: 1px solid var(--divider-color, #333) !important; border-radius: 4px !important; padding: 0 !important; }
-
-              ha-markdown { padding: 12px 16px !important; }
-
-              '
-          content: |-
-            **Your three biggest mistakes**
-
-            {% set mistakes = state_attr('sensor.phantom_YOUR_BOARD_MAC_last_game_review', 'top_mistakes') or [] %}{% if mistakes | length == 0 %}
-            *No analysis yet for this game.*
-            {% else %}
-            {% set color_map = {'inaccuracy':'#ffc107','mistake':'#ff9800','blunder':'#f44336'} %}{% for m in mistakes %}{% set c = color_map.get(m.classification, '#9e9e9e') %}<font color='{{ c }}'>▎ <b>Move {{ m.move_num }}. {{ m.san }} — {{ m.classification | title }}</b></font> (lost {{ (m.cpl/100.0) | round(1) }} pawns)<br>Best was <b>{{ m.best_san }}</b>{% if m.description %} — {{ m.description }}{% endif %}<br><br>{% endfor %}{% endif %}
+          content: 'Open [Review](review) to explore the key moments from this game.'
         # v0.4-alpha32: "Reset board" drives the magnet from the current
         # position back to the start (same snapshot path as a normal AI
         # move, starting FEN as target). SECONDARY actions — compact
@@ -1439,3 +1443,86 @@ views:
             card_mod:
               style: |
                 ha-card { min-height: 56px; }
+
+- title: Learn
+  path: learn
+  icon: mdi:school-outline
+  cards:
+  - type: markdown
+    content: '# Learn while you play
+
+      Turn on coaching for a computer game. Study view shows analysis alongside the board on Play.'
+  - type: entities
+    title: Coaching
+    entities:
+    - entity: switch.phantom_YOUR_BOARD_MAC_training_wheels
+      name: Hints and coaching
+    - entity: switch.phantom_YOUR_BOARD_MAC_study_view
+      name: Show study view during play
+  - type: markdown
+    content: After a game, open Review to revisit the moves that mattered.
+- title: Review
+  path: review
+  icon: mdi:book-open-variant
+  cards:
+  - type: markdown
+    content: '# Review your latest game
+
+      {% set result = states(''sensor.phantom_YOUR_BOARD_MAC_last_game_result'') %}{% if result in ['''',
+      ''unknown'', ''unavailable'', ''None''] %}Finish a game to see its result and available analysis
+      here.{% else %}Revisit the result and key moments found so far. Scores are approximate;
+      analysis may still be finishing.{% endif %}'
+  - type: markdown
+    content: "### Game review\n{% set result = states('sensor.phantom_YOUR_BOARD_MAC_last_game_result')\
+      \ %}{% set wa = states('sensor.phantom_YOUR_BOARD_MAC_last_game_accuracy_white') %}{% set ba = states('sensor.phantom_YOUR_BOARD_MAC_last_game_accuracy_black')\
+      \ %}Result: **{{ result if result not in ['', 'unknown'] else '—' }}**  \nEstimated move accuracy — White {{ wa\
+      \ if wa not in ['', 'unknown'] else '—' }}% · Black {{ ba if ba not in ['', 'unknown'] else '—'\
+      \ }}%"
+  - type: markdown
+    card_mod:
+      style: 'ha-card { background: var(--card-background-color, #1a1a1a) !important; border: 1px solid
+        var(--divider-color, #333) !important; border-radius: 4px !important; padding: 0 !important; }
+
+        ha-markdown { padding: 12px 16px !important; }
+
+        '
+    content: '**Your three biggest mistakes**
+
+
+      {% set mistakes = state_attr(''sensor.phantom_YOUR_BOARD_MAC_last_game_review'', ''top_mistakes'')
+      or [] %}{% if mistakes | length == 0 %}
+
+      *No analysis yet for this game.*
+
+      {% else %}
+
+      {% set color_map = {''inaccuracy'':''#ffc107'',''mistake'':''#ff9800'',''blunder'':''#f44336''}
+      %}{% for m in mistakes %}{% set c = color_map.get(m.classification, ''#9e9e9e'') %}<font color=''{{
+      c }}''>▎ <b>Move {{ m.move_num }}. {{ m.san }} — {{ m.classification | title }}</b></font> (lost
+      {{ (m.cpl/100.0) | round(1) }} pawns)<br>Best was <b>{{ m.best_san }}</b>{% if m.description %}
+      — {{ m.description }}{% endif %}<br><br>{% endfor %}{% endif %}'
+
+- title: Board & settings
+  path: settings
+  icon: mdi:cog-outline
+  cards:
+  - type: markdown
+    content: >-
+      # Board & settings
+
+      Check the connection and adjust your board. Speech loudness is set on your speaker;
+      board sound controls only the chessboard's own sounds.
+  - type: entities
+    title: Board
+    entities:
+    - binary_sensor.phantom_YOUR_BOARD_MAC_connected
+    - sensor.phantom_YOUR_BOARD_MAC_battery
+    - sensor.phantom_YOUR_BOARD_MAC_firmware_mode
+  - type: tile
+    entity: switch.phantom_YOUR_BOARD_MAC_voice_announcements
+    name: Spoken commentary
+    icon: mdi:account-voice
+  - type: markdown
+    content: >-
+      If a move is unconfirmed, keep the pieces in place and check Bluetooth before
+      resetting or starting again. The board may still be completing its movement.

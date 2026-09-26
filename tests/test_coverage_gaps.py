@@ -157,7 +157,7 @@ async def test_ai_vs_ai_loop_redrive_after_reconnect_timeout_continues():
     coord._ai_vs_ai_await_reconnect = AsyncMock(return_value=True)
     coord._phantom_execute_position = AsyncMock(return_value=False)  # re-drive times out
     await coord._ai_vs_ai_loop()
-    coord._phantom_execute_position.assert_awaited()
+    coord._phantom_execute_position.assert_not_awaited()
     assert coord._ai_vs_ai_active is False
 
 

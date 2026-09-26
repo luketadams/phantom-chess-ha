@@ -120,7 +120,34 @@ class PhantomBaseSelect(CoordinatorEntity[PhantomChessCoordinator], SelectEntity
         }
 
 
-class PhantomAiLevelSelect(PhantomBaseSelect):
+class _PhantomRestorableSelect(PhantomBaseSelect, RestoreEntity):
+    """Base for selects whose state must survive HA restarts. The
+    coordinator field name is given by `_coord_attr`; on first
+    state-restore the coordinator field is re-populated from the last
+    persisted state so the dashboard's mode picker doesn't reset to
+    default on every reload.
+    """
+
+    _coord_attr: str  # subclass must set; e.g. "setup_mode"
+
+    def _restore_option(self, option: str) -> str | int:
+        return option
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is None or last.state in (None, "unknown", "unavailable"):
+            return
+        if last.state in self._attr_options:
+            setattr(self.coordinator, self._coord_attr, self._restore_option(last.state))
+
+
+class PhantomAiLevelSelect(_PhantomRestorableSelect):
+    _coord_attr = "ai_level"
+
+    def _restore_option(self, option: str) -> int:
+        return int(option)
+
     _attr_translation_key = "ai_level"
     _attr_icon = "mdi:robot"
     _attr_options = ["1", "2", "3", "4", "5", "6", "7", "8"]
@@ -137,7 +164,8 @@ class PhantomAiLevelSelect(PhantomBaseSelect):
         self.async_write_ha_state()
 
 
-class PhantomPlayerColorSelect(PhantomBaseSelect):
+class PhantomPlayerColorSelect(_PhantomRestorableSelect):
+    _coord_attr = "player_color"
     _attr_translation_key = "player_color"
     _attr_icon = "mdi:chess-pawn"
     _attr_options = ["white", "black", "random"]
@@ -162,25 +190,6 @@ class PhantomPlayerColorSelect(PhantomBaseSelect):
 # callback). The dashboard's mode-picker logic moves from
 # `input_select.select_option {entity_id: input_select.phantom_chess_setup_mode}`
 # to `select.select_option {entity_id: select.<DEVICE>_setup_mode}`.
-
-
-class _PhantomRestorableSelect(PhantomBaseSelect, RestoreEntity):
-    """Base for selects whose state must survive HA restarts. The
-    coordinator field name is given by `_coord_attr`; on first
-    state-restore the coordinator field is re-populated from the last
-    persisted state so the dashboard's mode picker doesn't reset to
-    default on every reload.
-    """
-
-    _coord_attr: str  # subclass must set; e.g. "setup_mode"
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        last = await self.async_get_last_state()
-        if last is None or last.state in (None, "unknown", "unavailable"):
-            return
-        if last.state in self._attr_options:
-            setattr(self.coordinator, self._coord_attr, last.state)
 
 
 class PhantomSetupModeSelect(_PhantomRestorableSelect):

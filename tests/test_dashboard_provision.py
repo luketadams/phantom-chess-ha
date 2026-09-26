@@ -37,6 +37,17 @@ from custom_components.phantom_chess.dashboard_provision import (
 )
 
 
+import pytest as _pytest
+from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock
+
+from custom_components.phantom_chess.dashboard_provision import (
+    CONF_URL_PATH,
+    DASHBOARD_URL_PATH,
+    LOVELACE_DATA,
+    _try_register_via_collection,
+)
+
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _TEMPLATE_PATH = (
     _REPO_ROOT / "custom_components" / "phantom_chess" / "dashboard_template.yaml"
@@ -100,12 +111,11 @@ def test_tile_and_action_control_split(rendered_config: dict[str, Any]) -> None:
     Mushroom cards:
       - PRIMARY / SECONDARY actions → ``custom:mushroom-template-card``
         (icon + short label, uniform ~56px).
-      - TERTIARY nav (Back to modes / status strip) →
+      - TERTIARY nav (Back to Play / status strip) →
         ``custom:mushroom-chips-card``.
     Consequently NO action-shaped ``type: tile`` remains, so the
     ``_convert_action_tiles_to_buttons`` pass produces ZERO ``type: button``
-    cards. The mode-picker mascot picture buttons (``type: picture``) are
-    untouched and asserted separately.
+    cards. The Play launcher uses the same action cards and retains all setup destinations.
 
     A regression here means either the template's control structure changed
     (re-baseline) or an action tile slipped back in (investigate — it would
@@ -124,11 +134,15 @@ def test_tile_and_action_control_split(rendered_config: dict[str, Any]) -> None:
     #   4 select-options config tiles (2× My color, 2× AI level),
     #   1 Choose-a-game select tile, 7 Firmware-state info tiles
     #   (Snapping/Snap/Calibrating/Setting Up/Ending/Initializing/Running),
-    #   2 bare-board info tiles (Last move, Pieces) = 16.
-    assert len(tiles) == 16, f"expected 16 surviving tiles, got {len(tiles)}"
+    #   2 bare-board info tiles (Last move, Pieces) = 16,
+    #   + 2 lichess clock numeric-input tiles (2026-07-08 live-fix: BOX-mode
+    #   number rows rendered white-on-white in entities cards; tile with the
+    #   numeric-input feature is entity CONTROL, not an action tile, so it
+    #   doesn't violate the C7-dash mushroom-for-actions rule) = 18.
+    assert len(tiles) == 18, f"expected 18 surviving tiles, got {len(tiles)}"
     # Every action button + interstitial banner is a mushroom-template-card;
     # every tertiary nav / status strip is a mushroom-chips-card.
-    assert len(mushroom) == 24, f"expected 24 mushroom-template-cards, got {len(mushroom)}"
+    assert len(mushroom) == 30, f"expected 30 mushroom-template-cards, got {len(mushroom)}"
     assert len(chips) == 13, f"expected 13 mushroom-chips-cards, got {len(chips)}"
 
 
@@ -241,7 +255,7 @@ def _action_controls_labeled(config: dict[str, Any], label: str) -> list[dict[st
     An action control is a ``custom:mushroom-template-card`` (label in
     ``primary``) or a ``custom:mushroom-chips-card`` template chip (label in
     ``content``). Several labels recur across submode contexts (e.g. multiple
-    "Back to modes" / "Resign"), so this returns all matches.
+    "Back to Play" / "Resign"), so this returns all matches.
     """
     matches: list[dict[str, Any]] = []
     for c in _walk_cards(config):
@@ -257,7 +271,7 @@ def _action_controls_labeled(config: dict[str, Any], label: str) -> list[dict[st
 @pytest.mark.parametrize(
     "label,service",
     [
-        ("Back to modes", "phantom_chess.back_to_modes"),          # chip
+        ("Back to Play", "phantom_chess.back_to_modes"),          # chip
         ("Re-sync detection", "phantom_chess.resync_detection"),   # chip
         ("Start Lichess game", "phantom_chess.start_lichess_configured"),
         ("Start game vs Stockfish", "phantom_chess.start_local_game"),
@@ -304,46 +318,16 @@ def test_resign_control_preserves_confirmation(
         )
 
 
-def test_mode_picker_buttons_target_setup_mode_select(
-    rendered_config: dict[str, Any],
-) -> None:
-    """beta1: the mode picker is now custom ghost-mascot picture buttons.
-    Each picture card's tap_action must call select.select_option on the
-    setup_mode select with its respective option (the AI-vs-AI button was
-    added to the picker in beta1).
-    """
-    expected = {
-        "lichess.png": "Play with Lichess",
-        "stockfish.png": "Play with Stockfish",
-        "historic.png": "Sculpture Library",
-        "two_player.png": "2-Player Game",
-        "ai_vs_ai.png": "Watch AI vs AI",
-    }
-    pics = {
-        c["image"].rsplit("/", 1)[-1].split("?")[0]: c
-        for c in _walk_cards(rendered_config)
-        if c.get("type") == "picture"
-        and isinstance(c.get("image"), str)
-        and "/phantom_chess/buttons/" in c["image"]
-    }
-    for img, option in expected.items():
-        card = pics.get(img)
-        assert card is not None, f"mode-picker picture button {img!r} not found"
-        tap = card["tap_action"]
-        assert tap.get("perform_action") == "select.select_option", (
-            f"{img!r} doesn't call select.select_option"
-        )
-        data = tap.get("data", {})
-        assert data.get("option") == option, (
-            f"{img!r} sets option={data.get('option')!r}, expected {option!r}"
-        )
-        # entity_id should point at the resolved setup_mode select
-        assert "setup_mode" in data.get("entity_id", ""), (
-            f"{img!r} entity_id {data.get('entity_id')!r} doesn't reference setup_mode"
-        )
-
-
-# ─── helper-rewrite assertions ──────────────────────────────────────────
+def test_mode_picker_buttons_target_setup_mode_select(rendered_config):
+    """Every secondary play destination retains its configured setup option."""
+    expected = {"Play with Lichess", "Play with Stockfish", "Sculpture Library",
+                "2-Player Game", "Watch AI vs AI"}
+    actions = [c.get("tap_action", {}) for c in _walk_cards(rendered_config)]
+    actual = {a.get("data", {}).get("option") for a in actions
+              if a.get("perform_action") == "select.select_option"
+              and "setup_mode" in a.get("data", {}).get("entity_id", "")}
+    assert expected <= actual
+    assert any(a.get("perform_action") == "phantom_chess.start_local_game" for a in actions)
 
 
 def test_helper_service_domains_rewritten(rendered_config: dict[str, Any]) -> None:
@@ -693,15 +677,6 @@ def test_copy_button_assets_provisions_pngs(tmp_path):
 # ─── B6: dashboards_collection path ─────────────────────────────────────
 
 
-import pytest as _pytest
-from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock
-
-from custom_components.phantom_chess.dashboard_provision import (
-    CONF_URL_PATH,
-    DASHBOARD_URL_PATH,
-    LOVELACE_DATA,
-    _try_register_via_collection,
-)
 
 
 def _make_collection(*, existing_items=None):
@@ -782,3 +757,24 @@ async def test_try_register_via_collection_returns_false_when_no_lovelace_data()
     row = {"id": "phantom_chess", CONF_URL_PATH: DASHBOARD_URL_PATH}
     result = await _try_register_via_collection(hass, row)
     assert result is False
+
+def test_product_destinations_and_real_learning_controls(rendered_config):
+    views = {view["path"]: view for view in rendered_config["views"]}
+    assert {"main", "learn", "review", "settings"} <= views.keys()
+    learning = str(views["learn"])
+    assert "training_wheels" in learning and "study_view" in learning
+    assert "last_game_review" in str(views["review"])
+    assert "voice_announcements" in str(views["settings"])
+
+
+async def test_native_dashboard_uses_bundled_card_and_resolved_entities():
+    from unittest.mock import patch
+    from custom_components.phantom_chess.dashboard_provision import build_dashboard_config
+    with patch("custom_components.phantom_chess.dashboard_provision._resolve_entity_ids", return_value={}):
+        config = await build_dashboard_config(_MagicMock(), _TEST_MAC)
+    assert [v["path"] for v in config["views"]] == ["main", "learn", "review", "board"]
+    for view in config["views"]:
+        card = view["cards"][0]
+        assert card["type"] == "custom:phantom-chess-card"
+        assert "YOUR_BOARD_MAC" not in str(card)
+        assert card["entity"].endswith("live_position")

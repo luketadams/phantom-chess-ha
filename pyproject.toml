@@ -62,7 +62,7 @@ exclude_lines = [
 #   sculpture attrs, manual config-flow step) at 94.7% combined - the new
 #   full-HA-only paths (config_flow user_manual, dashboards_collection,
 #   coordinator lifecycle) aren't fully covered yet. Floored at 94 to stay
-#   ENFORCING without blocking the release; ROADMAP queues the coverage
+#   ENFORCING without blocking the release; RELEASE_ROADMAP queues the coverage
 #   pass (dashboard_provision 83%, config_flow 86%) to restore >=95.
 fail_under = 94
 skip_empty = true

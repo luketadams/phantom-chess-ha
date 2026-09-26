@@ -39,6 +39,8 @@ def coord() -> PhantomChessCoordinator:
     with HA scheduling primitives) via ``__new__``.
     """
     c = PhantomChessCoordinator.__new__(PhantomChessCoordinator)
+    c._play_revision = 0
+    c._local_game_active = False
     # The state mutators read/write self._state freely.
     c._state = {}
     # Game-loop flags read by async_back_to_modes / stop paths. Default to a
@@ -47,6 +49,10 @@ def coord() -> PhantomChessCoordinator:
     c._ai_vs_ai_active = False
     c._local_game_active = False
     c._local_game_task = None
+    # Fix C: async_back_to_modes checks for an active Lichess game; a
+    # quiescent coordinator has none.
+    c._game_id = None
+    c._lichess_task = None
     # _apply_matrix_state's notification path checks this against the
     # current mismatch signature; None means "no prior notification" so
     # the first ERROR payload triggers a create.

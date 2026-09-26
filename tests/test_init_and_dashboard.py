@@ -1333,7 +1333,7 @@ async def test_async_provision_dashboard_full_path() -> None:
          patch.object(dp.frontend, "async_panel_exists", return_value=False,
                       create=True), \
          patch.object(dp.frontend, "async_register_built_in_panel") as reg_panel, \
-         patch.object(dp, "_sync_frontend_deps_issue") as sync_issue:
+         patch.object(dp.frontend, "add_extra_js_url") as register_js:
         await dp.async_provision_dashboard(hass, entry)
 
     lovelace_storage.async_save.assert_awaited_once_with({"views": []})
@@ -1344,7 +1344,7 @@ async def test_async_provision_dashboard_full_path() -> None:
     reg_panel.assert_called_once()
     # LovelaceStorage stashed for websocket lookup.
     assert lovelace_data.dashboards[dp.DASHBOARD_URL_PATH] is lovelace_storage
-    sync_issue.assert_called_once()
+    register_js.assert_called_once()
 
 
 async def test_async_provision_dashboard_updates_existing_row() -> None:
@@ -1371,7 +1371,7 @@ async def test_async_provision_dashboard_updates_existing_row() -> None:
                       new=AsyncMock(return_value=(store, existing))), \
          patch.object(dp.frontend, "async_panel_exists", return_value=True,
                       create=True), \
-         patch.object(dp, "_sync_frontend_deps_issue"):
+         patch.object(dp.frontend, "add_extra_js_url"):
         await dp.async_provision_dashboard(hass, entry)
 
     saved = store.async_save.call_args.args[0]

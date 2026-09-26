@@ -32,6 +32,17 @@ from custom_components.phantom_chess.const import (  # noqa: E402
 )
 
 
+pytestmark = pytest.mark.usefixtures("mock_bluetooth")
+
+
+@pytest.fixture(autouse=True)
+def empty_adapter_history():
+    # phacc mocks Linux adapters even on macOS, but leaves .history touching
+    # DBus (not installed on macOS). Config-flow tests need no host history.
+    with patch("bluetooth_adapters.systems.linux.LinuxAdapters.history", {}):
+        yield
+
+
 # ─── Bluetooth discovery → confirm → token → entry creation ─────────────
 
 
@@ -192,6 +203,8 @@ async def test_options_flow_round_trip(hass: HomeAssistant) -> None:
         "tts_media_player_entity_id": "media_player.example",
         "debug_dump": True,
         "auto_provision_dashboard": True,
+        "homepod_speech": False,
+        "speech_volume": 0.8,
     }
 
 
@@ -508,7 +521,7 @@ async def test_reconfigure_flow_updates_lichess_token(
     with patch(
         "custom_components.phantom_chess.config_flow.async_get_clientsession",
         return_value=valid_session,
-    ):
+    ), patch.object(hass.config_entries, "async_reload", new_callable=AsyncMock) as reload_entry:
         result = await entry.start_reconfigure_flow(hass)
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "reconfigure"
@@ -525,6 +538,8 @@ async def test_reconfigure_flow_updates_lichess_token(
         assert entry.data[CONF_LICHESS_TOKEN] == "fresh-rotated-token"
         # Username auto-refreshed from the validated token's /api/account response
         assert entry.data[CONF_LICHESS_USER] == "TestUser"
+        await hass.async_block_till_done()
+        reload_entry.assert_awaited_once_with(entry.entry_id)
 
 
 async def test_reconfigure_flow_blank_token_is_no_op(

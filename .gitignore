@@ -1,54 +1,63 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.tox/
-.coverage
-htmlcov/
-
-# Virtual environments
-venv/
-.venv/
-env/
-.env
-
-# IDE / editor
-.idea/
-.vscode/
-*.swp
-*~
-.DS_Store
-
-# OS
-Thumbs.db
 
 # Backup files this project uses (timestamped local-edit snapshots)
-*.bak.*
-
+# IDE / editor
 # Local-only research / dev artifacts that shouldn't ship to HACS users
-phantom_chess_research/
-btsnoop*.bts
-*.txt.bak
-
+# OS
 # Playbook automation state + local working docs (never ship)
-.playbook/
+# Python
+# Virtual environments
+*$py.class
+*.bak.*
+*.egg
+*.egg-info/
+*.py[cod]
+*.so
+*.swp
+*.txt.bak
+*~
+.DS_Store
+.Python
 .claude/
-run-playbook.sh
-launch-playbook.sh
+.coverage
+.env
+.idea/
+.mypy_cache/
+.playbook/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.venv/
+.vscode/
+AUDIT_*.md
 FABLE5_*.md
 FINDINGS_*.md
+FW032_*.md
+IMPROVEMENTS.md
 OPUS_BRIEF_*.md
 PROMPT_PLAYBOOK_*.md
 RELEASE_NOTES_*_DRAFT.md
+SETTLE_FIX_BRIEF.md
 SHIP_CHECKLIST_*.md
-IMPROVEMENTS.md
-FW032_*.md
-AUDIT_*.md
+STUDY_VIEW_BRIEF.md
+Thumbs.db
+VOICE_BRIEF.md
+__pycache__/
+btsnoop*.bts
+env/
+htmlcov/
+launch-playbook.sh
+launch-study-view.sh
+phantom_chess_research/
 resume-watcher.sh
+run-playbook.sh
+run-settle-fix.sh
+run-study-view.sh
+run-voice.sh
+venv/
+
+node_modules/
+
+# Household records and generated previews (never published)
+local/
+local_scrub.py
+docs/ui-preview/

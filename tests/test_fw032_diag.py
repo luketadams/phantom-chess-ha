@@ -426,7 +426,7 @@ def _exec_pos_stub(fw_version):
 
 async def test_start_sends_select_mode_on_fw033():
     stub, calls = _exec_pos_stub("0.3.3")
-    ok = await PhantomChessCoordinator._phantom_execute_position(
+    ok = await PhantomChessCoordinator._execute_position_unlocked(
         stub, fen=chess.STARTING_FEN, side="W", timeout_s=2.0, select_chess_mode=True
     )
     assert ok is True
@@ -436,7 +436,7 @@ async def test_start_sends_select_mode_on_fw033():
 
 async def test_start_skips_select_mode_on_fw030():
     stub, calls = _exec_pos_stub("0.3.0")
-    await PhantomChessCoordinator._phantom_execute_position(
+    await PhantomChessCoordinator._execute_position_unlocked(
         stub, fen=chess.STARTING_FEN, side="W", timeout_s=2.0, select_chess_mode=True
     )
     assert calls["select_mode"] == 0       # 0.3.0 path unchanged
@@ -446,7 +446,7 @@ async def test_start_skips_select_mode_on_fw030():
 async def test_position_execute_never_selects_mode_when_flag_false():
     # per-move AI / move_piece path must NOT re-enter chess-mode mid-game
     stub, calls = _exec_pos_stub("0.3.3")
-    await PhantomChessCoordinator._phantom_execute_position(
+    await PhantomChessCoordinator._execute_position_unlocked(
         stub, fen=chess.STARTING_FEN, side="B", timeout_s=2.0
     )
     assert calls["select_mode"] == 0

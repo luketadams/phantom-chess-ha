@@ -109,6 +109,7 @@ class PhantomBaseSensor(CoordinatorEntity[PhantomChessCoordinator], SensorEntity
         unique_suffix: str,
     ) -> None:
         super().__init__(coordinator)
+        self._entry_id = entry.entry_id
         self._address = address
         self._device_name = device_name
         self._attr_unique_id = f"{address}_{unique_suffix}"
@@ -198,7 +199,7 @@ class PhantomLivePositionSensor(PhantomBleBaseSensor):
     # transient render data, never charted — exclude them from history so
     # the recorder isn't hammered. State (the FEN) is still recorded.
     _unrecorded_attributes = frozenset(
-        {"piece_grid", "sensor_bitmap", "matrix_raw"}
+        {"piece_grid", "sensor_bitmap", "matrix_raw", "saved_games", "game_reviews", "move_history_moves", "legal_moves"}
     )
 
     def __init__(self, coord, entry, address, name):
@@ -233,12 +234,44 @@ class PhantomLivePositionSensor(PhantomBleBaseSensor):
             )
         except AttributeError:
             side_to_move = None
+        board = getattr(self.coordinator, "_board", None)
         return {
+            "entry_id": self._entry_id,
+            "full_fen": board.fen() if board is not None else None,
+            "firmware_version": data.get("firmware_version"),
+            "legal_moves": [move.uci() for move in self.coordinator._board.legal_moves]
+                if board is not None and not getattr(self.coordinator, "paused", True) and not self.coordinator._physical_operation_lock.locked()
+                and data.get("physical_operation") != "uncertain"
+                and (self.coordinator._local_game_active or self.coordinator._game_id)
+                and self.coordinator._board.turn == self.coordinator._our_color else [],
+            "paused": getattr(self.coordinator, "paused", True),
+            "saved_games": data.get("saved_games", []),
+            "game_reviews": data.get("game_reviews", {}),
+            "recovery_game_id": data.get("recovery_game_id"),
+            "recovery_available": data.get("recovery_available", False),
+            "speech_error": data.get("speech_error"),
+            "journal_error": data.get("journal_error"),
+            "library_error": data.get("library_error"),
+            "move_history_moves": data.get("move_history_moves", []),
+            "opening_name": data.get("opening_name"),
+            "best_move_san": data.get("best_move_san"),
+            "threat_san": data.get("threat_san"),
+            "eval_cp": data.get("eval_cp"),
+            "eval_mate": data.get("eval_mate"),
+            "eval_fen": data.get("eval_fen"),
+            "eval_depth": data.get("eval_depth"),
+            "two_player_active": getattr(self.coordinator, "_two_player_active", False),
+            "ai_vs_ai_active": getattr(self.coordinator, "_ai_vs_ai_active", False),
+            "sculpture_active": getattr(self.coordinator, "_sculpture_active", False),
             "piece_grid": data.get("piece_grid"),
             "sensor_bitmap": data.get("sensor_bitmap"),
             "matrix_raw": data.get("matrix_raw"),
             "matrix_last_updated": data.get("matrix_last_updated"),
             "matrix_mismatches": data.get("matrix_mismatches"),
+            "engine_error": data.get("engine_error"),
+            "engine_health": data.get("engine_health", {}),
+            "physical_operation": data.get("physical_operation"),
+            "position_confirmed": data.get("position_confirmed"),
             # ── Dashboard interactive-board fields (Task #27) ──────────────
             # Frontends embedding /phantom_chess_static/board.html read these
             # to gate input (enable drag-drop only when it's our turn AND a
@@ -521,7 +554,7 @@ class PhantomBestMoveSanSensor(PhantomBaseSensor):
 
 
 class PhantomLastMoveClassificationSensor(PhantomBaseSensor):
-    """One of: brilliant/best/good/book/inaccuracy/mistake/blunder/unknown."""
+    """One of: brilliant/best/excellent/good/book/inaccuracy/mistake/blunder/unknown."""
     _attr_translation_key = "last_move_classification"
     _attr_icon = "mdi:label-multiple"
 

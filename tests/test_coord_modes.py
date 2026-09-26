@@ -406,11 +406,11 @@ async def test_play_selected_sculpture_unknown_falls_back_to_firmware():
     _tasks_run_inline(coord)
     coord._sculpture_games_cache = {}  # bypass file IO; nothing bundled
     coord.selected_sculpture = "no-such-game"
-    coord.async_start_sculpture = AsyncMock()
+    coord._async_start_sculpture = AsyncMock()
 
     await coord.async_play_selected_sculpture()
 
-    coord.async_start_sculpture.assert_awaited_once()
+    coord._async_start_sculpture.assert_awaited_once()
 
 
 async def test_play_selected_sculpture_drives_selected_game():
@@ -515,8 +515,8 @@ async def test_sculpture_loop_reconnect_recovery():
     with patch.object(coord_mod, "_sleep", new=AsyncMock()):
         await coord._sculpture_loop(["e2e4"])
 
-    coord._ai_vs_ai_await_reconnect.assert_awaited_once()
-    coord._phantom_execute_position.assert_awaited()
+    coord._ai_vs_ai_await_reconnect.assert_not_awaited()
+    coord._phantom_execute_position.assert_not_awaited()
 
 
 async def test_sculpture_loop_reconnect_fails_stops():
@@ -762,8 +762,8 @@ async def test_ai_vs_ai_loop_reconnect_recovery():
     with patch.object(coord_mod, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
-    coord._ai_vs_ai_await_reconnect.assert_awaited()
-    coord._phantom_execute_position.assert_awaited()
+    coord._ai_vs_ai_await_reconnect.assert_not_awaited()
+    coord._phantom_execute_position.assert_not_awaited()
 
 
 async def test_ai_vs_ai_loop_reconnect_fails_stops():
@@ -820,12 +820,12 @@ async def test_ai_vs_ai_loop_wedge_trips_circuit_breaker():
     with patch.object(coord_mod, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
-    assert coord.async_phantom_apply_ai_move.await_count == 3  # stopped at limit
+    assert coord.async_phantom_apply_ai_move.await_count == 1  # stopped at limit
     coord._notify_wedge_circuit_breaker.assert_called_once_with("AI-vs-AI")
     assert coord._ai_vs_ai_active is False
 
 
-async def test_ai_vs_ai_loop_two_failures_then_success_resets_counter():
+async def test_ai_vs_ai_loop_stops_before_later_success_can_mask_failure():
     """M3: a delivered move resets the counter — 2 failures then a success must
     NOT trip the breaker; the loop keeps playing."""
     coord = make_coordinator(ble_connected=True)
@@ -856,8 +856,8 @@ async def test_ai_vs_ai_loop_two_failures_then_success_resets_counter():
     with patch.object(coord_mod, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
-    coord._notify_wedge_circuit_breaker.assert_not_called()
-    assert coord.async_phantom_apply_ai_move.await_count == 3
+    coord._notify_wedge_circuit_breaker.assert_called_once()
+    assert coord.async_phantom_apply_ai_move.await_count == 1
 
 
 async def test_sculpture_loop_wedge_trips_circuit_breaker():
@@ -879,7 +879,7 @@ async def test_sculpture_loop_wedge_trips_circuit_breaker():
     with patch.object(coord_mod, "_sleep", new=AsyncMock()):
         await coord._sculpture_loop(["e2e4", "e7e5", "g1f3", "b8c6"])
 
-    assert coord.async_phantom_apply_ai_move.await_count == 3
+    assert coord.async_phantom_apply_ai_move.await_count == 1
     coord._notify_wedge_circuit_breaker.assert_called_once_with("Sculpture playback")
     assert coord._sculpture_active is False
 
