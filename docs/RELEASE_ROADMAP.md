@@ -20,7 +20,7 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 ### M0 — Safeguard
 - [x] Working-tree backup before any change
 - [x] Installation-specific records moved out of the published tree; public docs scrubbed
-- [ ] 0.5.0b7 committed on `release/0.5` and pushed
+- [x] 0.5.0b7 committed on `release/0.5` and pushed (fac4fac)
 
 ### M1 — Build and CI green
 - [ ] Full suite against current HA (2026.9.x); fix breaks

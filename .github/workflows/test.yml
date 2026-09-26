@@ -78,10 +78,10 @@ jobs:
             coverage: "7.10.6"
             usb: "aiousbwatcher pyserial"
           - python: "3.14"
-            ha: "2026.8.3"
-            phacc: "0.13.357"
+            ha: "2026.9.3"
+            phacc: "0.13.366"
             pytest: "9.0.3"
-            coverage: "7.15.2"
+            coverage: "7.15.4"
             usb: "aiousbwatcher==1.1.2 serialx==1.8.2"
     steps:
       - uses: actions/checkout@v4
