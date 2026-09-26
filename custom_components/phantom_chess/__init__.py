@@ -754,6 +754,37 @@ async def async_unload_entry(
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
+# Regenerable files removed with the integration. Saved games (HA Store
+# ``phantom_chess_games_<mac>``) and two-player recordings
+# (``<config>/phantom_chess/recordings``) are user data and are kept, so a
+# reinstall finds them; the README's Removal section says so.
+_SHARED_REMOVABLE_PATHS: tuple[tuple[str, ...], ...] = (
+    ("phantom_chess", "bin"),      # downloaded Stockfish (~110 MB)
+    ("phantom_chess", "debug"),    # diagnostic captures
+    ("www", "phantom_chess"),      # launcher images copied for the dashboard
+)
+
+
+def _remove_shared_files(hass: HomeAssistant) -> None:
+    import shutil
+
+    for parts in _SHARED_REMOVABLE_PATHS:
+        shutil.rmtree(hass.config.path(*parts), ignore_errors=True)
+
+
+async def _async_remove_entry_artifacts(
+    hass: HomeAssistant, entry: ConfigEntry, *, last: bool
+) -> None:
+    """Delete this board's review cache and, for the last board, shared files."""
+    from homeassistant.helpers.storage import Store
+
+    address = str(entry.data.get(CONF_BLE_ADDRESS) or "").replace(":", "").lower()
+    if address:
+        await Store(hass, 1, f"{DOMAIN}_reviews_{address}").async_remove()
+    if last:
+        await hass.async_add_executor_job(_remove_shared_files, hass)
+
+
 async def async_remove_entry(
     hass: HomeAssistant, entry: PhantomChessConfigEntry
 ) -> None:
@@ -773,6 +804,10 @@ async def async_remove_entry(
     # surviving entry/entries. v1 design: the dashboard is shared across
     # all boards.
     remaining_entries = hass.config_entries.async_entries(DOMAIN)
+    try:
+        await _async_remove_entry_artifacts(hass, entry, last=not remaining_entries)
+    except Exception:
+        _LOGGER.exception("Failed to remove Phantom Chess files for entry %s", entry.entry_id)
     if remaining_entries:
         return
     if entry.options.get(OPT_AUTO_PROVISION_DASHBOARD, DEFAULT_AUTO_PROVISION_DASHBOARD):

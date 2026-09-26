@@ -93,6 +93,7 @@ except ImportError:
         "homeassistant.components.lovelace.const",
         "homeassistant.config_entries",
         "homeassistant.core",
+        "homeassistant.exceptions",
         "homeassistant.helpers",
         "homeassistant.helpers.aiohttp_client",
         "homeassistant.helpers.entity_registry",
@@ -128,6 +129,9 @@ except ImportError:
     _ll_const.MODE_STORAGE = "storage"
     sys.modules["homeassistant.config_entries"].ConfigEntry = type("ConfigEntry", (), {})
     sys.modules["homeassistant.core"].HomeAssistant = type("HomeAssistant", (), {})
+    sys.modules["homeassistant.exceptions"].HomeAssistantError = type(
+        "HomeAssistantError", (Exception,), {}
+    )
     sys.modules["homeassistant.helpers.entity_registry"].async_get = lambda *a, **k: None
     sys.modules["homeassistant.helpers.storage"].Store = type("Store", (), {})
     sys.modules["homeassistant.components.lovelace.dashboard"].LovelaceStorage = type(

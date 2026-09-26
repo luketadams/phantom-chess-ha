@@ -248,3 +248,13 @@ async def test_preflight_replaces_a_dead_cached_engine_once():
     engine.shutdown.assert_awaited_once()
     assert engine.ensure_engine.await_count == 2
     ready.ping.assert_awaited_once()
+
+
+async def test_online_start_without_token_is_refused_with_guidance():
+    from homeassistant.exceptions import HomeAssistantError
+    from .ble_mock import make_coordinator
+    coord = make_coordinator(ble_connected=True)
+    coord._lichess_token = ""
+    with pytest.raises(HomeAssistantError, match="Reconfigure"):
+        await coord.async_start_game()
+    assert not coord._state.get("lichess_active")

@@ -763,6 +763,60 @@ async def test_async_remove_entry_swallows_unprovision_exception() -> None:
         await pc.async_remove_entry(hass, entry)
 
 
+class _FakeStore:
+    removed: list[str] = []
+
+    def __init__(self, hass, version, key):
+        self.key = key
+
+    async def async_remove(self):
+        _FakeStore.removed.append(self.key)
+
+
+def _removal_hass(tmp_path, survivors):
+    import asyncio as _asyncio
+
+    hass = MagicMock()
+    hass.config.path = lambda *parts: str(tmp_path.joinpath(*parts))
+    hass.config_entries.async_entries.return_value = survivors
+
+    async def run(fn, *args):
+        return await _asyncio.to_thread(fn, *args)
+
+    hass.async_add_executor_job = run
+    for parts in (("phantom_chess", "bin"), ("phantom_chess", "debug"),
+                  ("phantom_chess", "recordings"), ("www", "phantom_chess", "buttons")):
+        folder = tmp_path.joinpath(*parts)
+        folder.mkdir(parents=True)
+        (folder / "file").write_text("x")
+    return hass
+
+
+async def test_remove_last_entry_deletes_regenerable_files_keeps_user_data(tmp_path) -> None:
+    hass = _removal_hass(tmp_path, survivors=[])
+    entry = MagicMock(data={pc.CONF_BLE_ADDRESS: "C8:C9:A3:F2:7C:0A"}, options={})
+    _FakeStore.removed = []
+    with patch("homeassistant.helpers.storage.Store", _FakeStore), \
+         patch.object(pc, "async_unprovision_dashboard", new=AsyncMock()):
+        await pc.async_remove_entry(hass, entry)
+    assert _FakeStore.removed == ["phantom_chess_reviews_c8c9a3f27c0a"]
+    assert not (tmp_path / "phantom_chess" / "bin").exists()
+    assert not (tmp_path / "phantom_chess" / "debug").exists()
+    assert not (tmp_path / "www" / "phantom_chess").exists()
+    assert (tmp_path / "phantom_chess" / "recordings" / "file").exists()
+
+
+async def test_remove_one_of_two_boards_keeps_shared_files(tmp_path) -> None:
+    hass = _removal_hass(tmp_path, survivors=[MagicMock()])
+    entry = MagicMock(data={pc.CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"}, options={})
+    _FakeStore.removed = []
+    with patch("homeassistant.helpers.storage.Store", _FakeStore):
+        await pc.async_remove_entry(hass, entry)
+    assert _FakeStore.removed == ["phantom_chess_reviews_aabbccddeeff"]
+    assert (tmp_path / "phantom_chess" / "bin" / "file").exists()
+    assert (tmp_path / "www" / "phantom_chess" / "buttons" / "file").exists()
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # _register_static_paths
 # ─────────────────────────────────────────────────────────────────────────

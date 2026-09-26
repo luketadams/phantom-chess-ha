@@ -119,6 +119,30 @@ async def test_user_flow_with_invalid_token(
         assert result["errors"] == {CONF_LICHESS_TOKEN: "invalid_lichess_token"}
 
 
+async def test_user_flow_without_token_creates_local_only_entry(
+    hass: HomeAssistant,
+) -> None:
+    """A blank token is valid: local play needs no Lichess account."""
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_get_clientsession",
+    ) as session, patch(
+        "custom_components.phantom_chess.config_flow.async_discovered_service_info",
+        return_value=[],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"}
+        )
+        assert result["step_id"] == "lichess_token"
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_LICHESS_TOKEN] == ""
+        assert result["data"][CONF_LICHESS_USER] is None
+        session.assert_not_called()  # no Lichess request without a token
+
+
 # ─── Reauth flow ────────────────────────────────────────────────────────
 
 

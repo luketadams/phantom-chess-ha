@@ -233,11 +233,26 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
     async def async_step_lichess_token(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Collect and validate the Lichess Board API token."""
+        """Collect an optional Lichess Board API token.
+
+        Local play, review and recording need no Lichess account, so a blank
+        token creates a local-only entry; online play can be enabled later
+        through Reconfigure.
+        """
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            token = user_input[CONF_LICHESS_TOKEN].strip()
+            token = (user_input.get(CONF_LICHESS_TOKEN) or "").strip()
+            if not token:
+                return self.async_create_entry(
+                    title=self._discovered_name or "Phantom Chess Board",
+                    data={
+                        CONF_BLE_ADDRESS: self._discovered_address,
+                        CONF_DEVICE_NAME: self._discovered_name,
+                        CONF_LICHESS_TOKEN: "",
+                        CONF_LICHESS_USER: None,
+                    },
+                )
             username = await self._validate_lichess_token(token)
             if username is None:
                 errors[CONF_LICHESS_TOKEN] = "invalid_lichess_token"
@@ -254,7 +269,7 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
 
         return self.async_show_form(
             step_id="lichess_token",
-            data_schema=vol.Schema({vol.Required(CONF_LICHESS_TOKEN): str}),
+            data_schema=vol.Schema({vol.Optional(CONF_LICHESS_TOKEN, default=""): str}),
             errors=errors,
             description_placeholders={
                 "device": self._discovered_name or self._discovered_address or "board",

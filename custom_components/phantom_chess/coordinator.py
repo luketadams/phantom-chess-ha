@@ -19,6 +19,7 @@ import chess
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.issue_registry import async_delete_issue
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -219,7 +220,8 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         # Added 2026-05-16 (Task #16 release-readiness).
         self._entry = entry
         self._ble_address: str = entry_data[CONF_BLE_ADDRESS].upper()
-        self._lichess_token: str = entry_data[CONF_LICHESS_TOKEN]
+        # Blank for local-only entries; online play is refused with guidance.
+        self._lichess_token: str = entry_data.get(CONF_LICHESS_TOKEN) or ""
 
         # BLE
         self._ble_client: BleakClient | None = None
@@ -2871,6 +2873,11 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         self, clock_limit_seconds: int = 900, clock_increment_seconds: int = 10,
     ) -> None:
         """Serialize online activation with local and two-player starts."""
+        if not self._lichess_token:
+            raise HomeAssistantError(
+                "Online play needs a Lichess token. Add one under Settings → Devices & "
+                "services → Phantom Chess Board → Reconfigure, or start a local game."
+            )
         async with self._local_start_lock:
             self._assert_no_active_game()
             try:
