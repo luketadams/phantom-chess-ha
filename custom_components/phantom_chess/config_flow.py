@@ -363,7 +363,7 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    def _get_reauth_entry(self) -> ConfigEntry | None:  # type: ignore[override]  # HA's own ConfigFlow now defines this name too, but ours intentionally returns None instead of raising (see the "Fall through" handling below)
+    def _get_reauth_entry(self) -> ConfigEntry | None:  # type: ignore[override]  # shadows HA's ConfigFlow helper, which raises; ours returns None and callers handle it
         """Look up the ConfigEntry the reauth flow is targeting."""
         # HA stores the source entry_id in context['entry_id'] during reauth.
         entry_id = self.context.get("entry_id")
@@ -443,7 +443,7 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    def _get_reconfigure_entry(self) -> ConfigEntry | None:  # type: ignore[override]  # see _get_reauth_entry above — same intentional None-returning shadow of HA's ConfigFlow method
+    def _get_reconfigure_entry(self) -> ConfigEntry | None:  # type: ignore[override]  # same None-returning shadow as _get_reauth_entry
         """Look up the ConfigEntry the reconfigure flow is targeting.
 
         HA's framework stores the source entry_id in context['entry_id']

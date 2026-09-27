@@ -1001,6 +1001,26 @@ async def test_migrate_unsupported_future_version_returns_false() -> None:
 # ─────────────────────────────────────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def _entries_for_config_entry_from_mock_registry():
+    """The helper tests fake the device registry as ``dev_reg.devices = {...}``.
+    Resolve ``dr.async_entries_for_config_entry`` against that dict so they keep
+    testing the consolidation logic rather than HA's registry index. A real
+    registry (anything whose ``devices`` is not a plain dict) uses HA's helper."""
+    real = pc.dr.async_entries_for_config_entry
+
+    def _entries(registry, config_entry_id):
+        if not isinstance(registry.devices, dict):
+            return real(registry, config_entry_id)
+        return [d for d in registry.devices.values() if config_entry_id in d.config_entries]
+
+    with patch(
+        "custom_components.phantom_chess.dr.async_entries_for_config_entry",
+        side_effect=_entries,
+    ):
+        yield
+
+
 def _fake_entity(entity_id: str, unique_id: str, config_entry_id: str,
                  device_id: str | None = None) -> MagicMock:
     e = MagicMock()

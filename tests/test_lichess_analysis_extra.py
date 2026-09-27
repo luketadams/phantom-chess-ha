@@ -971,3 +971,40 @@ async def test_local_only_analysis_never_touches_the_network() -> None:
     client.allow_cloud = True
     client._fetch_opening = AsyncMock(return_value=("King's Pawn Game", "B00"))
     assert await client.get_opening(fen) == ("King's Pawn Game", "B00")
+
+
+async def test_turning_cloud_off_hides_results_cached_while_on() -> None:
+    """QUALIFICATION F7–F9: cloud results cached with the option on are not
+    served after it is turned off (no reload happens), and come back when it
+    is turned on again. Local results stay usable either way."""
+    from unittest.mock import AsyncMock, MagicMock
+    from custom_components.phantom_chess.lichess_analysis import EvalResult, LichessAnalysisClient
+
+    fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+    cloud = EvalResult(cp=40, mate=None, depth=40, best_uci="b8c6", source="lichess-cloud", raw={})
+    local = EvalResult(cp=35, mate=None, depth=12, best_uci="b8c6", source="stockfish-local", raw={})
+    client = LichessAnalysisClient(MagicMock())
+    client._fetch_eval = AsyncMock(return_value=cloud)
+    client._fetch_opening = AsyncMock(return_value=("King's Knight Opening", "C40"))
+    client._stockfish = MagicMock(evaluate=AsyncMock(return_value=local))
+
+    # Option on: cloud results are fetched and cached.
+    assert await client.get_eval(fen) is cloud
+    assert await client.get_opening(fen) == ("King's Knight Opening", "C40")
+
+    # Option off: the same position evaluates locally and has no opening name.
+    client.allow_cloud = False
+    client._fetch_eval.reset_mock()
+    client._fetch_opening.reset_mock()
+    assert await client.get_eval(fen) is local
+    assert await client.get_opening(fen) == (None, None)
+    # The local result is now cached and served while the option stays off.
+    assert await client.get_eval(fen) is local
+    client._stockfish.evaluate.assert_awaited_once()
+    client._fetch_eval.assert_not_awaited()
+    client._fetch_opening.assert_not_awaited()
+
+    # Option on again: the cached opening name is served without a request.
+    client.allow_cloud = True
+    assert await client.get_opening(fen) == ("King's Knight Opening", "C40")
+    client._fetch_opening.assert_not_awaited()

@@ -11,11 +11,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import chess
 
 from .drills import DRILLS_BY_ID, Drill, judge, solver_moves
+
+if TYPE_CHECKING:
+    import asyncio
+
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +64,7 @@ def _reason(drill: Drill, board: chess.Board, result: str) -> str:
 class DrillModeMixin:
     """Mixed into PhantomChessCoordinator; relies on its local-game machinery."""
 
+    hass: HomeAssistant
     _drill: DrillSession | None
     _state: dict[str, Any]
     _board: chess.Board
@@ -74,6 +80,21 @@ class DrillModeMixin:
     paused: bool
     player_color: str
 
+    if TYPE_CHECKING:
+        # Declared on PhantomChessCoordinator (coordinator.py and the session
+        # modules). Stubs only, so the calls below type-check without ignores
+        # and without shadowing the real bound methods at runtime.
+        _local_start_lock: asyncio.Lock
+
+        def async_set_updated_data(self, data: dict[str, Any]) -> None: ...
+        def _assert_no_active_game(self) -> None: ...
+        async def _phantom_execute_position(
+            self, fen: str, side: str = "B", timeout_s: float = 30.0,
+            side_opcode: str = "2", select_chess_mode: bool = False,
+        ) -> bool: ...
+        def _build_phantom_matrix_from_fen(self, fen: str) -> str: ...
+        async def _announce_via_tts(self, message: str) -> None: ...
+
     def _drill_active(self) -> bool:
         drill = getattr(self, "_drill", None)
         return drill is not None and drill.status == "active"
@@ -82,12 +103,12 @@ class DrillModeMixin:
         drill = DRILLS_BY_ID.get(drill_id)
         if drill is None:
             raise ValueError(f"Unknown drill {drill_id!r}")
-        async with self._local_start_lock:  # type: ignore[attr-defined]
-            self._assert_no_active_game()  # type: ignore[attr-defined]
+        async with self._local_start_lock:
+            self._assert_no_active_game()
             board = chess.Board(drill.fen)
             color = board.turn
             self._phantom_session_initialized = False
-            confirmed = await self._phantom_execute_position(  # type: ignore[attr-defined]
+            confirmed = await self._phantom_execute_position(
                 fen=drill.fen, side="W" if color == chess.WHITE else "B",
                 timeout_s=60.0, side_opcode="1", select_chess_mode=True,
             )
@@ -104,7 +125,7 @@ class DrillModeMixin:
             self._local_game_active = True
             self.paused = False
             self._play_revision += 1
-            grid = self._build_phantom_matrix_from_fen(drill.fen)  # type: ignore[attr-defined]
+            grid = self._build_phantom_matrix_from_fen(drill.fen)
             self._state.update({
                 "local_game_active": True, "lichess_active": False, "lichess_game_id": "local",
                 "game_status": "playing", "lichess_review_ready": False,
@@ -142,9 +163,9 @@ class DrillModeMixin:
     def _publish_drill(self) -> None:
         if self._drill is not None:
             self._state["drill"] = self._drill.summary(self._board)
-        self.async_set_updated_data(dict(self._state))  # type: ignore[attr-defined]
+        self.async_set_updated_data(dict(self._state))
 
     def _drill_speak(self, message: str) -> None:
-        self.hass.async_create_task(  # type: ignore[attr-defined]
-            self._announce_via_tts(message), name="phantom_chess_drill_speech",  # type: ignore[attr-defined]
+        self.hass.async_create_task(
+            self._announce_via_tts(message), name="phantom_chess_drill_speech",
         )

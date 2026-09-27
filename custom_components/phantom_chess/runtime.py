@@ -50,11 +50,11 @@ try:
     from bleak.backends.characteristic import BleakGATTCharacteristic
     from bleak.exc import BleakError
 except ImportError:
-    BleakClient = None  # type: ignore[assignment,misc]
-    BleakError = Exception  # type: ignore[assignment,misc]
+    BleakClient = None  # type: ignore[assignment,misc]  # fallback when bleak is absent
+    BleakError = Exception  # type: ignore[assignment,misc]  # fallback when bleak is absent
     # Only used in (lazy) annotations; defined so the session modules'
     # ``from .runtime import`` works without bleak (minimal test env).
-    BleakGATTCharacteristic = None  # type: ignore[assignment,misc]
+    BleakGATTCharacteristic = None  # type: ignore[assignment,misc]  # annotation-only name
 
 
 def _phantom_to_uci(move_str: str) -> str:

@@ -9,9 +9,9 @@ from uuid import uuid4
 import chess
 
 from .game_library import GameLibrary, SavedGame
-from .game_review import ReviewManager
 
 if TYPE_CHECKING:
+    from .game_review import ReviewManager
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)

@@ -476,10 +476,9 @@ def _consolidate_registries_to_canonical(
                                   dup.entity_id, err)
 
     # ── 2. Device registry consolidation ────────────────────────────────
-    our_devices: list[dr.DeviceEntry] = [
-        d for d in list(dev_reg.devices.values())  # type: ignore[attr-defined]  # mapping access; typed as Collection since HA 2026.9, still a dict on the 2026.2 floor
-        if entry.entry_id in d.config_entries
-    ]
+    # The registry helper works on every supported HA version; mapping access
+    # to dev_reg.devices is deprecated from HA 2026.9 and breaks in 2027.9.
+    our_devices = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
 
     canonical_devs: list[dr.DeviceEntry] = []
     noncanonical_devs: list[dr.DeviceEntry] = []

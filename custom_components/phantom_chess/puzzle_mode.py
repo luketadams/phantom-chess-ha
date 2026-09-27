@@ -55,6 +55,26 @@ class PuzzleModeMixin:
     paused: bool
     player_color: str
 
+    if TYPE_CHECKING:
+        # Declared on PhantomChessCoordinator (coordinator.py and the session
+        # modules). Stubs only, so the calls below type-check without ignores
+        # and without shadowing the real bound methods at runtime.
+        _local_start_lock: asyncio.Lock
+
+        def async_set_updated_data(self, data: dict[str, Any]) -> None: ...
+        def _assert_no_active_game(self) -> None: ...
+        async def _phantom_execute_position(
+            self, fen: str, side: str = "B", timeout_s: float = 30.0,
+            side_opcode: str = "2", select_chess_mode: bool = False,
+        ) -> bool: ...
+        def _build_phantom_matrix_from_fen(self, fen: str) -> str: ...
+        async def _announce_via_tts(self, message: str) -> None: ...
+        async def async_takeback(self, count: int = 1) -> None: ...
+        async def async_phantom_apply_ai_move(self, uci: str) -> bool: ...
+        def _record_and_analyze_local_move(
+            self, move: chess.Move, mover_is_white: bool
+        ) -> None: ...
+
     # ── fetching ────────────────────────────────────────────────────────
 
     async def _fetch_puzzle(self, source: str, difficulty: str | None, theme: str | None) -> dict[str, Any]:
@@ -96,8 +116,8 @@ class PuzzleModeMixin:
         self, source: str = "daily", difficulty: str | None = None, theme: str | None = None,
     ) -> dict[str, Any]:
         """Fetch a puzzle, set the board to its start position and begin."""
-        async with self._local_start_lock:  # type: ignore[attr-defined]
-            self._assert_no_active_game()  # type: ignore[attr-defined]
+        async with self._local_start_lock:
+            self._assert_no_active_game()
             try:
                 puzzle = Puzzle.from_lichess(await self._fetch_puzzle(source, difficulty, theme))
             except PuzzleError as err:
@@ -105,7 +125,7 @@ class PuzzleModeMixin:
             board = chess.Board(puzzle.start_fen)
             color = board.turn  # the solver is always to move
             self._phantom_session_initialized = False
-            confirmed = await self._phantom_execute_position(  # type: ignore[attr-defined]
+            confirmed = await self._phantom_execute_position(
                 fen=puzzle.start_fen, side="W" if color == chess.WHITE else "B",
                 timeout_s=60.0, side_opcode="1", select_chess_mode=True,
             )
@@ -122,7 +142,7 @@ class PuzzleModeMixin:
             self._local_game_active = True
             self.paused = False
             self._play_revision += 1
-            grid = self._build_phantom_matrix_from_fen(puzzle.start_fen)  # type: ignore[attr-defined]
+            grid = self._build_phantom_matrix_from_fen(puzzle.start_fen)
             self._state.update({
                 "local_game_active": True, "lichess_active": False, "lichess_game_id": "local",
                 "game_status": "playing", "lichess_review_ready": False,
@@ -159,7 +179,7 @@ class PuzzleModeMixin:
             self._publish_puzzle()
             self._speak("Not the move. Try again.")
             try:
-                await self.async_takeback(1)  # type: ignore[attr-defined]
+                await self.async_takeback(1)
             except Exception as err:  # noqa: BLE001 — surfaced on the dashboard
                 _LOGGER.warning("Puzzle takeback failed: %s", err)
                 self._state["puzzle_error"] = (
@@ -176,7 +196,7 @@ class PuzzleModeMixin:
     async def _play_puzzle_move(self, uci: str) -> bool:
         mover_is_white = self._board.turn == chess.WHITE
         try:
-            delivered = await self.async_phantom_apply_ai_move(uci)  # type: ignore[attr-defined]
+            delivered = await self.async_phantom_apply_ai_move(uci)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Puzzle move %s failed: %s", uci, err)
             delivered = False
@@ -189,7 +209,7 @@ class PuzzleModeMixin:
             })
             self._publish_puzzle()
             return False
-        self._record_and_analyze_local_move(  # type: ignore[attr-defined]
+        self._record_and_analyze_local_move(
             chess.Move.from_uci(uci), mover_is_white,
         )
         return True
@@ -256,9 +276,9 @@ class PuzzleModeMixin:
     def _publish_puzzle(self) -> None:
         if self._puzzle is not None:
             self._state["puzzle"] = self._puzzle.summary()
-        self.async_set_updated_data(dict(self._state))  # type: ignore[attr-defined]
+        self.async_set_updated_data(dict(self._state))
 
     def _speak(self, message: str) -> None:
         self.hass.async_create_task(
-            self._announce_via_tts(message), name="phantom_chess_puzzle_speech",  # type: ignore[attr-defined]
+            self._announce_via_tts(message), name="phantom_chess_puzzle_speech",
         )

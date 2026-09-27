@@ -41,6 +41,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Declared `assist_pipeline` and `tts` as after-dependencies (hassfest).
 - **Take back** on your turn in a local game undoes your move together with the computer's reply. It previously undid only the reply, which the computer then replayed.
 - The dashboard's pause control resolves to the real pause switch on installs whose entity IDs don't use the board's MAC address.
+- Turning **Use Lichess cloud analysis** off now also hides cloud evaluations and opening names fetched earlier in the session; they return when the option is turned back on. Previously a position analysed while the option was on still showed its cloud result (no request was made).
+- The config-entry v2 → v3 registry migration uses Home Assistant's device-registry helper instead of mapping access that HA 2026.9 deprecates.
 
 ### Verified
 

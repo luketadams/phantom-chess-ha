@@ -314,7 +314,11 @@ rules:
     comment: |
       The gating CI `typecheck` job runs mypy --strict against Home
       Assistant 2026.9.3's installed types, with no --ignore-missing-imports.
-      The dependencies ship py.typed (python-chess; bleak via HA). The typed
+      That is the custom-integration equivalent of listing the integration in
+      core's .strict-typing file, which only core integrations can do. The
+      dependencies ship py.typed (python-chess; bleak via HA). The typed
       PhantomChessConfigEntry alias (runtime-data) is used for every entry
-      the integration handles. The few remaining type: ignore comments each
-      carry a specific error code and a stated reason.
+      the integration handles. The mixins declare the coordinator members
+      they use under TYPE_CHECKING. Each remaining type: ignore (bleak
+      fallback, the StaticPathConfig re-export, two config-flow overrides)
+      carries a specific error code and a stated reason.

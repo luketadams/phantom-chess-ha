@@ -26,13 +26,14 @@ import platform
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import chess
 import chess.engine
 
-from homeassistant.core import HomeAssistant
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 from .engine_artifacts import ASSETS, ensure_verified_engine
 from .move_quality import chance_loss, quality_grade, winning_chances
@@ -148,7 +149,8 @@ class LichessAnalysisClient:
             self._stockfish = StockfishFallback(hass, stockfish_bin_dir)
         # Option "cloud_analysis". When False no position ever leaves the
         # host: evaluations come from local Stockfish only and openings are
-        # not named. Results already cached stay usable (no network needed).
+        # not named. Cloud results cached while it was on are kept for when
+        # it is turned back on, but are not served while it is off.
         self.allow_cloud: bool = True
 
     # ─── Local-game AI moves (Task #16/#17 release-readiness) ─────────────
@@ -205,15 +207,13 @@ class LichessAnalysisClient:
         # Cache key includes multi_pv (different multi_pv = different result).
         cache_key = f"{safe_fen}::{multi_pv}"
 
-        if not bypass_cache and cache_key in self._eval_cache:
-            self._eval_cache.move_to_end(cache_key)
-            return self._eval_cache[cache_key]
+        if not bypass_cache and (cached := self._usable_cached_eval(cache_key)) is not None:
+            return cached
 
         async with self._eval_lock:
             # Double-check after acquiring the lock (unless bypassing).
-            if not bypass_cache and cache_key in self._eval_cache:
-                self._eval_cache.move_to_end(cache_key)
-                return self._eval_cache[cache_key]
+            if not bypass_cache and (cached := self._usable_cached_eval(cache_key)) is not None:
+                return cached
 
             result = await self._fetch_eval(safe_fen, multi_pv) if self.allow_cloud else None
             # Fall back to local Stockfish if cloud-eval missed or is off.
@@ -297,16 +297,28 @@ class LichessAnalysisClient:
             raw=payload,
         )
 
+    def _usable_cached_eval(self, cache_key: str) -> EvalResult | None:
+        """Cached eval for this key, unless it came from Lichess and the
+        cloud option is now off (then the caller evaluates locally)."""
+        cached = self._eval_cache.get(cache_key)
+        if cached is None or (not self.allow_cloud and cached.source == "lichess-cloud"):
+            return None
+        self._eval_cache.move_to_end(cache_key)
+        return cached
+
     # ─── opening explorer ─────────────────────────────────────────────────
 
     async def get_opening(self, fen: str) -> tuple[str | None, str | None]:
         """Return (name, eco) from the masters explorer. Empty when out of book."""
+        # Every name comes from Lichess, so none is shown while the option is
+        # off — not even one cached earlier. Nothing is cached here either:
+        # turning the option back on names the position.
+        if not self.allow_cloud:
+            return (None, None)
         # Cache aggressively — openings are deterministic per position.
         if fen in self._opening_cache:
             self._opening_cache.move_to_end(fen)
             return self._opening_cache[fen]
-        if not self.allow_cloud:
-            return (None, None)  # not cached: turning the option on names it later
 
         result = await self._fetch_opening(fen)
         self._opening_cache[fen] = result
