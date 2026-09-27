@@ -1,0 +1,116 @@
+# Home Assistant package: one configured Phantom board.
+# The normal HA Assist pipeline must have "Prefer handling commands locally" enabled.
+script:
+  phantom_play_chess:
+    alias: Play chess
+    description: Start a local Phantom chess game with the board's selected color and AI level. Repeated requests preserve the current game.
+    icon: mdi:chess-king
+    mode: single
+    max_exceeded: silent
+    sequence:
+      - action: phantom_chess.start_local_game
+        continue_on_error: true
+      - variables:
+          games: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_lichess_game_id$') | list }}"
+          boards: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_firmware_mode$') | list }}"
+      - if:
+          - condition: template
+            value_template: "{{ games | count != 1 or states(games[0]) != 'local' }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: phantom_chess_voice_start_failed
+              title: Chess could not start
+              message: The chessboard did not start a local game. Check that the board and Bluetooth proxy are powered on, and that no other chess mode is active, then try again.
+        else:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: phantom_chess_voice_start_failed
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: phantom_chess_local_move_failed
+
+automation:
+  - id: phantom_chess_voice_start
+    alias: Phantom chess - voice start
+    description: Start chess through Assist without waiting for motor setup in the voice request.
+    mode: single
+    triggers:
+      - trigger: conversation
+        command:
+          - "[I want to ]play chess"
+          - "[let's ]play [a game of ]chess"
+          - "start [a [new ]]chess game"
+    variables:
+      boards: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_firmware_mode$') | list }}"
+      games: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_lichess_game_id$') | list }}"
+    actions:
+      - choose:
+          - conditions: "{{ boards | count != 1 or games | count != 1 }}"
+            sequence:
+              - set_conversation_response: Please configure one Phantom chessboard before using this command.
+          - conditions: "{{ states(boards[0]) in ['unavailable', 'unknown'] }}"
+            sequence:
+              - set_conversation_response: The chessboard is offline. Turn on the board and its Bluetooth proxy, then ask me again.
+          - conditions: "{{ is_state('script.phantom_play_chess', 'on') }}"
+            sequence:
+              - set_conversation_response: I'm already setting up the chessboard. Please wait for the pieces to finish moving.
+          - conditions: "{{ states(games[0]) not in ['unknown', 'unavailable', '', 'None', 'none'] }}"
+            sequence:
+              - set_conversation_response: A chess session is already open. You can keep playing, or end it from the chess dashboard before starting another.
+        default:
+          - action: script.turn_on
+            target:
+              entity_id: script.phantom_play_chess
+          - set_conversation_response: I'll set up a game against Stockfish. Wait for the board to finish setting up before making your first move.
+
+  - id: phantom_chess_voice_stop
+    alias: Phantom chess - voice stop
+    mode: single
+    triggers:
+      - trigger: conversation
+        command:
+          - "stop [playing ]chess"
+          - "end [the ]chess game"
+    variables:
+      games: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_lichess_game_id$') | list }}"
+    actions:
+      - choose:
+          - conditions: "{{ games | count == 1 and states(games[0]) == 'local' }}"
+            sequence:
+              - action: phantom_chess.stop_local_game
+              - set_conversation_response: The local chess game has ended. Ask me to play chess when you want another game.
+        default:
+          - set_conversation_response: There is no local Stockfish game to stop. Use the chess dashboard to end a game in another mode.
+
+  - id: phantom_chess_voice_puzzle
+    alias: Phantom chess - voice puzzle
+    description: Set up the Lichess daily puzzle (or a random one) on the board.
+    mode: single
+    triggers:
+      - trigger: conversation
+        command:
+          - "[give me |show me |start ][the |a ]{kind} [chess ]puzzle"
+          - "[give me |show me |start ][a ]chess puzzle"
+    variables:
+      source: "{{ 'daily' if (trigger.slots.kind | default('')) in ['daily', \"today's\"] else 'random' }}"
+      boards: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_firmware_mode$') | list }}"
+      games: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_lichess_game_id$') | list }}"
+    actions:
+      - choose:
+          - conditions: "{{ boards | count != 1 or games | count != 1 }}"
+            sequence:
+              - set_conversation_response: Please configure one Phantom chessboard before using this command.
+          - conditions: "{{ states(boards[0]) in ['unavailable', 'unknown'] }}"
+            sequence:
+              - set_conversation_response: The chessboard is offline. Turn on the board and its Bluetooth proxy, then ask me again.
+          - conditions: "{{ states(games[0]) not in ['unknown', 'unavailable', '', 'None', 'none'] }}"
+            sequence:
+              - set_conversation_response: A chess session is already open. End it from the chess dashboard first.
+        default:
+          - action: phantom_chess.start_puzzle
+            continue_on_error: true
+            data:
+              source: "{{ source }}"
+          - set_conversation_response: >-
+              Setting up {{ "today's" if source == 'daily' else 'a' }} puzzle. When the pieces stop, find the best move.

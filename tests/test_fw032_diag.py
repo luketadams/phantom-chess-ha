@@ -166,6 +166,8 @@ def _game_start_stub():
     stub._build_phantom_matrix_from_fen = build_matrix_from_fen
     stub._game_channel_write_diag = lambda n: f"diag({n})"
     stub._game_start_diag_logged = False
+    stub.route_issue_calls = []
+    stub._set_route_issue = lambda *, rejected: stub.route_issue_calls.append(rejected)
     return stub, captured
 
 
@@ -210,6 +212,8 @@ def _game_start_raising_stub(err):
     stub._game_start_length_error = types.MethodType(
         PhantomChessCoordinator._game_start_length_error, stub
     )
+    stub.route_issue_calls = []
+    stub._set_route_issue = lambda *, rejected: stub.route_issue_calls.append(rejected)
     return stub
 
 
@@ -225,6 +229,7 @@ async def test_game_start_0x0d_raises_actionable_runtimeerror():
     msg = str(raised)
     assert "attr_max_len" in msg and "103" in msg
     assert raised.__cause__ is err  # chained from the original BLE error
+    assert stub.route_issue_calls == [True]  # Repairs tells the user about the proxy
 
 
 async def test_game_start_non_length_error_reraised_unchanged():
@@ -236,6 +241,7 @@ async def test_game_start_non_length_error_reraised_unchanged():
     except Exception as e:  # noqa: BLE001 — asserting identity below
         raised = e
     assert raised is err  # re-raised as-is, not wrapped
+    assert stub.route_issue_calls == []  # unrelated failures raise no route issue
 
 
 # ── GAME_ASSISTANCE 8-field payload (doc §3.4) ──────────────────────────────
@@ -426,7 +432,7 @@ def _exec_pos_stub(fw_version):
 
 async def test_start_sends_select_mode_on_fw033():
     stub, calls = _exec_pos_stub("0.3.3")
-    ok = await PhantomChessCoordinator._phantom_execute_position(
+    ok = await PhantomChessCoordinator._execute_position_unlocked(
         stub, fen=chess.STARTING_FEN, side="W", timeout_s=2.0, select_chess_mode=True
     )
     assert ok is True
@@ -436,7 +442,7 @@ async def test_start_sends_select_mode_on_fw033():
 
 async def test_start_skips_select_mode_on_fw030():
     stub, calls = _exec_pos_stub("0.3.0")
-    await PhantomChessCoordinator._phantom_execute_position(
+    await PhantomChessCoordinator._execute_position_unlocked(
         stub, fen=chess.STARTING_FEN, side="W", timeout_s=2.0, select_chess_mode=True
     )
     assert calls["select_mode"] == 0       # 0.3.0 path unchanged
@@ -446,7 +452,7 @@ async def test_start_skips_select_mode_on_fw030():
 async def test_position_execute_never_selects_mode_when_flag_false():
     # per-move AI / move_piece path must NOT re-enter chess-mode mid-game
     stub, calls = _exec_pos_stub("0.3.3")
-    await PhantomChessCoordinator._phantom_execute_position(
+    await PhantomChessCoordinator._execute_position_unlocked(
         stub, fen=chess.STARTING_FEN, side="B", timeout_s=2.0
     )
     assert calls["select_mode"] == 0

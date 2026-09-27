@@ -16,7 +16,7 @@ import asyncio
 import json
 import pathlib
 import types
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import chess
 import chess.pgn
@@ -86,7 +86,7 @@ def _no_sleep(monkeypatch):
     async def _instant(_seconds):
         return None
 
-    monkeypatch.setattr(coord_mod, "_sleep", _instant)
+    monkeypatch.setattr(coord_mod.rt, "_sleep", _instant)
 
 
 # Scholar's mate — 7 plies ending in checkmate.
@@ -189,44 +189,19 @@ async def test_illegal_move_stops_without_desync():
 
 
 @pytest.mark.asyncio
-async def test_transient_ble_drop_is_re_driven(monkeypatch):
-    """One apply failure → reconnect + re-drive current position, playback continues."""
+async def test_transport_failure_stops_without_replaying_motion(monkeypatch):
+    """An ambiguous command stops playback before any further physical write."""
     stub = _make_stub()
-    moves = ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5"]
-    applies = {"n": 0}
-
-    async def _apply(uci):
-        applies["n"] += 1
-        stub._board.push(chess.Move.from_uci(uci))  # apply pushes before write
-        if applies["n"] == 3:
-            stub._ble_connected = False
-            raise RuntimeError("apply_ai_move BLE write failed: BLE not connected")
-
-    stub.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
-
-    redrives = {"n": 0}
-
-    async def _execute(*, fen, side, timeout_s, side_opcode):
-        redrives["n"] += 1
-        assert side == "W" and side_opcode == "1"
-        assert fen == stub._board.fen()  # re-drive targets the CURRENT position
-        return True
-
-    stub._phantom_execute_position = AsyncMock(side_effect=_execute)
-
-    async def _reconnecting_sleep(_seconds):
-        if not stub._ble_connected:
-            stub._ble_connected = True
-        return None
-
-    monkeypatch.setattr(coord_mod, "_sleep", _reconnecting_sleep)
-
-    await stub._sculpture_loop(moves)
-
-    assert redrives["n"] == 1, f"expected 1 re-drive, got {redrives['n']}"
-    assert len(stub._board.move_stack) == len(moves)  # game finished despite the blip
-    assert stub._sculpture_active is False
-    assert stub._build_post_game_review.call_count == 1
+    stub._notify_wedge_circuit_breaker = MagicMock()
+    stub._get_ai_move = AsyncMock(return_value="e2e4")
+    stub.async_phantom_apply_ai_move = AsyncMock(side_effect=RuntimeError("BLE dropped"))
+    stub._phantom_execute_position = AsyncMock()
+    monkeypatch.setattr(coord_mod.rt, "_sleep", AsyncMock())
+    await stub._sculpture_loop(["e2e4", "e7e5"])
+    stub.async_phantom_apply_ai_move.assert_awaited_once_with("e2e4")
+    stub._phantom_execute_position.assert_not_awaited()
+    stub._notify_wedge_circuit_breaker.assert_called_once()
+    assert len(stub._board.move_stack) == 0
 
 
 # ── bundled data-file integrity ─────────────────────────────────────────────

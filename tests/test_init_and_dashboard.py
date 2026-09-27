@@ -763,6 +763,60 @@ async def test_async_remove_entry_swallows_unprovision_exception() -> None:
         await pc.async_remove_entry(hass, entry)
 
 
+class _FakeStore:
+    removed: list[str] = []
+
+    def __init__(self, hass, version, key):
+        self.key = key
+
+    async def async_remove(self):
+        _FakeStore.removed.append(self.key)
+
+
+def _removal_hass(tmp_path, survivors):
+    import asyncio as _asyncio
+
+    hass = MagicMock()
+    hass.config.path = lambda *parts: str(tmp_path.joinpath(*parts))
+    hass.config_entries.async_entries.return_value = survivors
+
+    async def run(fn, *args):
+        return await _asyncio.to_thread(fn, *args)
+
+    hass.async_add_executor_job = run
+    for parts in (("phantom_chess", "bin"), ("phantom_chess", "debug"),
+                  ("phantom_chess", "recordings"), ("www", "phantom_chess", "buttons")):
+        folder = tmp_path.joinpath(*parts)
+        folder.mkdir(parents=True)
+        (folder / "file").write_text("x")
+    return hass
+
+
+async def test_remove_last_entry_deletes_regenerable_files_keeps_user_data(tmp_path) -> None:
+    hass = _removal_hass(tmp_path, survivors=[])
+    entry = MagicMock(data={pc.CONF_BLE_ADDRESS: "C8:C9:A3:F2:7C:0A"}, options={})
+    _FakeStore.removed = []
+    with patch("homeassistant.helpers.storage.Store", _FakeStore), \
+         patch.object(pc, "async_unprovision_dashboard", new=AsyncMock()):
+        await pc.async_remove_entry(hass, entry)
+    assert _FakeStore.removed == ["phantom_chess_reviews_c8c9a3f27c0a"]
+    assert not (tmp_path / "phantom_chess" / "bin").exists()
+    assert not (tmp_path / "phantom_chess" / "debug").exists()
+    assert not (tmp_path / "www" / "phantom_chess").exists()
+    assert (tmp_path / "phantom_chess" / "recordings" / "file").exists()
+
+
+async def test_remove_one_of_two_boards_keeps_shared_files(tmp_path) -> None:
+    hass = _removal_hass(tmp_path, survivors=[MagicMock()])
+    entry = MagicMock(data={pc.CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"}, options={})
+    _FakeStore.removed = []
+    with patch("homeassistant.helpers.storage.Store", _FakeStore):
+        await pc.async_remove_entry(hass, entry)
+    assert _FakeStore.removed == ["phantom_chess_reviews_aabbccddeeff"]
+    assert (tmp_path / "phantom_chess" / "bin" / "file").exists()
+    assert (tmp_path / "www" / "phantom_chess" / "buttons" / "file").exists()
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # _register_static_paths
 # ─────────────────────────────────────────────────────────────────────────
@@ -945,6 +999,26 @@ async def test_migrate_unsupported_future_version_returns_false() -> None:
 # ─────────────────────────────────────────────────────────────────────────
 # _consolidate_registries_to_canonical — v2→v3 registry helper
 # ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _entries_for_config_entry_from_mock_registry():
+    """The helper tests fake the device registry as ``dev_reg.devices = {...}``.
+    Resolve ``dr.async_entries_for_config_entry`` against that dict so they keep
+    testing the consolidation logic rather than HA's registry index. A real
+    registry (anything whose ``devices`` is not a plain dict) uses HA's helper."""
+    real = pc.dr.async_entries_for_config_entry
+
+    def _entries(registry, config_entry_id):
+        if not isinstance(registry.devices, dict):
+            return real(registry, config_entry_id)
+        return [d for d in registry.devices.values() if config_entry_id in d.config_entries]
+
+    with patch(
+        "custom_components.phantom_chess.dr.async_entries_for_config_entry",
+        side_effect=_entries,
+    ):
+        yield
 
 
 def _fake_entity(entity_id: str, unique_id: str, config_entry_id: str,
@@ -1333,7 +1407,7 @@ async def test_async_provision_dashboard_full_path() -> None:
          patch.object(dp.frontend, "async_panel_exists", return_value=False,
                       create=True), \
          patch.object(dp.frontend, "async_register_built_in_panel") as reg_panel, \
-         patch.object(dp, "_sync_frontend_deps_issue") as sync_issue:
+         patch.object(dp.frontend, "add_extra_js_url") as register_js:
         await dp.async_provision_dashboard(hass, entry)
 
     lovelace_storage.async_save.assert_awaited_once_with({"views": []})
@@ -1344,7 +1418,7 @@ async def test_async_provision_dashboard_full_path() -> None:
     reg_panel.assert_called_once()
     # LovelaceStorage stashed for websocket lookup.
     assert lovelace_data.dashboards[dp.DASHBOARD_URL_PATH] is lovelace_storage
-    sync_issue.assert_called_once()
+    register_js.assert_called_once()
 
 
 async def test_async_provision_dashboard_updates_existing_row() -> None:
@@ -1371,7 +1445,7 @@ async def test_async_provision_dashboard_updates_existing_row() -> None:
                       new=AsyncMock(return_value=(store, existing))), \
          patch.object(dp.frontend, "async_panel_exists", return_value=True,
                       create=True), \
-         patch.object(dp, "_sync_frontend_deps_issue"):
+         patch.object(dp.frontend, "add_extra_js_url"):
         await dp.async_provision_dashboard(hass, entry)
 
     saved = store.async_save.call_args.args[0]
@@ -1488,26 +1562,76 @@ async def test_async_unprovision_dashboard_no_panel_no_data() -> None:
     store.async_save.assert_not_awaited()
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# _sync_frontend_deps_issue
-# ─────────────────────────────────────────────────────────────────────────
-
-
-def test_sync_frontend_deps_issue_creates_when_missing() -> None:
+async def test_provision_tolerates_panel_registered_elsewhere() -> None:
+    """A panel already registered under another owner must not abort provisioning."""
     hass = MagicMock()
-    with patch.object(dp, "_missing_frontend_deps", return_value=["Mushroom"]), \
-         patch.object(dp.ir, "async_create_issue") as create, \
-         patch.object(dp.ir, "async_delete_issue") as delete:
-        dp._sync_frontend_deps_issue(hass)
-    create.assert_called_once()
-    delete.assert_not_called()
+    entry = MagicMock()
+    entry.data = {CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"}
+    store = MagicMock()
+    store.async_save = AsyncMock()
+    lovelace_storage = MagicMock()
+    lovelace_storage.async_save = AsyncMock()
+    lovelace_data = MagicMock()
+    lovelace_data.dashboards = {}
+    hass.data = {dp.LOVELACE_DATA: lovelace_data}
+    with patch.object(dp, "build_dashboard_config", new=AsyncMock(return_value={"views": []})), \
+         patch.object(dp.ll_dashboard, "LovelaceStorage", return_value=lovelace_storage), \
+         patch.object(dp, "_async_load_dashboards_store", new=AsyncMock(return_value=(store, []))), \
+         patch.object(dp.frontend, "async_panel_exists", return_value=False, create=True), \
+         patch.object(dp.frontend, "async_register_built_in_panel", side_effect=ValueError("taken")), \
+         patch.object(dp.frontend, "add_extra_js_url") as register_js:
+        await dp.async_provision_dashboard(hass, entry)
+    register_js.assert_called_once_with(hass, dp.CARD_URL_VERSIONED)
+    assert lovelace_data.dashboards[dp.DASHBOARD_URL_PATH] is lovelace_storage
 
 
-def test_sync_frontend_deps_issue_clears_when_present() -> None:
+async def test_unprovision_survives_panel_and_storage_failures() -> None:
     hass = MagicMock()
-    with patch.object(dp, "_missing_frontend_deps", return_value=[]), \
-         patch.object(dp.ir, "async_create_issue") as create, \
-         patch.object(dp.ir, "async_delete_issue") as delete:
-        dp._sync_frontend_deps_issue(hass)
-    delete.assert_called_once()
-    create.assert_not_called()
+    lovelace_storage = MagicMock()
+    lovelace_storage.async_delete = AsyncMock(side_effect=OSError("read-only"))
+    lovelace_data = MagicMock()
+    lovelace_data.dashboards = {dp.DASHBOARD_URL_PATH: lovelace_storage}
+    hass.data = {dp.LOVELACE_DATA: lovelace_data}
+    store = MagicMock()
+    store.async_save = AsyncMock()
+    rows = [{dp.CONF_URL_PATH: dp.DASHBOARD_URL_PATH}, {dp.CONF_URL_PATH: "other"}]
+    with patch.object(dp.frontend, "async_panel_exists", return_value=True, create=True), \
+         patch.object(dp.frontend, "async_remove_panel", side_effect=KeyError("gone"), create=True), \
+         patch.object(dp, "_async_load_dashboards_store", new=AsyncMock(return_value=(store, rows))):
+        await dp.async_unprovision_dashboard(hass)
+    assert dp.DASHBOARD_URL_PATH not in lovelace_data.dashboards
+    store.async_save.assert_awaited_once_with({"items": [{dp.CONF_URL_PATH: "other"}]})
+
+
+async def test_load_dashboards_store_reads_items(hass) -> None:
+    from homeassistant.helpers.storage import Store
+    await Store(hass, dp.DASHBOARDS_STORAGE_VERSION, dp.DASHBOARDS_STORAGE_KEY).async_save(
+        {"items": [{"id": "x", dp.CONF_URL_PATH: "x"}]}
+    )
+    _, items = await dp._async_load_dashboards_store(hass)
+    assert items == [{"id": "x", dp.CONF_URL_PATH: "x"}]
+
+
+async def test_build_dashboard_config_rejects_non_mapping() -> None:
+    with patch.object(dp, "_resolve_entity_ids", return_value={}), \
+         patch.object(dp, "_render_template", return_value="- just\n- a list\n"):
+        with pytest.raises(ValueError):
+            await dp.build_dashboard_config(MagicMock(), "AA:BB:CC:DD:EE:FF")
+
+
+async def test_cloud_analysis_option_applies_without_reload() -> None:
+    hass = MagicMock()
+    hass.config_entries.async_reload = AsyncMock()
+    client = MagicMock(allow_cloud=True)
+    coordinator = MagicMock(_options_snapshot={"cloud_analysis": True, "debug_dump": False},
+                            _analysis_client=client)
+    entry = MagicMock(entry_id="e1", runtime_data=coordinator,
+                      options={"cloud_analysis": False, "debug_dump": False})
+    await pc._async_options_updated(hass, entry)
+    hass.config_entries.async_reload.assert_not_awaited()
+    assert client.allow_cloud is False
+    assert coordinator._options_snapshot == {"cloud_analysis": False, "debug_dump": False}
+    # Any other option still reloads.
+    entry.options = {"cloud_analysis": False, "debug_dump": True}
+    await pc._async_options_updated(hass, entry)
+    hass.config_entries.async_reload.assert_awaited_once_with("e1")

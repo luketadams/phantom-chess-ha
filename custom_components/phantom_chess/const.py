@@ -144,6 +144,15 @@ ENTITY_TRAINING_WHEELS         = "training_wheels"
 # fresh install keeps the existing announce behaviour.
 ENTITY_VOICE_ANNOUNCEMENTS      = "voice_announcements"
 DEFAULT_VOICE_ANNOUNCEMENTS     = True
+# Study-mode display toggle (Luke, 2026-07-08). A DISPLAY-only preference:
+# OFF (default) = board-only "board status" view in every active-game mode;
+# ON = the rich learning layout (eval bar / board / moves table / last-move
+# strip). Zero coordinator gameplay behaviour — do NOT confuse with
+# `training_wheels` (engine-hint coaching). Pure-local config storage (no
+# BLE); state persists across HA restarts via RestoreEntity. Working name
+# "Study mode" — kept a single translation label so a rename is one line.
+ENTITY_STUDY_VIEW               = "study_view"
+DEFAULT_STUDY_VIEW              = False
 ENTITY_LICHESS_CLOCK_MINUTES   = "lichess_clock_minutes"
 ENTITY_LICHESS_CLOCK_INCREMENT = "lichess_clock_increment"
 # v0.4-alpha30: AI-vs-AI spectator mode. Three integration-owned
@@ -187,7 +196,7 @@ ENTITY_PICKER_AVAILABLE = "picker_available"
 # (so it stayed visible if the board wedged mid-snap while on "Choose a
 # mode"). That coverage moves to the interstitials: dropping their
 # "Choose a mode" exclusion lets them own the transient states for every
-# setup mode uniformly (see dashboard_template.yaml).
+# setup mode uniformly.
 #
 # "unknown"/"unavailable" cover a freshly-connected or wedged firmware_mode
 # sensor (in the binary sensor a firmware_mode of None maps here); the
@@ -257,17 +266,13 @@ ENTITY_LAST_GAME_REVIEW        = "last_game_review"  # state = mistake count; at
 # Classification labels (kept in sync with the spec)
 CLASSIFICATION_BRILLIANT  = "brilliant"
 CLASSIFICATION_BEST       = "best"
+CLASSIFICATION_EXCELLENT  = "excellent"
 CLASSIFICATION_GOOD       = "good"
 CLASSIFICATION_BOOK       = "book"
 CLASSIFICATION_INACCURACY = "inaccuracy"
 CLASSIFICATION_MISTAKE    = "mistake"
 CLASSIFICATION_BLUNDER    = "blunder"
 CLASSIFICATION_UNKNOWN    = "unknown"
-
-# CPL thresholds (centipawns lost) — per the spec
-CPL_GOOD_MAX        = 20    # < 20 = best/good
-CPL_INACCURACY_MAX  = 100   # < 100 = inaccuracy
-CPL_MISTAKE_MAX     = 300   # < 300 = mistake; ≥ 300 = blunder
 
 # Cloud-eval / opening explorer URLs
 LICHESS_CLOUD_EVAL_URL = "https://lichess.org/api/cloud-eval"
@@ -314,7 +319,7 @@ MOVE_DEDUP_WINDOW_SECONDS: float = 0.4
 # the magnet. After this many CONSECUTIVE move-delivery failures a loop stops
 # cleanly and raises a persistent notification suggesting `resync_detection`.
 # A single delivered move resets the counter.
-PHANTOM_EXEC_FAILURE_LIMIT: int = 3
+PHANTOM_EXEC_FAILURE_LIMIT: int = 1
 
 # M9 — AI-echo expiry backstop, aligned to the post-activation settle window
 # (`_activation_settle_until`, 600 s in `_phantom_execute_position`). The echo
@@ -332,6 +337,31 @@ AI_ECHO_BACKSTOP_SECONDS: float = 600.0
 # trailing rook echo be mis-read as a human move, so we hold the set for this
 # grace period first. A few seconds spans the king→rook echo gap.
 AI_ECHO_MOVE_DONE_GRACE_SECONDS: float = 4.0
+
+# ── Settle-window lifecycle (live bug 2026-07-08, Lichess bLraP9m6) ──────────
+# The post-activation settle window (`_activation_settle_until`) is armed to
+# now + 600 s on every GAME_START write and is normally cleared by the 0x0c
+# BLE_MOVE_DONE. On fw0.3.3 that 0x0c is unreliable, so the 600 s backstop stayed
+# armed and swallowed real human moves for up to ~570 s (the c4-d5 dead zone).
+# These trims give the window an early, bounded release from two other signals.
+
+# Fix A1 — on an execute-position TIMEOUT (0x0c never arrived), trim the window
+# to this short tail. We already waited the caller's timeout_s for the magnet;
+# the remaining backstop is a dead zone. A human frame landing after the drive
+# should replay, not vanish.
+SETTLE_TIMEOUT_TRIM_SECONDS: float = 10.0
+
+# Fix A2 — when the firmware transitions to "Board Playing"/"BLE Playing" it has
+# itself declared play-readiness; trim the window to this brief post-transition
+# grace. NOT zero: the 2026-05-25 spurious `M 1 e8-g8` arrived DURING activation
+# (before any Board Playing transition), so a small grace still suppresses that
+# class while releasing genuine human moves shortly after.
+SETTLE_MODE_TRIM_SECONDS: float = 2.0
+
+# Fix A3 — a human move frame suppressed by the settle window is stashed and
+# REPLAYED once the window releases. A stash older than this is discarded rather
+# than applied — a human intent from the distant past shouldn't land minutes late.
+PENDING_FRAME_MAX_AGE_SECONDS: float = 30.0
 
 # Task 5 (live bug 2026-07-02) — minimum fraction of a color's plies that must
 # be ANALYZED (real Lichess/engine eval, not the "unknown" stub) before the

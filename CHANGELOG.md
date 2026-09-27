@@ -1,10 +1,127 @@
+
+<!-- phantom-reference-navigation -->
+> **Engineering navigation.** Cross-document baseline, evidence, and unresolved defects are coordinated centrally. Current engineering knowledge: [engineering reference](docs/ENGINEERING_REFERENCE.md).
+
 # Changelog
 
 All notable changes to the Phantom Chess Board Home Assistant integration are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] — 0.5.0
+
+0.5.0 rebuilds the integration around a bundled dashboard and local analysis. The detailed beta entries follow; this summary is what changes for someone upgrading from 0.4.0-beta4.
+
+### Added
+
+- Play / Learn / Review / Board & settings dashboard with no extra frontend dependencies; it replaces the Mushroom-based layout on upgrade.
+- Local Stockfish 18 play and full-game review with move grades, key moments, suggested lines and practice positions.
+- Game library: automatic saves, restart recovery, search, PGN import/export and replay.
+- Managed HomePod speech that follows the preferred Assist pipeline voice.
+- Puzzle mode: the Lichess daily puzzle or a random one (optionally by difficulty or theme) is set up on the board. Your moves are checked against the solution; the board plays the replies, takes back a wrong try and says so, and accepts any checkmate like Lichess does. Hint names the piece to move; Show solution plays the rest of the line. Available from the Play page, the `start_puzzle`, `puzzle_hint` and `puzzle_show_solution` services, and a "give me a chess puzzle" sentence in the Assist example. Fetched anonymously; attempts are not saved.
+- Endgame drills: two-rook ladder, queen and king, rook and king, king-and-pawn promotion, and holding a king-and-pawn draw. The engine plays at full strength regardless of your usual level; each drill is judged after every move and ends with a spoken reason (for example stalemate, move limit, or the pawn promoting). Positions were checked with Stockfish 18. `start_drill` service and a Play-page list.
+- Option **Use Lichess cloud analysis** (on by default). Off keeps every position on the device: evaluations come from local Stockfish, openings are not named, and the computer opponent never falls back to Lichess. Applies without a reload.
+- `check_engine` service and dashboard control.
+- Settings → Repairs entries for an unsupported or failed chess engine, and for a board that rejects game commands on the host Bluetooth adapter (firmware 0.3.2+ needs an ESPHome proxy). Each clears itself once fixed.
+
+### Changed
+
+- The Lichess token is optional. Setup without one creates a local-only entry; online play explains how to add a token with Reconfigure.
+- Local moves are recorded only after the board confirms them; an uncertain physical move pauses play instead of retrying.
+- Speech through a generic TTS engine now reports failures on the dashboard.
+- Service errors are translated and readable: refusals such as "a game is already running" show as validation messages instead of unhandled errors, and Bluetooth failures say to check the board and proxy.
+- The bundled card's cache-busting URL follows the installed version, so browsers load the new card after an update.
+- Removed the unused 0.4 "classic" dashboard renderer and its mascot images (about 1.6 MB), and the obsolete missing-HACS-plugins repair issue.
+- Removing the integration also deletes the downloaded engine, cached analysis, debug captures and copied images. Saved games and recordings are kept.
+- The engine download for Alpine-based installs (HAOS, container) uses a project mirror first, because Alpine's rolling repository drops old package builds. All sources are held to the same pinned digests.
+
+### Fixed
+
+- Checkmate after a preceding check is announced, and finished games show their result instead of looking frozen.
+- Declared `assist_pipeline` and `tts` as after-dependencies (hassfest).
+- **Take back** on your turn in a local game undoes your move together with the computer's reply. It previously undid only the reply, which the computer then replayed.
+- The dashboard's pause control resolves to the real pause switch on installs whose entity IDs don't use the board's MAC address.
+- Turning **Use Lichess cloud analysis** off now also hides cloud evaluations and opening names fetched earlier in the session; they return when the option is turned back on. Previously a position analysed while the option was on still showed its cloud result (no request was made).
+- The config-entry v2 → v3 registry migration uses Home Assistant's device-registry helper instead of mapping access that HA 2026.9 deprecates.
+
+### Verified
+
+- Full suite on Home Assistant 2026.2.3 and 2026.9.3; line coverage above 95 %, enforced in CI.
+- `mypy --strict` against Home Assistant's own types, gating in CI. The manifest now claims the Platinum quality scale; every Bronze, Silver, Gold and Platinum rule is done or exempt (`quality_scale.yaml`).
+- The coordinator is split into session modules (protocol, online play, local game, two-player, autoplay, coaching) with no behaviour change.
+- Fresh install, engine install on 64-bit ARM, removal, and upgrade from 0.4.0-beta4 in Home Assistant 2026.9.3 containers.
+
+## [0.5.0b7] — 2026-09-05
+
+- Allow active move/result speech while game status is check. This fixes silent checkmate after a player escapes a preceding check.
+- Add a silent physical-execution regression for the actual 39…Nh3# finish and preserve idle, paused and sculpture speech guards.
+
+## [0.5.0b6] — 2026-09-05
+
+- Show checkmate with the winning color, draw/stalemate results, and an Open game review link after a game ends.
+- Show when the player to move is in check. Completed games no longer display Ready when you are as if play silently stopped.
+
+## [0.5.0b5] — 2026-09-05
+
+- Recover interrupted review updates with five bounded attempts and increasing delay, an explicit Refresh analysis control, and a clear last-received status.
+- Ignore late responses for another game or an older request; stop polling when leaving Review and refresh when the card reconnects.
+- Clarify that hiding visual coaching does not mute spoken mistake alerts.
+
+## [0.5.0b4] — 2026-09-05
+
+- Share position-relative chance-loss grading between live coaching and completed-game review, including Excellent labels.
+- Describe evaluation changes accurately in speech; a large score swing alone no longer asserts that the player allowed mate or physically lost pieces.
+- Preserve the winner when Stockfish returns a mate-zero score; ambiguous cloud mate-zero results stay unavailable.
+- Clear resolved analysis-cache warnings after successful persistence.
+
+## [0.5.0b3] — 2026-09-05
+
+- Pin archive and executable SHA-256 digests; stream size-bounded downloads, copy only the expected regular binary, and atomically install without deleting the working engine first.
+- Use baseline glibc x86 for new installs; preserve verified existing AVX2 engines. Report unsupported glibc ARM64 instead of requesting a nonexistent upstream URL.
+- Add engine readiness/recovery in Board & settings, with a process ping and one bounded recovery attempt.
+- Reject incomplete or invalid cached review scores and inconsistent terminal claims before coaching renders; keep saved moves independent.
+
+## [0.5.0b2] — 2026-09-05
+
+- Optional position-matched advantage bar on Play/Learn/Review and training move badges, including destination-square icons.
+- Persistent local Stockfish game review with progress, cancel/resume/reanalyze, legal alternative lines, chance-loss coaching, mistake navigation and practice before a move.
+- Reviews pause when play starts, survive restart as resumable work, and keep recomputable analysis separate from saved moves.
+- Preserve Lichess cloud evaluation signs on Black's turn, as required by its White-perspective API contract.
+- Analysis restores full engine skill instead of inheriting the opponent's difficulty; delayed starting-position/hint results cannot overwrite newer positions.
+- Transparent grading limits: no proprietary Chess.com accuracy claim or unsupported brilliant-move awards.
+
+## [0.5.0b1] — 2026-09-05
+
+- Bundled authenticated Play / Learn / Review / Board & settings dashboard, without extra card plugins or browser token setup.
+- Automatic local-game checkpoints, explicit restart recovery, PGN library/search/import/export/replay and practice-position forks.
+- Confirm local moves only after physical completion; stop on ambiguous movement without replaying robot commands automatically. Guard all mode starts and reject stale AI/analysis results.
+- Preferred Assist pipeline voice through buffered native HomePod speech, per-entry volume, and speech settings that apply without game reload.
+- Preserve usual color/difficulty, confirm undo/reset, and report engine/storage/speech failures.
+- Validation: 1,468 tests on each HA baseline (2026.2.3 and 2026.8.3), 94.1% line coverage; packaged-card browser checks. Physical acceptance remains separately tracked.
+
+### Fixed
+
+- Local-game startup is serialized and repeat requests preserve the current game. An active online or spectator game is not abandoned by a local start request.
+- Failed or cancelled local starts clear active-game state; an unconfirmed board activation raises an actionable error. The start announcement happens after activation succeeds.
+- Physical human moves now enter the local move-history and analysis pipeline. Automatic game results from either side finalize the local game and expose the review.
+- Unconfirmed local AI moves stop play with a recovery notification rather than inventing a successfully executed move. Paused inputs are ignored.
+- Integration shutdown cancels and awaits the local/spectator AI task before closing Stockfish. Local stop awaits cancellation before writing the pause command.
+- Config-flow tests mock Bluetooth adapter history so the full HA suite also runs on macOS without host DBus access.
+
+- **Settle-window lifecycle — human moves no longer vanish when `0x0c` is unreliable** (live Lichess session bLraP9m6, 2026-07-08). The post-activation move-suppression window (`_activation_settle_until`) was armed to `now + 600s` on every GAME_START and cleared ONLY by the `0x0c` BLE_MOVE_DONE. On fw0.3.3 that `0x0c` is unreliable, so the 600s backstop stayed armed and swallowed real human moves for up to ~570s: the live `c4-d5` arrived a full 51s after the drive completed (its `0x0c` never came) and was recorded but never applied; the `g1-e2` case was reverted by the firmware after going unacked. Three coordinated trims/repairs (all in `coordinator.py`, new consts in `const.py`): **(A1)** on an execute-position timeout the window trims to `now + SETTLE_TIMEOUT_TRIM_SECONDS` (10s) instead of leaving ~570s of dead zone; **(A2)** when the firmware itself reaches "Board Playing"/"BLE Playing" the window trims to `now + SETTLE_MODE_TRIM_SECONDS` (2s) — a trim, not a clear, so the 2026-05-25 mid-activation spurious `e8-g8` class stays suppressed; **(A3)** a move frame suppressed mid-settle is stashed in `_pending_settle_frame` and REPLAYED through the full apply path (echo → settle → reset-mode → dedup → legality) once the window releases (via the `0x0c` handler or lazily at the top of the next frame), one-shot and dedup-safe, discarding a stash older than `PENDING_FRAME_MAX_AGE_SECONDS` (30s). Worst-case dead zone shrinks from 600s to ~`timeout_s`.
+- **Resign is robust to a failed POST or a dead stream** (live 2026-07-08). `async_resign`'s non-200 branch only logged a WARNING nobody sees, so a failed resign silently left the game live on Lichess. It now retries ONCE after 2s and, on final failure, raises a persistent notification ("Resign failed (HTTP xxx) — the game is still live on Lichess; retry or resign from the Lichess app"). On success it clears local game state DIRECTLY (cancels the stream task, `lichess_active=False`, game id + clocks cleared) rather than waiting for the terminal stream echo — a dead stream never delivers it, which had left `lichess_active` stuck ON.
+- **"Back to modes" ends an active Lichess game instead of leaving a zombie** (live 2026-07-08). `async_back_to_modes` during a live Lichess game left the server game running (`lichess_active` stuck ON, `_game_id` set) — a zombie that needed a full config-entry reload to clear. It now best-effort resigns (single POST, non-blocking — no retry), cancels the stream task, and clears the session state (game id, `lichess_active`, clocks) before the UI reset + re-home.
+- **Graveyard-shortfall notification after a re-home** (live 2026-07-08). Captured pieces stranded in the border tray can't be returned by a re-home drive (firmware graveyard bookkeeping is lost after a mismatch episode). After a re-home (`reset_position` / `back_to_modes`) the coordinator reads the sensor matrix once and, if fewer than 32 pieces are on the board, raises a one-shot persistent notification asking the user to place the missing pieces by hand.
+
+### Changed
+
+- **Voice-over classification announcements attribute the color** (Luke, 2026-07-08). During sculpture playback (and any human-free mode) the TTS said "Good move" / "Blunder. You lost about 1.8 pawns." — "you" is meaningless with no human at the board, and an unattributed classification can't be matched to a move when speech lags the physical move. Now "you" is reserved for the human player in a human-vs-AI game; every other announcement names the color: "Best move by White.", "Blunder by White. Lost about 5.1 pawns.", "Mistake by Black. Lost about 2.3 pawns.", mate transitions as "Blunder by Black. Black allowed a forced mate." The `_analyze_move` gate now announces BOTH colors (attributed) in sculpture playback, AI-vs-AI, and two-player recording, and the mode check wins over `_our_color` — fixing the live bug where a stale `_our_color` from a prior game made an engine move announce as the human's ("you"), and the two-player case where only one human's moves were ever announced. Human-vs-AI is unchanged: the human's own move keeps the "you" wording, the AI's move stays silent. Verbosity rule (training-wheels OFF → mistake/blunder only) and the fork suffix are unchanged.
+
+### Added
+
+- Optional Assist voice package with “I want to play chess,” immediate setup response, offline/busy feedback, and an exposed-script-ready local game starter.
+
+- **Study-mode display toggle** (Luke, 2026-07-08). A new `switch.<mac>_study_view` ("Study mode" — name provisional) gives every active-game view a global display-density switch: OFF (default) renders the full-width board only ("board status"); ON renders the rich learning layout (eval bar / board / moves table / last-move strip). One persistent toggle across all modes — Lichess, local Stockfish, AI-vs-AI, two-player recording, and sculpture playback — so in study mode sculpture playback now gets the rich layout too. This is a DISPLAY toggle only (zero coordinator gameplay behaviour); it is independent of `training_wheels` (engine-hint coaching). The switch is pure-local config storage (no BLE) and persists across restarts via `RestoreEntity`. The dashboard's two "a game is running" presentations (SIMPLE full-width board vs RICH learning layout) are now selected by this toggle, and the state-coverage simulation runs every scenario with study ON and OFF to prove exactly one view renders.
 
 ## [0.4.0-beta4] - 2026-07-08
 
@@ -44,7 +161,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - **`pyproject.toml` `filterwarnings` scoped to phacc module.** The blanket `ignore:.*is deprecated.*:Warning` was swallowing HA-core removal warnings that could surface under newer HA releases. The filter is now restricted to the `pytest_homeassistant_custom_component` module — the source of the `PytestRemovedIn9Warning` noise this filter was added for.
-- **Connect-time GATT read sweep is now debug-only** (audit 2026-07-06 §C1). On every reconnect the coordinator read *all* readable characteristics sequentially — dozens of GATT round-trips through the ESPHome proxy — with only the resulting file write gated on `debug_dump`. The whole read loop is now gated on `debug_dump`, so production reconnects (e.g. an AI-vs-AI mid-game reconnect → re-drive) re-establish the link fast instead of paying for a diagnostic dump.
+- **Connect-time GATT read sweep is now debug-only** (audit 2026-07-06 §C1). On every reconnect the coordinator read *all* readable characteristics sequentially — dozens of GATT round-trips through the ESPHome proxy — with only the resulting file write gated on `debug_dump`. The whole read loop is now gated on `debug_dump`, so production reconnects (including spectator reconnect discovery) re-establish the link fast instead of paying for a diagnostic dump.
 - **Coordinator state fan-outs standardized to snapshot copies** (audit 2026-07-06 §B7). `async_set_updated_data` was seeded (`__init__`) and invoked with the live mutable `self._state` in ~18 places, and `_async_update_data` returned it directly — so entities, including `image.py`'s change-detection, could observe half-mutated state or a value that mutated underneath them between the update callback and the render. Every fan-out and the initial seed now pass `dict(self._state)`, and `_async_update_data` returns a copy, so `coordinator.data` is a stable snapshot between pushes.
 
 ### Fixed
@@ -103,15 +220,8 @@ Third public beta. **Restores full gameplay on the current public firmware (0.3.
 
 ### Firmware 0.3.2 / 0.3.3 — requires an ESPHome Bluetooth proxy
 
-**The current public firmware (0.3.2 / 0.3.3, app 4.1.0) refuses all GATT writes and notification-subscribes from Home Assistant's built-in Linux/BlueZ Bluetooth** — `WRITE_NOT_PERMITTED` on characteristic subscribes and `INVALID_ATTRIBUTE_VALUE_LENGTH` (ATT 0x0D) on `UUID_GAME` writes (even a 1-byte `GAME_END`) — while accepting the official iOS app (Apple CoreBluetooth) doing **byte-identical** operations on the **same unencrypted link**. This was confirmed with a Nordic nRF52840 BLE sniffer capturing both the working app session and the failing HA session. It is a **firmware ↔ BlueZ stack incompatibility, not an integration bug** — ruled out: bonding/encryption, write method, payload, SELECT_MODE, subscribe order, and the BlueZ GATT cache.
+The household captured write/subscription failures on one HAOS/BlueZ path with firmware 0.3.2/0.3.3 and successful official iOS/ESPHome-proxy operation. The evidence does not establish a universal firmware-versus-BlueZ incompatibility or rule out every initialization factor. Current deployment behavior and qualified protocol interpretation are in the engineering reference.
 
-**Fix — route the board through an [ESPHome Bluetooth proxy](https://esphome.io/projects/):** a ~$10 generic ESP32 web-flashed with the ready-made "Bluetooth Proxy" firmware and powered near the board. Home Assistant then reaches the board over the ESP32's BLE stack (which the firmware accepts), and **all gameplay works end-to-end** — game start, physical-move detection, AI/engine moves, takeback, etc. Verified live: with the proxy, HA subscribes to `UUID_GAME` successfully, `start_two_player_game` starts the game, the firmware enters *Board Playing*, and physical moves are detected and analysed.
-
-A direct HAOS/BlueZ connection to the board does **not** work on firmware 0.3.2+. The **0.3.0** firmware path is unaffected (works over BlueZ directly). On 0.3.2+ *without* a proxy, `start_*` services fail with a descriptive error (see the `diagnose_game_start` service) rather than a bare crash.
-
-## [0.4.0-beta2] — 2026-06-03
-
-Second public beta. Two-player recording robustness, "Back to modes" now re-homes the board, a faithful PGN export, and a polished public README.
 
 ### Added
 
@@ -886,7 +996,6 @@ First release-readiness pass. Reworks the integration to run on any user's Home 
 - **Continue-on-phone recovery.** New `phantom_chess.resume_from_phone` service. When the integration's apply-AI-move retry exhausts (BLE write failures, ATT 0x0e errors, GATT staleness), fires a persistent notification with instructions to continue the game on phone, then resync the board on tap. Game state is preserved; no resignation.
 - **Lichess stream supervisor.** New `phantom_chess.reconcile_lichess_state` service + auto-trigger callback. When the stream task dies during a BLE storm and misses the terminal gameState event, the reconcile queries Lichess directly and syncs local state. Prevents `lichess_active` from getting stuck on.
 - **GATT-cache-staleness recovery.** `_ble_write` now detects "Characteristic not found" errors that surface after firmware power-cycles or post-reload subscription reuse, and forces a BLE disconnect to trigger fresh service discovery via the existing reconnect loop.
-- **AI-move BLE retry.** `apply_ai_move` retries once with 250ms backoff on transient transport errors (TypeError, BleakError ATT 0x0e, mid-write disconnect). Snapshot mechanism is idempotent — retry is safe.
 - **Transient firmware-state dashboard cards.** Six new dashboard conditionals show state-specific info banners for Snapping Pieces, Snap to Center, Calibrating, Setting Up, Ending Game, Initializing — replacing the bare-board fallback.
 - **`phantom_chess_announce` event.** Integration now fires this event for all announcements (game start, AI moves, classifications, check/mate). Users wire their TTS stack via a simple automation. Integration is no longer coupled to a specific TTS service.
 - **Options flow.** Settings → Devices & Services → Phantom Chess → ⋮ → Configure exposes `tts_service`, `tts_media_player_entity_id`, `debug_dump`. Users can rotate the Lichess token without delete-and-recreate.

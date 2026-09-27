@@ -1,8 +1,9 @@
 """Sensor entities for Phantom Chess Board."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -10,6 +11,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 import chess
 
+from .drills import catalogue as _drill_catalogue
 from .const import (
     CONF_BLE_ADDRESS,
     CONF_DEVICE_NAME,
@@ -45,15 +47,20 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
+
 # Read-only platform — entity updates are pushed by the coordinator's
 # BLE notification stream + Lichess Board API stream. No parallel-
 # request concern (Silver quality scale rule `parallel-updates`).
 PARALLEL_UPDATES = 0
 
+DRILL_CATALOGUE = _drill_catalogue()
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: PhantomChessCoordinator = entry.runtime_data
@@ -103,12 +110,13 @@ class PhantomBaseSensor(CoordinatorEntity[PhantomChessCoordinator], SensorEntity
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
         unique_suffix: str,
     ) -> None:
         super().__init__(coordinator)
+        self._entry_id = entry.entry_id
         self._address = address
         self._device_name = device_name
         self._attr_unique_id = f"{address}_{unique_suffix}"
@@ -147,7 +155,13 @@ class PhantomBatterySensor(PhantomBleBaseSensor):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_BATTERY)
 
     @property
@@ -165,7 +179,13 @@ class PhantomLichessIdSensor(PhantomBaseSensor):
     _attr_icon = "mdi:identifier"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_ID)
 
     @property
@@ -198,10 +218,16 @@ class PhantomLivePositionSensor(PhantomBleBaseSensor):
     # transient render data, never charted — exclude them from history so
     # the recorder isn't hammered. State (the FEN) is still recorded.
     _unrecorded_attributes = frozenset(
-        {"piece_grid", "sensor_bitmap", "matrix_raw"}
+        {"piece_grid", "sensor_bitmap", "matrix_raw", "saved_games", "game_reviews", "move_history_moves", "legal_moves"}
     )
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LIVE_POSITION)
 
     @property
@@ -219,7 +245,7 @@ class PhantomLivePositionSensor(PhantomBleBaseSensor):
             if _our is not None:
                 our_color_resolved = "white" if _our == chess.WHITE else "black"
             else:
-                pref = self.coordinator.player_color
+                pref: str | None = self.coordinator.player_color
                 our_color_resolved = pref if pref in ("white", "black") else "white"
         except AttributeError:
             pref = getattr(self.coordinator, "player_color", None)
@@ -233,12 +259,44 @@ class PhantomLivePositionSensor(PhantomBleBaseSensor):
             )
         except AttributeError:
             side_to_move = None
+        board = getattr(self.coordinator, "_board", None)
         return {
+            "entry_id": self._entry_id,
+            "full_fen": board.fen() if board is not None else None,
+            "firmware_version": data.get("firmware_version"),
+            "legal_moves": [move.uci() for move in self.coordinator._board.legal_moves]
+                if board is not None and not getattr(self.coordinator, "paused", True) and not self.coordinator._physical_operation_lock.locked()
+                and data.get("physical_operation") != "uncertain"
+                and (self.coordinator._local_game_active or self.coordinator._game_id)
+                and self.coordinator._board.turn == self.coordinator._our_color else [],
+            "paused": getattr(self.coordinator, "paused", True),
+            "saved_games": data.get("saved_games", []),
+            "game_reviews": data.get("game_reviews", {}),
+            "recovery_game_id": data.get("recovery_game_id"),
+            "recovery_available": data.get("recovery_available", False),
+            "speech_error": data.get("speech_error"),
+            "journal_error": data.get("journal_error"),
+            "library_error": data.get("library_error"),
+            "move_history_moves": data.get("move_history_moves", []),
+            "opening_name": data.get("opening_name"),
+            "best_move_san": data.get("best_move_san"),
+            "threat_san": data.get("threat_san"),
+            "eval_cp": data.get("eval_cp"),
+            "eval_mate": data.get("eval_mate"),
+            "eval_fen": data.get("eval_fen"),
+            "eval_depth": data.get("eval_depth"),
+            "two_player_active": getattr(self.coordinator, "_two_player_active", False),
+            "ai_vs_ai_active": getattr(self.coordinator, "_ai_vs_ai_active", False),
+            "sculpture_active": getattr(self.coordinator, "_sculpture_active", False),
             "piece_grid": data.get("piece_grid"),
             "sensor_bitmap": data.get("sensor_bitmap"),
             "matrix_raw": data.get("matrix_raw"),
             "matrix_last_updated": data.get("matrix_last_updated"),
             "matrix_mismatches": data.get("matrix_mismatches"),
+            "engine_error": data.get("engine_error"),
+            "engine_health": data.get("engine_health", {}),
+            "physical_operation": data.get("physical_operation"),
+            "position_confirmed": data.get("position_confirmed"),
             # ── Dashboard interactive-board fields (Task #27) ──────────────
             # Frontends embedding /phantom_chess_static/board.html read these
             # to gate input (enable drag-drop only when it's our turn AND a
@@ -249,6 +307,15 @@ class PhantomLivePositionSensor(PhantomBleBaseSensor):
             "lichess_active": bool(data.get("lichess_active")),
             "local_game_active": bool(data.get("local_game_active")),
             "game_status": data.get("game_status"),
+            # Puzzle mode (puzzle_mode.py): summary of the active or
+            # last-finished puzzle, the current hint square, and any error.
+            "puzzle": data.get("puzzle"),
+            "puzzle_hint": data.get("puzzle_hint"),
+            "puzzle_error": data.get("puzzle_error"),
+            # Endgame drills (drill_mode.py): the catalogue and the active
+            # or last-finished drill.
+            "drills": DRILL_CATALOGUE,
+            "drill": data.get("drill"),
         }
 
 
@@ -260,7 +327,13 @@ class PhantomPieceCountSensor(PhantomBleBaseSensor):
     _attr_icon = "mdi:chess-pawn"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_PIECE_COUNT)
 
     @property
@@ -275,7 +348,13 @@ class PhantomFirmwareModeSensor(PhantomBleBaseSensor):
     _attr_translation_key = "firmware_mode"
     _attr_icon = "mdi:chip"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_FIRMWARE_MODE)
 
     @property
@@ -296,7 +375,13 @@ class PhantomMatrixStatusSensor(PhantomBleBaseSensor):
     _attr_translation_key = "matrix_status"
     _attr_icon = "mdi:check-network"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_MATRIX_STATUS)
 
     @property
@@ -317,7 +402,13 @@ class PhantomFirmwareLastMoveSensor(PhantomBleBaseSensor):
     _attr_translation_key = "firmware_last_move"
     _attr_icon = "mdi:chess-knight"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_FIRMWARE_LAST_MOVE)
 
     @property
@@ -341,7 +432,13 @@ class PhantomOpeningNameSensor(PhantomBaseSensor):
     _attr_translation_key = "opening_name"
     _attr_icon = "mdi:book-open-page-variant"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_OPENING_NAME)
 
     @property
@@ -358,7 +455,13 @@ class PhantomLichessWhiteNameSensor(PhantomBaseSensor):
     _attr_translation_key = "lichess_white_name"
     _attr_icon = "mdi:account"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_WHITE_NAME)
 
     @property
@@ -370,7 +473,13 @@ class PhantomLichessBlackNameSensor(PhantomBaseSensor):
     _attr_translation_key = "lichess_black_name"
     _attr_icon = "mdi:account-outline"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_BLACK_NAME)
 
     @property
@@ -389,7 +498,13 @@ class PhantomLichessWhiteClockSensor(PhantomBaseSensor):
     # D-block: no state_class — a countdown clock is not a long-term
     # statistic; recording min/max/mean of it is meaningless noise.
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_WHITE_CLOCK)
 
     @property
@@ -404,7 +519,13 @@ class PhantomLichessBlackClockSensor(PhantomBaseSensor):
     _attr_device_class = SensorDeviceClass.DURATION
     # D-block: no state_class — see white-clock rationale above.
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_BLACK_CLOCK)
 
     @property
@@ -430,7 +551,13 @@ class PhantomLichessWhiteClockDisplaySensor(PhantomBaseSensor):
     _attr_translation_key = "lichess_white_clock_display"
     _attr_icon = "mdi:timer"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_WHITE_CLOCK_DISP)
 
     @property
@@ -442,7 +569,13 @@ class PhantomLichessBlackClockDisplaySensor(PhantomBaseSensor):
     _attr_translation_key = "lichess_black_clock_display"
     _attr_icon = "mdi:timer"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_BLACK_CLOCK_DISP)
 
     @property
@@ -456,7 +589,13 @@ class PhantomEvalCpSensor(PhantomBaseSensor):
     _attr_icon = "mdi:gauge"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_EVAL_CP)
 
     @property
@@ -469,7 +608,13 @@ class PhantomEvalMateSensor(PhantomBaseSensor):
     _attr_translation_key = "eval_mate"
     _attr_icon = "mdi:chess-king"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_EVAL_MATE)
 
     @property
@@ -487,7 +632,13 @@ class PhantomEvalSourceSensor(PhantomBaseSensor):
     _attr_icon = "mdi:server-network"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_EVAL_SOURCE)
 
     @property
@@ -500,7 +651,13 @@ class PhantomEvalDepthSensor(PhantomBaseSensor):
     _attr_icon = "mdi:layers-search"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_EVAL_DEPTH)
 
     @property
@@ -512,7 +669,13 @@ class PhantomBestMoveSanSensor(PhantomBaseSensor):
     _attr_translation_key = "best_move_san"
     _attr_icon = "mdi:lightbulb-on"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_BEST_MOVE_SAN)
 
     @property
@@ -521,11 +684,17 @@ class PhantomBestMoveSanSensor(PhantomBaseSensor):
 
 
 class PhantomLastMoveClassificationSensor(PhantomBaseSensor):
-    """One of: brilliant/best/good/book/inaccuracy/mistake/blunder/unknown."""
+    """One of: brilliant/best/excellent/good/book/inaccuracy/mistake/blunder/unknown."""
     _attr_translation_key = "last_move_classification"
     _attr_icon = "mdi:label-multiple"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LAST_MOVE_CLASSIFICATION)
 
     @property
@@ -539,7 +708,13 @@ class PhantomLastMoveCplSensor(PhantomBaseSensor):
     _attr_icon = "mdi:trending-down"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LAST_MOVE_CPL)
 
     @property
@@ -552,7 +727,13 @@ class PhantomLastMoveMotifSensor(PhantomBaseSensor):
     _attr_translation_key = "last_move_motif"
     _attr_icon = "mdi:vector-triangle"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LAST_MOVE_MOTIF)
 
     @property
@@ -566,7 +747,13 @@ class PhantomThreatSanSensor(PhantomBaseSensor):
     _attr_translation_key = "threat_san"
     _attr_icon = "mdi:alert"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_THREAT_SAN)
 
     @property
@@ -584,7 +771,13 @@ class PhantomMoveHistorySensor(PhantomBaseSensor):
     # recorder DB on each push. It's live-render data, not statistics.
     _unrecorded_attributes = frozenset({"moves"})
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_MOVE_HISTORY)
 
     @property
@@ -603,7 +796,13 @@ class PhantomLastGameResultSensor(PhantomBaseSensor):
     _attr_translation_key = "last_game_result"
     _attr_icon = "mdi:trophy-outline"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LAST_GAME_RESULT)
 
     @property
@@ -617,7 +816,13 @@ class PhantomLastGameAccuracyWhiteSensor(PhantomBaseSensor):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LAST_GAME_ACCURACY_W)
 
     @property
@@ -631,7 +836,13 @@ class PhantomLastGameAccuracyBlackSensor(PhantomBaseSensor):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = PERCENTAGE
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LAST_GAME_ACCURACY_B)
 
     @property
@@ -648,7 +859,13 @@ class PhantomLastGameReviewSensor(PhantomBaseSensor):
     # game — keep it out of the recorder.
     _unrecorded_attributes = frozenset({"top_mistakes"})
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LAST_GAME_REVIEW)
 
     @property

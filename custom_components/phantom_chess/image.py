@@ -12,6 +12,7 @@ References:
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 from datetime import datetime, timezone
 from html import escape as _html_escape
 
@@ -19,7 +20,6 @@ import chess
 import chess.svg
 
 from homeassistant.components.image import ImageEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -27,6 +27,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import CONF_BLE_ADDRESS, CONF_DEVICE_NAME, DOMAIN
 from .coordinator import PhantomChessCoordinator
 from .lichess_analysis import classification_color_glyph
+
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,7 +67,7 @@ _SUPPRESSED_GLYPH_CLASSES = {"best", "book", "unknown"}
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: PhantomChessCoordinator = entry.runtime_data
@@ -95,7 +98,7 @@ class PhantomChessBoardImage(CoordinatorEntity[PhantomChessCoordinator], ImageEn
         self,
         hass: HomeAssistant,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
     ) -> None:

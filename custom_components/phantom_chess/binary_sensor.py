@@ -1,14 +1,16 @@
 """Binary sensor entities for Phantom Chess Board."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -28,6 +30,9 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
+
 # Read-only platform — entity updates are driven by the coordinator,
 # which centralises the BLE notification stream. No parallel-request
 # concern (Silver quality scale rule `parallel-updates`).
@@ -36,7 +41,7 @@ PARALLEL_UPDATES = 0
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: PhantomChessCoordinator = entry.runtime_data
@@ -59,7 +64,7 @@ async def async_setup_entry(
     )
 
 
-def _board_is_idle(data: dict) -> bool:
+def _board_is_idle(data: dict[str, Any]) -> bool:
     """Return True when the firmware has been stable for >= the idle
     threshold (or has never reported a move).
 
@@ -89,7 +94,7 @@ class PhantomBaseBinary(CoordinatorEntity[PhantomChessCoordinator], BinarySensor
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
         unique_suffix: str,
@@ -123,7 +128,13 @@ class PhantomConnectedSensor(PhantomBaseBinary):
     _attr_translation_key = "connected"
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_CONNECTED)
 
     @property
@@ -151,7 +162,13 @@ class PhantomLichessActiveSensor(PhantomBaseBinary):
     _attr_icon = "mdi:chess-king"
     _attr_device_class = BinarySensorDeviceClass.RUNNING
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_ACTIVE)
 
     @property
@@ -167,7 +184,13 @@ class PhantomLichessReviewReadySensor(PhantomBaseBinary):
     _attr_translation_key = "lichess_review_ready"
     _attr_icon = "mdi:magnify-scan"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_REVIEW_READY)
 
     @property
@@ -184,7 +207,13 @@ class PhantomLearningViewActiveSensor(PhantomBaseBinary):
     _attr_icon = "mdi:school"
     _attr_device_class = BinarySensorDeviceClass.RUNNING
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LEARNING_VIEW_ACTIVE)
 
     @property
@@ -218,9 +247,16 @@ class _PhantomPeriodicBinary(PhantomBaseBinary):
     v0.4-alpha6 fix.
     """
 
-    def __init__(self, coord, entry, address, name, unique_suffix):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+        unique_suffix: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, unique_suffix)
-        self._unsub_interval = None
+        self._unsub_interval: CALLBACK_TYPE | None = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -231,7 +267,7 @@ class _PhantomPeriodicBinary(PhantomBaseBinary):
         )
 
     @callback
-    def _async_periodic_update(self, _now) -> None:
+    def _async_periodic_update(self, _now: datetime) -> None:
         """Push the freshly-evaluated is_on state to HA. @callback-decorated
         so HA schedules it on the event loop, not the executor."""
         self.async_write_ha_state()
@@ -269,7 +305,13 @@ class PhantomBoardIdleSensor(_PhantomPeriodicBinary):
     _attr_translation_key = "board_idle"
     _attr_icon = "mdi:sleep"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_BOARD_IDLE)
 
     @property
@@ -304,7 +346,13 @@ class PhantomPickerAvailableSensor(_PhantomPeriodicBinary):
     _attr_translation_key = "picker_available"
     _attr_icon = "mdi:view-dashboard-variant"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_PICKER_AVAILABLE)
 
     @property
@@ -312,6 +360,8 @@ class PhantomPickerAvailableSensor(_PhantomPeriodicBinary):
         if not self.coordinator.is_ble_connected:
             return False
         data = self.coordinator.data or {}
+        if data.get("physical_operation") in ("moving", "undoing", "uncertain"):
+            return False
         # No active game (any mode) and no pending review — mirrors the
         # learning_view_active signals so the picker/setup views never
         # overlap the live learning view, even if a game stalls for >60s.

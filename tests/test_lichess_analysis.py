@@ -18,6 +18,7 @@ from custom_components.phantom_chess.const import (
     CLASSIFICATION_BEST,
     CLASSIFICATION_BLUNDER,
     CLASSIFICATION_GOOD,
+    CLASSIFICATION_EXCELLENT,
     CLASSIFICATION_INACCURACY,
     CLASSIFICATION_MISTAKE,
     CLASSIFICATION_UNKNOWN,
@@ -167,7 +168,7 @@ def test_classify_move_unknown_when_post_eval_missing() -> None:
 
 
 def test_classify_move_best_matches_engine_top() -> None:
-    """Move matching pre_eval.best_uci is always classified `best`, even
+    """Move matching pre_eval.best_uci is classified `best`
     with a tiny CP loss within rounding noise."""
     pre = _ev(50, best_uci="e2e4")
     post = _ev(48, best_uci="e7e5")  # white played e2e4, lost 2cp
@@ -175,22 +176,22 @@ def test_classify_move_best_matches_engine_top() -> None:
     assert klass == CLASSIFICATION_BEST
 
 
-def test_classify_move_good_when_loss_below_good_max() -> None:
+def test_classify_move_excellent_with_under_two_point_chance_loss() -> None:
     pre = _ev(50, best_uci="e2e4")
-    post = _ev(35)  # 15cp loss for white, < CPL_GOOD_MAX (20)
+    post = _ev(35)  # Less than two percentage points of chance loss.
     klass, _ = classify_move(pre, post, "g1f3", mover_is_white=True)
-    assert klass == CLASSIFICATION_GOOD
+    assert klass == CLASSIFICATION_EXCELLENT
 
 
-def test_classify_move_inaccuracy_in_20_to_99_band() -> None:
+def test_classify_move_inaccuracy_with_five_point_chance_loss() -> None:
     pre = _ev(50, best_uci="e2e4")
-    post = _ev(0)  # 50cp loss → inaccuracy
+    post = _ev(-30)  # About seven percentage points of chance loss.
     klass, cpl = classify_move(pre, post, "a2a3", mover_is_white=True)
     assert klass == CLASSIFICATION_INACCURACY
-    assert cpl == 50
+    assert cpl == 80
 
 
-def test_classify_move_mistake_in_100_to_299_band() -> None:
+def test_classify_move_mistake_with_ten_point_chance_loss() -> None:
     pre = _ev(50, best_uci="e2e4")
     post = _ev(-100)  # 150cp loss → mistake
     klass, cpl = classify_move(pre, post, "h2h4", mover_is_white=True)
@@ -198,7 +199,7 @@ def test_classify_move_mistake_in_100_to_299_band() -> None:
     assert cpl == 150
 
 
-def test_classify_move_blunder_at_300_or_more() -> None:
+def test_classify_move_blunder_with_twenty_point_chance_loss() -> None:
     pre = _ev(50, best_uci="e2e4")
     post = _ev(-500)  # 550cp loss → blunder
     klass, cpl = classify_move(pre, post, "f2f3", mover_is_white=True)
@@ -223,8 +224,8 @@ def test_classify_move_gain_clamps_cpl_to_zero() -> None:
     post = _ev(100)  # white gained 100cp
     klass, cpl = classify_move(pre, post, "g1f3", mover_is_white=True)
     assert cpl == 0
-    # cpl=0 falls under the GOOD band (< 20)
-    assert klass == CLASSIFICATION_GOOD
+    # No chance loss earns excellent when the move does not match the PV.
+    assert klass == CLASSIFICATION_EXCELLENT
 
 
 def test_classify_move_mate_treated_as_extreme_cp() -> None:
@@ -436,25 +437,23 @@ def test_parse_eval_payload_white_to_move_preserves_sign() -> None:
     assert result.source == "lichess-cloud"
 
 
-def test_parse_eval_payload_black_to_move_flips_sign() -> None:
-    """When black is to move, Lichess returns cp from black's perspective.
-    Our internal convention is white-positive, so we flip."""
+def test_parse_eval_payload_black_to_move_preserves_white_score() -> None:
+    """CloudEval.yaml defines cp as White-positive regardless of the turn."""
     client = _new_client()
     result = client._parse_eval_payload(
         {
             "depth": 22,
-            "pvs": [{"cp": 80, "moves": "e7e5"}],  # +80 for black-to-move = -80 white
+            "pvs": [{"cp": 80, "moves": "e7e5"}],  # +80 remains a White advantage on Black's turn
         },
         fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
     )
     assert result is not None
-    assert result.cp == -80
+    assert result.cp == 80
     assert result.best_uci == "e7e5"
 
 
-def test_parse_eval_payload_mate_for_black_flips_sign() -> None:
-    """Lichess returns mate-in-N from side-to-move's perspective.
-    Black-to-move + mate=3 means white is getting mated → mate=-3 internally."""
+def test_parse_eval_payload_mate_on_black_turn_preserves_white_score() -> None:
+    """Positive cloud mate means White mates, including on Black's turn."""
     client = _new_client()
     result = client._parse_eval_payload(
         {
@@ -465,7 +464,7 @@ def test_parse_eval_payload_mate_for_black_flips_sign() -> None:
     )
     assert result is not None
     assert result.cp is None
-    assert result.mate == -3
+    assert result.mate == 3
     assert result.best_uci == "h4h2"
 
 
@@ -626,7 +625,7 @@ def test_stockfish_fallback_init_with_path_bin_dir(tmp_path) -> None:
 
 def test_stockfish_fallback_initial_state(tmp_path) -> None:
     """Fresh init: binary not located, engine not running, available=True
-    (gets flipped False only on permanent failure)."""
+    (a failed install/spawn is retried through explicit engine preflight)."""
     from unittest.mock import MagicMock
     sf = StockfishFallback(hass=MagicMock(), bin_dir=tmp_path)
     assert sf.binary_path is None

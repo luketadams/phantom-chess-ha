@@ -92,7 +92,9 @@ except ImportError:
         "homeassistant.components.lovelace.dashboard",
         "homeassistant.components.lovelace.const",
         "homeassistant.config_entries",
+        "homeassistant.const",
         "homeassistant.core",
+        "homeassistant.exceptions",
         "homeassistant.helpers",
         "homeassistant.helpers.aiohttp_client",
         "homeassistant.helpers.entity_registry",
@@ -126,8 +128,24 @@ except ImportError:
     _ll_const.CONF_URL_PATH = "url_path"
     _ll_const.LOVELACE_DATA = "lovelace_data"
     _ll_const.MODE_STORAGE = "storage"
+    # dashboard_provision imports CONF_ICON from its defining module.
+    sys.modules["homeassistant.const"].CONF_ICON = "icon"
     sys.modules["homeassistant.config_entries"].ConfigEntry = type("ConfigEntry", (), {})
     sys.modules["homeassistant.core"].HomeAssistant = type("HomeAssistant", (), {})
+    class _StubHomeAssistantError(Exception):
+        """Mirror HA's signature: translation keywords are accepted."""
+
+        def __init__(self, *args, translation_domain=None, translation_key=None,
+                     translation_placeholders=None):
+            super().__init__(*args or (translation_key or "",))
+            self.translation_domain = translation_domain
+            self.translation_key = translation_key
+            self.translation_placeholders = translation_placeholders
+
+    sys.modules["homeassistant.exceptions"].HomeAssistantError = _StubHomeAssistantError
+    sys.modules["homeassistant.exceptions"].ServiceValidationError = type(
+        "ServiceValidationError", (_StubHomeAssistantError,), {}
+    )
     sys.modules["homeassistant.helpers.entity_registry"].async_get = lambda *a, **k: None
     sys.modules["homeassistant.helpers.storage"].Store = type("Store", (), {})
     sys.modules["homeassistant.components.lovelace.dashboard"].LovelaceStorage = type(
@@ -155,6 +173,9 @@ except ImportError:
         _PC_DIR / "lichess_analysis.py",
     )
 
+    _stage_pure_module("custom_components.phantom_chess.game_library", _PC_DIR / "game_library.py")
+    _stage_pure_module("custom_components.phantom_chess.sessions", _PC_DIR / "sessions.py")
+
     # coordinator.py: heavy module that pulls in HA's bluetooth +
     # aiohttp_client + update_coordinator helpers. Stub everything it
     # touches at module-load time. Only the pure-function helpers at the
@@ -168,9 +189,11 @@ except ImportError:
     sys.modules["homeassistant.helpers.aiohttp_client"].async_get_clientsession = (
         lambda *a, **k: None
     )
-    sys.modules["homeassistant.helpers.issue_registry"].async_delete_issue = (
-        lambda *a, **k: None
-    )
+    _ir = sys.modules["homeassistant.helpers.issue_registry"]
+    _ir.async_delete_issue = lambda *a, **k: None
+    _ir.async_create_issue = lambda *a, **k: None
+    _ir.IssueSeverity = types.SimpleNamespace(WARNING="warning", ERROR="error")
+    sys.modules["homeassistant.helpers"].issue_registry = _ir
     # DataUpdateCoordinator is subscripted as `DataUpdateCoordinator[dict[str, Any]]`
     # at class-definition time in coordinator.py — the stub needs to support
     # generic subscription. Easiest is to give it a __class_getitem__ that

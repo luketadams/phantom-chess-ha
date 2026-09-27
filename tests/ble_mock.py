@@ -302,6 +302,7 @@ def make_coordinator(
     c.selected_sculpture = const.DEFAULT_SCULPTURE_GAME
     c.training_wheels = const.DEFAULT_TRAINING_WHEELS
     c.voice_announcements = const.DEFAULT_VOICE_ANNOUNCEMENTS
+    c.study_view = const.DEFAULT_STUDY_VIEW
     c.lichess_clock_minutes = const.DEFAULT_LICHESS_CLOCK_MINUTES
     c.lichess_clock_increment = const.DEFAULT_LICHESS_CLOCK_INCREMENT
     c.white_ai_level = 3
@@ -319,11 +320,21 @@ def make_coordinator(
     c._local_game_active = False
     c._two_player_active = False
     c._local_game_task = None
+    c._local_start_lock = asyncio.Lock()
+    c._physical_operation_lock = asyncio.Lock()
+    c._play_revision = 0
+    c._reviews = None
+    c._library = None
+    c._saved_game_id = None
+    c._saved_revision = 0
+    c._journal_tasks = set()
     c._ai_vs_ai_active = False
     c._ai_vs_ai_white_level = 3
     c._ai_vs_ai_black_level = 3
     c._ai_vs_ai_move_delay = 1.5
     c._sculpture_active = False
+    c._puzzle = None
+    c._drill = None
     c._sculpture_move_delay = 2.0
     c._sculpture_games_cache = None
     c._local_game_task_lock = None
@@ -331,6 +342,7 @@ def make_coordinator(
     # echo suppression
     c._expecting_ai_echo_until = 0.0
     c._activation_settle_until = 0.0
+    c._pending_settle_frame = None  # Fix A3 pending-frame replay stash
     c._last_ai_uci = None
     c._last_ai_uci_rotated = None
     c._last_ai_uci_set_at = 0.0

@@ -1,3 +1,7 @@
+
+<!-- phantom-reference-navigation -->
+> **Engineering navigation.** Cross-document baseline, evidence, and unresolved defects are coordinated centrally. Current engineering knowledge: [engineering reference](docs/ENGINEERING_REFERENCE.md).
+
 # Contributing to Phantom Chess Board
 
 Issues, pull requests, and protocol notes are welcome. The integration is a community project — there's no formal review SLA, but every issue gets read.

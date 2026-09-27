@@ -76,6 +76,12 @@
         "state": {
           "off": "mdi:account-voice-off"
         }
+      },
+      "study_view": {
+        "default": "mdi:book-open-variant",
+        "state": {
+          "on": "mdi:book-open-page-variant"
+        }
       }
     },
     "sensor": {

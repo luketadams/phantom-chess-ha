@@ -1,13 +1,14 @@
 """Select entities for Phantom Chess Board."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import json
 from pathlib import Path
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -26,6 +27,9 @@ from .const import (
     SETUP_MODE_OPTIONS,
 )
 from .coordinator import PhantomChessCoordinator
+
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
 
 # No BLE writes on any select-platform entity — every option stored
 # here is pure-local UI / game-start config (AI level, player color,
@@ -70,7 +74,7 @@ def _load_sculpture_metadata() -> dict[str, dict[str, str]]:
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: PhantomChessCoordinator = entry.runtime_data
@@ -104,7 +108,7 @@ class PhantomBaseSelect(CoordinatorEntity[PhantomChessCoordinator], SelectEntity
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
         unique_suffix: str,
@@ -120,12 +124,45 @@ class PhantomBaseSelect(CoordinatorEntity[PhantomChessCoordinator], SelectEntity
         }
 
 
-class PhantomAiLevelSelect(PhantomBaseSelect):
+class _PhantomRestorableSelect(PhantomBaseSelect, RestoreEntity):
+    """Base for selects whose state must survive HA restarts. The
+    coordinator field name is given by `_coord_attr`; on first
+    state-restore the coordinator field is re-populated from the last
+    persisted state so the dashboard's mode picker doesn't reset to
+    default on every reload.
+    """
+
+    _coord_attr: str  # subclass must set; e.g. "setup_mode"
+
+    def _restore_option(self, option: str) -> str | int:
+        return option
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is None or last.state in (None, "unknown", "unavailable"):
+            return
+        if last.state in self._attr_options:
+            setattr(self.coordinator, self._coord_attr, self._restore_option(last.state))
+
+
+class PhantomAiLevelSelect(_PhantomRestorableSelect):
+    _coord_attr = "ai_level"
+
+    def _restore_option(self, option: str) -> int:
+        return int(option)
+
     _attr_translation_key = "ai_level"
     _attr_icon = "mdi:robot"
     _attr_options = ["1", "2", "3", "4", "5", "6", "7", "8"]
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_AI_LEVEL)
 
     @property
@@ -137,12 +174,19 @@ class PhantomAiLevelSelect(PhantomBaseSelect):
         self.async_write_ha_state()
 
 
-class PhantomPlayerColorSelect(PhantomBaseSelect):
+class PhantomPlayerColorSelect(_PhantomRestorableSelect):
+    _coord_attr = "player_color"
     _attr_translation_key = "player_color"
     _attr_icon = "mdi:chess-pawn"
     _attr_options = ["white", "black", "random"]
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_PLAYER_COLOR)
 
     @property
@@ -164,32 +208,19 @@ class PhantomPlayerColorSelect(PhantomBaseSelect):
 # to `select.select_option {entity_id: select.<DEVICE>_setup_mode}`.
 
 
-class _PhantomRestorableSelect(PhantomBaseSelect, RestoreEntity):
-    """Base for selects whose state must survive HA restarts. The
-    coordinator field name is given by `_coord_attr`; on first
-    state-restore the coordinator field is re-populated from the last
-    persisted state so the dashboard's mode picker doesn't reset to
-    default on every reload.
-    """
-
-    _coord_attr: str  # subclass must set; e.g. "setup_mode"
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        last = await self.async_get_last_state()
-        if last is None or last.state in (None, "unknown", "unavailable"):
-            return
-        if last.state in self._attr_options:
-            setattr(self.coordinator, self._coord_attr, last.state)
-
-
 class PhantomSetupModeSelect(_PhantomRestorableSelect):
     _attr_translation_key = "setup_mode"
     _attr_icon = "mdi:view-list"
     _attr_options = SETUP_MODE_OPTIONS
     _coord_attr = "setup_mode"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_SETUP_MODE)
 
     @property
@@ -210,7 +241,14 @@ class PhantomSculptureGameSelect(_PhantomRestorableSelect):
     # picks a different game — keep it out of the recorder DB.
     _unrecorded_attributes = frozenset({"significance"})
 
-    def __init__(self, coord, entry, address, name, metadata=None):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+        metadata: dict[str, dict[str, str]] | None = None,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_SCULPTURE_GAME)
         # label → {white, black, date, eco, result, site, significance}
         self._metadata: dict[str, dict[str, str]] = metadata or {}

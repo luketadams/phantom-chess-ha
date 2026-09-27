@@ -82,11 +82,11 @@ async def test_phantom_start_game_happy_path():
     assert kwargs["side_opcode"] == "2"
 
 
-async def test_phantom_start_game_timeout_warns_but_returns():
+async def test_phantom_start_game_timeout_raises():
     coord = make_coordinator(ble_connected=True)
     coord._phantom_execute_position = AsyncMock(return_value=False)
-    # Should not raise even when execute_position reports a move-done timeout.
-    await coord.async_phantom_start_game()
+    with pytest.raises(TimeoutError, match="did not confirm"):
+        await coord.async_phantom_start_game()
     coord._phantom_execute_position.assert_awaited_once()
 
 
@@ -103,16 +103,17 @@ async def test_apply_ai_move_not_connected_raises():
 
 async def test_apply_ai_move_short_uci_raises():
     coord = make_coordinator(ble_connected=True)
-    with pytest.raises(ValueError, match="Invalid UCI move"):
+    with pytest.raises(ValueError, match="uci string"):
         await coord.async_phantom_apply_ai_move("e2")
 
 
-async def test_apply_ai_move_illegal_move_skips():
+async def test_apply_ai_move_illegal_move_rejected():
     coord = make_coordinator(ble_connected=True)
     _quiet_announcements(coord)
     coord._phantom_execute_position = AsyncMock(return_value=True)
     # a4a5 is not legal from the starting position.
-    await coord.async_phantom_apply_ai_move("a4a5")
+    with pytest.raises(ValueError, match="not legal"):
+        await coord.async_phantom_apply_ai_move("a4a5")
     coord._phantom_execute_position.assert_not_awaited()
     # board unchanged
     assert coord._board.fen() == chess.STARTING_FEN
@@ -163,48 +164,38 @@ async def test_apply_ai_move_announces_when_active():
     assert coord.hass.async_create_task.called
 
 
-async def test_apply_ai_move_move_done_timeout_still_updates():
+async def test_apply_ai_move_timeout_preserves_confirmed_local_position():
     coord = make_coordinator(ble_connected=True)
     _quiet_announcements(coord)
     coord._our_color = chess.WHITE
-    # ok=False means move-done timeout — but the loop still breaks cleanly and
-    # state is updated (no raise).
     coord._phantom_execute_position = AsyncMock(return_value=False)
-    await coord.async_phantom_apply_ai_move("e2e4")
-    assert coord._state["last_move"] == "e2e4"
+    assert await coord.async_phantom_apply_ai_move("e2e4") is False
+    assert coord._board.fen() == chess.STARTING_FEN
+    assert coord._state["last_move"] is None
+    assert coord._state["physical_operation"] == "uncertain"
+    assert coord.paused
 
 
-async def test_apply_ai_move_retries_then_raises_and_notifies():
+async def test_apply_ai_move_transport_error_never_retries_ambiguous_motion():
     coord = make_coordinator(ble_connected=True)
     _quiet_announcements(coord)
-    coord._our_color = chess.WHITE
-    # Always raises → both attempts fail → RuntimeError, board NOT rolled back.
     coord._phantom_execute_position = AsyncMock(side_effect=BleakError("boom"))
-    coord.hass.async_create_task = MagicMock(side_effect=lambda coro, **k: coro.close())
-    coord.hass.services = MagicMock()
-    coord.hass.services.async_call = AsyncMock()
+    with pytest.raises(BleakError, match="boom"):
+        await coord.async_phantom_apply_ai_move("e2e4")
+    assert coord._phantom_execute_position.await_count == 1
+    assert coord._board.fen() == chess.STARTING_FEN
+    assert coord._state["physical_operation"] == "uncertain"
+    assert coord.paused
 
-    # patch the backoff sleep so the retry is instant
-    slept = []
 
-    async def _sleep(sec):
-        slept.append(sec)
-
-    orig = coord_mod._sleep
-    coord_mod._sleep = _sleep
-    try:
-        with pytest.raises(RuntimeError, match="apply_ai_move BLE write failed"):
-            await coord.async_phantom_apply_ai_move("e2e4")
-    finally:
-        coord_mod._sleep = orig
-
-    # two attempts → one backoff sleep between them
-    assert coord._phantom_execute_position.await_count == 2
-    assert len(slept) == 1
-    # board keeps the move (deliberately NOT rolled back)
+async def test_online_move_failure_preserves_remote_authority():
+    coord = make_coordinator(ble_connected=True)
+    _quiet_announcements(coord)
+    coord._game_id = "online"
+    coord._phantom_execute_position = AsyncMock(return_value=False)
+    assert await coord.async_phantom_apply_ai_move("e2e4") is False
     assert coord._board.peek().uci() == "e2e4"
-    # a persistent_notification task was scheduled
-    assert coord.hass.async_create_task.called
+    assert coord._state["position_confirmed"] is False
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -249,7 +240,7 @@ class _FakeSession:
 
 def _patch_session(coord, resp):
     session = _FakeSession(resp)
-    coord_mod.async_get_clientsession = MagicMock(return_value=session)
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=session)
     return session
 
 
@@ -285,11 +276,11 @@ async def test_start_game_happy_path(monkeypatch):
     resp = _FakeResp(201, json_data={"id": "abc123"})
     session = _patch_session(coord, resp)
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         await coord.async_start_game(clock_limit_seconds=600, clock_increment_seconds=5)
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
 
     # game id captured + state marked playing
     assert coord._game_id == "abc123"
@@ -314,12 +305,12 @@ async def test_start_game_lichess_error_raises():
     resp = _FakeResp(400, text_data="Invalid clock")
     _patch_session(coord, resp)
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         with pytest.raises(RuntimeError, match="Lichess challenge failed"):
             await coord.async_start_game()
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
 
 
 async def test_start_game_black_uses_side_opcode_2():
@@ -347,11 +338,11 @@ async def test_start_game_black_uses_side_opcode_2():
     resp = _FakeResp(200, json_data={"id": "xyz"})
     _patch_session(coord, resp)
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         await coord.async_start_game()
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
 
     assert coord._phantom_execute_position.await_args.kwargs["side_opcode"] == "2"
 
@@ -381,11 +372,11 @@ async def test_start_game_stream_slow_falls_back_to_preference():
     resp = _FakeResp(200, json_data={"id": "slow"})
     _patch_session(coord, resp)
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         await coord.async_start_game()
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
 
     # our_color stayed None → fallback branch: player_color "black" → "2"
     assert coord._phantom_execute_position.await_args.kwargs["side_opcode"] == "2"
@@ -415,12 +406,12 @@ async def test_start_game_execute_position_failure_is_swallowed():
     _patch_session(coord, resp)
     coord._our_color = chess.WHITE
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         # execute_position raising must NOT propagate (warning-logged only).
         await coord.async_start_game()
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
     assert coord._game_id == "q"
 
 
@@ -713,11 +704,12 @@ def _fast_sleep(monkeypatch):
     async def _instant(_s):
         return None
 
-    monkeypatch.setattr(coord_mod, "_sleep", _instant)
+    monkeypatch.setattr(coord_mod.rt, "_sleep", _instant)
 
 
 async def test_local_ai_turn_no_move_returns():
     coord = make_coordinator(ble_connected=True)
+    coord._local_game_active = True
     coord._get_ai_move = AsyncMock(return_value=None)
     coord.async_phantom_apply_ai_move = AsyncMock()
     await coord._local_ai_turn()
@@ -726,6 +718,7 @@ async def test_local_ai_turn_no_move_returns():
 
 async def test_local_ai_turn_invalid_uci_returns():
     coord = make_coordinator(ble_connected=True)
+    coord._local_game_active = True
     coord._get_ai_move = AsyncMock(return_value="notauci")
     coord.async_phantom_apply_ai_move = AsyncMock()
     await coord._local_ai_turn()
@@ -734,6 +727,7 @@ async def test_local_ai_turn_invalid_uci_returns():
 
 async def test_local_ai_turn_illegal_move_returns():
     coord = make_coordinator(ble_connected=True)
+    coord._local_game_active = True
     coord._get_ai_move = AsyncMock(return_value="e2e5")  # illegal from start
     coord.async_phantom_apply_ai_move = AsyncMock()
     await coord._local_ai_turn()
@@ -742,6 +736,7 @@ async def test_local_ai_turn_illegal_move_returns():
 
 async def test_local_ai_turn_happy_path():
     coord = make_coordinator(ble_connected=True)
+    coord._local_game_active = True
     coord._get_ai_move = AsyncMock(return_value="e2e4")
     coord._record_and_analyze_local_move = MagicMock()
 
@@ -755,22 +750,27 @@ async def test_local_ai_turn_happy_path():
     assert coord._state["game_status"] == const.STATUS_PLAYING
 
 
-async def test_local_ai_turn_apply_raises_fallback_push():
+async def test_local_ai_turn_apply_raises_does_not_invent_move():
     coord = make_coordinator(ble_connected=True)
+    coord._local_game_active = True
     coord._get_ai_move = AsyncMock(return_value="e2e4")
     coord._record_and_analyze_local_move = MagicMock()
-    # apply raises BUT does not push → fallback push runs (move legal).
+    coord.hass.services.async_call = AsyncMock()
+    # A transport failure must not fabricate a successful physical move.
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=RuntimeError("BLE"))
     await coord._local_ai_turn()
-    assert coord._board.peek().uci() == "e2e4"
-    assert coord._state["last_move"] == "e2e4"
-    coord._record_and_analyze_local_move.assert_called_once()
+    assert not coord._board.move_stack
+    assert coord.paused
+    coord._record_and_analyze_local_move.assert_not_called()
 
 
 async def test_local_ai_turn_apply_raises_move_not_landed():
     coord = make_coordinator(ble_connected=True)
+    coord._local_game_active = True
     coord._get_ai_move = AsyncMock(return_value="e2e4")
     coord._record_and_analyze_local_move = MagicMock()
+
+    coord.hass.services.async_call = AsyncMock()
 
     async def _apply_then_mutate(uci):
         # simulate a race: apply pushes e2e4 then raises; the move is now
@@ -787,6 +787,7 @@ async def test_local_ai_turn_apply_raises_move_not_landed():
 
 async def test_local_ai_turn_checkmate_status():
     coord = make_coordinator(ble_connected=True)
+    coord._local_game_active = True
     coord._record_and_analyze_local_move = MagicMock()
     # Fool's-mate setup, AI (black) delivers Qh4#.
     coord._board = chess.Board()
@@ -805,6 +806,7 @@ async def test_local_ai_turn_checkmate_status():
 
 async def test_local_ai_turn_check_status():
     coord = make_coordinator(ble_connected=True)
+    coord._local_game_active = True
     coord._record_and_analyze_local_move = MagicMock()
     # White plays Bb5+ giving check (not mate): d7 is empty (black pawn on d5)
     # so the f1 bishop checks the e8 king along b5-c6-d7-e8.
@@ -844,16 +846,16 @@ async def test_get_ai_move_stockfish_error_falls_to_cloud():
         def get(self, url, **kwargs):
             return resp
 
-    coord_mod.async_get_clientsession = MagicMock(return_value=_GetSession())
-    orig = coord_mod.async_get_clientsession
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=_GetSession())
+    orig = coord_mod.rt.async_get_clientsession
     try:
         uci = await coord._get_ai_move(chess.Board())
     finally:
-        coord_mod.async_get_clientsession = orig
+        coord_mod.rt.async_get_clientsession = orig
     assert uci == "e2e4"
 
 
-async def test_get_ai_move_cloud_empty_falls_to_random():
+async def test_get_ai_move_cloud_empty_reports_unavailable():
     coord = make_coordinator(ble_connected=True)
     coord._analysis_client = None
     resp = _FakeResp(200, json_data={"pvs": []})
@@ -862,18 +864,17 @@ async def test_get_ai_move_cloud_empty_falls_to_random():
         def get(self, url, **kwargs):
             return resp
 
-    coord_mod.async_get_clientsession = MagicMock(return_value=_GetSession())
-    orig = coord_mod.async_get_clientsession
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=_GetSession())
+    orig = coord_mod.rt.async_get_clientsession
     try:
         board = chess.Board()
         uci = await coord._get_ai_move(board)
     finally:
-        coord_mod.async_get_clientsession = orig
-    # random legal move
-    assert chess.Move.from_uci(uci) in board.legal_moves
+        coord_mod.rt.async_get_clientsession = orig
+    assert uci is None
 
 
-async def test_get_ai_move_cloud_exception_falls_to_random():
+async def test_get_ai_move_cloud_exception_reports_unavailable():
     coord = make_coordinator(ble_connected=True)
     coord._analysis_client = None
 
@@ -881,14 +882,14 @@ async def test_get_ai_move_cloud_exception_falls_to_random():
         def get(self, url, **kwargs):
             raise RuntimeError("network down")
 
-    coord_mod.async_get_clientsession = MagicMock(return_value=_GetSession())
-    orig = coord_mod.async_get_clientsession
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=_GetSession())
+    orig = coord_mod.rt.async_get_clientsession
     try:
         board = chess.Board()
         uci = await coord._get_ai_move(board)
     finally:
-        coord_mod.async_get_clientsession = orig
-    assert chess.Move.from_uci(uci) in board.legal_moves
+        coord_mod.rt.async_get_clientsession = orig
+    assert uci is None
 
 
 async def test_get_ai_move_no_legal_returns_none():
@@ -899,14 +900,14 @@ async def test_get_ai_move_no_legal_returns_none():
         def get(self, url, **kwargs):
             raise RuntimeError("down")
 
-    coord_mod.async_get_clientsession = MagicMock(return_value=_GetSession())
-    orig = coord_mod.async_get_clientsession
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=_GetSession())
+    orig = coord_mod.rt.async_get_clientsession
     try:
         # checkmate position → no legal moves.
         board = chess.Board("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
         uci = await coord._get_ai_move(board)
     finally:
-        coord_mod.async_get_clientsession = orig
+        coord_mod.rt.async_get_clientsession = orig
     assert uci is None
 
 

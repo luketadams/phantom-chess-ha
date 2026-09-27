@@ -75,6 +75,7 @@ def coord() -> MagicMock:
     c.paused = False
     c.training_wheels = False
     c.voice_announcements = True
+    c.study_view = False
     # async coordinator methods invoked by action coroutines
     c.async_set_pause = AsyncMock()
     c.async_set_mechanism_speed = AsyncMock()
@@ -111,7 +112,7 @@ def _added(entities: MagicMock):
         (sensor_mod, 28),
         (bs_mod, 6),
         (button_mod, 2),
-        (switch_mod, 3),
+        (switch_mod, 4),
         (select_mod, 4),
         (number_mod, 7),
         (image_mod, 1),
@@ -690,11 +691,27 @@ async def test_voice_announcements_switch(coord, entry):
     assert coord.voice_announcements is True
 
 
+async def test_study_view_switch(coord, entry):
+    # DISPLAY-only toggle: default OFF (board-only base state), flips the
+    # coordinator attr and writes state on each toggle. Mirrors the
+    # training-wheels coverage exactly.
+    s = switch_mod.PhantomStudyViewSwitch(coord, entry, ADDRESS, NAME)
+    s.async_write_ha_state = MagicMock()
+    coord.study_view = False
+    assert s.is_on is False
+    await s.async_turn_on()
+    assert coord.study_view is True
+    await s.async_turn_off()
+    assert coord.study_view is False
+    assert s.async_write_ha_state.call_count == 2
+
+
 @pytest.mark.parametrize(
     "cls,attr",
     [
         (switch_mod.PhantomTrainingWheelsSwitch, "training_wheels"),
         (switch_mod.PhantomVoiceAnnouncementsSwitch, "voice_announcements"),
+        (switch_mod.PhantomStudyViewSwitch, "study_view"),
     ],
 )
 async def test_restore_switch_added_to_hass(cls, attr, coord, entry, monkeypatch):
@@ -1065,3 +1082,43 @@ def test_image_overlay_no_closing_tag_appends(board_image, monkeypatch):
     out = board_image._overlay_classification_glyph(svg, move, "blunder", chess.WHITE)
     assert out.startswith("<svg-broken>")
     assert "<text" in out
+
+@pytest.mark.parametrize("cls,attr,value,expected", [
+    (select_mod.PhantomAiLevelSelect, "ai_level", "6", 6),
+    (select_mod.PhantomPlayerColorSelect, "player_color", "black", "black"),
+])
+async def test_usual_game_preferences_restore(cls, attr, value, expected, coord, entry, monkeypatch):
+    entity = cls(coord, entry, ADDRESS, NAME)
+    monkeypatch.setattr(select_mod.CoordinatorEntity, "async_added_to_hass", AsyncMock())
+    entity.async_get_last_state = AsyncMock(return_value=MagicMock(state=value))
+    await entity.async_added_to_hass()
+    assert getattr(coord, attr) == expected
+    assert type(getattr(coord, attr)) is type(expected)
+
+
+async def test_dashboard_references_only_real_entities(coord, entry):
+    """Every entity the bundled dashboard names must be created by a platform.
+
+    A stale reference (e.g. the removed firmware_version sensor) resolves to
+    a guessed ID that never exists, so its card control reads "unavailable".
+    """
+    from custom_components.phantom_chess.dashboard_provision import (
+        _TEMPLATE_ENTITY_REF,
+        _TEMPLATE_PATH,
+        _TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES,
+    )
+
+    entry.runtime_data = coord
+    hass = MagicMock()
+    hass.async_add_executor_job = AsyncMock(side_effect=lambda f, *a: f(*a))
+    created: set[tuple[str, str]] = set()
+    for domain, module in (("sensor", sensor_mod), ("binary_sensor", bs_mod),
+                           ("button", button_mod), ("switch", switch_mod),
+                           ("select", select_mod), ("number", number_mod),
+                           ("image", image_mod)):
+        add = MagicMock()
+        await module.async_setup_entry(hass, entry, add)
+        created |= {(domain, e._attr_unique_id[len(ADDRESS) + 1:]) for e in _added(add)}
+    refs = {(m["domain"], _TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES.get(m["suffix"], m["suffix"]))
+            for m in _TEMPLATE_ENTITY_REF.finditer(_TEMPLATE_PATH.read_text())}
+    assert refs and refs <= created, sorted(refs - created)

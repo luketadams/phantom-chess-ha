@@ -1,13 +1,22 @@
 """Phantom Chess Board integration."""
 from __future__ import annotations
 
+import functools
 import logging
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any, cast
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
+from bleak.exc import BleakError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
@@ -16,6 +25,9 @@ from homeassistant.helpers import (
     entity_registry as er,
 )
 
+from .issues import clear_legacy_issues
+from .drills import DRILLS
+from .puzzles import DIFFICULTIES as PUZZLE_DIFFICULTIES
 from .config_flow import _normalize_ble_address
 from .const import CONF_BLE_ADDRESS, CONF_DEVICE_NAME, DOMAIN
 from .coordinator import PhantomChessCoordinator
@@ -204,7 +216,7 @@ MOVE_PIECE_SCHEMA = vol.Schema(
 )
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_migrate_entry(hass: HomeAssistant, entry: PhantomChessConfigEntry) -> bool:
     """Migrate older config entries to the current schema.
 
     v1 → v2 (2026-05-24):
@@ -346,7 +358,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 def _consolidate_registries_to_canonical(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     canonical: str,
     canonical_lower: str,
 ) -> None:
@@ -392,7 +404,7 @@ def _consolidate_registries_to_canonical(
         if e.config_entry_id == entry.entry_id
     ]
 
-    by_suffix: dict[str, dict[str, list]] = {}
+    by_suffix: dict[str, dict[str, list[er.RegistryEntry]]] = {}
     for e in our_entities:
         uid = e.unique_id or ""
         if "_" not in uid:
@@ -464,13 +476,12 @@ def _consolidate_registries_to_canonical(
                                   dup.entity_id, err)
 
     # ── 2. Device registry consolidation ────────────────────────────────
-    our_devices = [
-        d for d in list(dev_reg.devices.values())
-        if entry.entry_id in d.config_entries
-    ]
+    # The registry helper works on every supported HA version; mapping access
+    # to dev_reg.devices is deprecated from HA 2026.9 and breaks in 2027.9.
+    our_devices = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
 
-    canonical_devs: list = []
-    noncanonical_devs: list = []
+    canonical_devs: list[dr.DeviceEntry] = []
+    noncanonical_devs: list[dr.DeviceEntry] = []
     for d in our_devices:
         for ident in d.identifiers:
             if len(ident) < 2 or ident[0] != DOMAIN:
@@ -488,47 +499,47 @@ def _consolidate_registries_to_canonical(
     devices_removed = 0
     if noncanonical_devs and not canonical_devs:
         # Promote the first non-canonical device's identifier.
-        keeper = noncanonical_devs[0]
+        keeper_dev = noncanonical_devs[0]
         new_identifiers = set()
-        for ident in keeper.identifiers:
+        for ident in keeper_dev.identifiers:
             if len(ident) >= 2 and ident[0] == DOMAIN and ident[1].lower() == canonical_lower:
                 new_identifiers.add((DOMAIN, canonical))
             else:
-                new_identifiers.add(tuple(ident))
+                new_identifiers.add(ident)  # already a tuple; tuple(ident) returned it unchanged
         try:
-            dev_reg.async_update_device(keeper.id, new_identifiers=new_identifiers)
+            dev_reg.async_update_device(keeper_dev.id, new_identifiers=new_identifiers)
             devices_rewritten += 1
         except Exception as err:
             _LOGGER.debug("v3: failed to rewrite device %s identifier: %s",
-                          keeper.id, err)
+                          keeper_dev.id, err)
         # Remove any further duplicates (rare).
-        for dup in noncanonical_devs[1:]:
+        for dup_dev in noncanonical_devs[1:]:
             try:
-                dev_reg.async_remove_device(dup.id)
+                dev_reg.async_remove_device(dup_dev.id)
                 devices_removed += 1
             except Exception as err:
                 _LOGGER.debug("v3: failed to remove duplicate device %s: %s",
-                              dup.id, err)
+                              dup_dev.id, err)
     elif canonical_devs and noncanonical_devs:
         # Canonical exists; reassign entities then remove non-canonicals.
-        keeper = canonical_devs[0]
-        for dup in noncanonical_devs:
+        keeper_dev = canonical_devs[0]
+        for dup_dev in noncanonical_devs:
             # Re-fetch our_entities post-rewrite so we see updated device_ids.
             for e in list(er_inst.entities.values()):
-                if e.config_entry_id == entry.entry_id and e.device_id == dup.id:
+                if e.config_entry_id == entry.entry_id and e.device_id == dup_dev.id:
                     try:
-                        er_inst.async_update_entity(e.entity_id, device_id=keeper.id)
+                        er_inst.async_update_entity(e.entity_id, device_id=keeper_dev.id)
                     except Exception as err:
                         _LOGGER.debug(
                             "v3: failed to reassign %s to device %s: %s",
-                            e.entity_id, keeper.id, err,
+                            e.entity_id, keeper_dev.id, err,
                         )
             try:
-                dev_reg.async_remove_device(dup.id)
+                dev_reg.async_remove_device(dup_dev.id)
                 devices_removed += 1
             except Exception as err:
                 _LOGGER.debug("v3: failed to remove duplicate device %s: %s",
-                              dup.id, err)
+                              dup_dev.id, err)
 
     _LOGGER.info(
         "v3: entity registry — rewrote %d unique_ids, removed %d duplicates. "
@@ -539,7 +550,7 @@ def _consolidate_registries_to_canonical(
 
 def _rename_collision_suffix_entity_ids(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
 ) -> int:
     """v3→v4 helper: rename any ``_2``-suffix entity_ids belonging to
     ``entry`` back to their base form (without the suffix), provided the
@@ -592,7 +603,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     enumerating ``hass.config_entries.async_entries(DOMAIN)`` and reading
     ``entry.runtime_data`` — see ``_get_coordinator``.
     """
+    from .homepod_speech import register_service
+
     _register_services(hass)
+    register_service(hass)
     await _register_static_paths(hass)
     return True
 
@@ -601,6 +615,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: PhantomChessConfigEntry
 ) -> bool:
     """Set up Phantom Chess Board from a config entry."""
+    clear_legacy_issues(hass)
     coordinator = PhantomChessCoordinator(hass, dict(entry.data), entry=entry)
     await coordinator.async_setup()
 
@@ -625,6 +640,7 @@ async def async_setup_entry(
     # entry.runtime_data, not hass.data[DOMAIN][entry.entry_id]. HA
     # garbage-collects this automatically on unload.
     entry.runtime_data = coordinator
+    coordinator._options_snapshot = dict(entry.options)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -671,8 +687,20 @@ async def async_setup_entry(
     return True
 
 
-async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Re-load the config entry when options change."""
+async def _async_options_updated(hass: HomeAssistant, entry: PhantomChessConfigEntry) -> None:
+    """Apply speech and cloud-analysis preferences without interrupting a game."""
+    coordinator = getattr(entry, "runtime_data", None)
+    previous = getattr(coordinator, "_options_snapshot", None)
+    current = dict(entry.options)
+    speech_keys = {"homepod_speech", "speech_volume", "tts_service", "tts_media_player_entity_id", "tts_language", "tts_voice"}
+    if coordinator is not None and isinstance(previous, dict):
+        changed = {key for key in previous.keys() | current.keys() if previous.get(key) != current.get(key)}
+        if changed <= speech_keys | {"cloud_analysis"}:
+            coordinator._options_snapshot = current
+            client = getattr(coordinator, "_analysis_client", None)
+            if client is not None:
+                client.allow_cloud = bool(current.get("cloud_analysis", True))
+            return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -695,7 +723,9 @@ async def _register_static_paths(hass: HomeAssistant) -> None:
     if hass.data.get(STATIC_PATH_MARKER):
         return
     try:
-        from homeassistant.components.http import StaticPathConfig
+        from homeassistant.components.http import (  # type: ignore[attr-defined]  # re-exported without __all__; its defining module differs across supported HA versions
+            StaticPathConfig,
+        )
         import os
         www_dir = os.path.join(os.path.dirname(__file__), "www")
         if not os.path.isdir(www_dir):
@@ -741,6 +771,37 @@ async def async_unload_entry(
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
+# Regenerable files removed with the integration. Saved games (HA Store
+# ``phantom_chess_games_<mac>``) and two-player recordings
+# (``<config>/phantom_chess/recordings``) are user data and are kept, so a
+# reinstall finds them; the README's Removal section says so.
+_SHARED_REMOVABLE_PATHS: tuple[tuple[str, ...], ...] = (
+    ("phantom_chess", "bin"),      # downloaded Stockfish (~110 MB)
+    ("phantom_chess", "debug"),    # diagnostic captures
+    ("www", "phantom_chess"),      # launcher images copied for the dashboard
+)
+
+
+def _remove_shared_files(hass: HomeAssistant) -> None:
+    import shutil
+
+    for parts in _SHARED_REMOVABLE_PATHS:
+        shutil.rmtree(hass.config.path(*parts), ignore_errors=True)
+
+
+async def _async_remove_entry_artifacts(
+    hass: HomeAssistant, entry: PhantomChessConfigEntry, *, last: bool
+) -> None:
+    """Delete this board's review cache and, for the last board, shared files."""
+    from homeassistant.helpers.storage import Store
+
+    address = str(entry.data.get(CONF_BLE_ADDRESS) or "").replace(":", "").lower()
+    if address:
+        await Store(hass, 1, f"{DOMAIN}_reviews_{address}").async_remove()
+    if last:
+        await hass.async_add_executor_job(_remove_shared_files, hass)
+
+
 async def async_remove_entry(
     hass: HomeAssistant, entry: PhantomChessConfigEntry
 ) -> None:
@@ -760,6 +821,10 @@ async def async_remove_entry(
     # surviving entry/entries. v1 design: the dashboard is shared across
     # all boards.
     remaining_entries = hass.config_entries.async_entries(DOMAIN)
+    try:
+        await _async_remove_entry_artifacts(hass, entry, last=not remaining_entries)
+    except Exception:
+        _LOGGER.exception("Failed to remove Phantom Chess files for entry %s", entry.entry_id)
     if remaining_entries:
         return
     if entry.options.get(OPT_AUTO_PROVISION_DASHBOARD, DEFAULT_AUTO_PROVISION_DASHBOARD):
@@ -770,6 +835,52 @@ async def async_remove_entry(
                 "Failed to unprovision Phantom Chess dashboard for entry %s",
                 entry.entry_id,
             )
+
+
+def _user_facing(
+    handler: Callable[[ServiceCall], Awaitable[ServiceResponse]],
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
+    """Translate expected failures into errors the UI can show.
+
+    Coordinator methods signal refusals ("a game is already running", "the
+    board is not ready", bad PGN, engine timeouts) with plain Python
+    exceptions. Unwrapped, those reach the frontend as unhandled errors with
+    a traceback in the log. Refusals become ServiceValidationError and
+    Bluetooth failures become HomeAssistantError, both with translation keys
+    (quality scale rule exception-translations).
+    """
+
+    @functools.wraps(handler)
+    async def wrapped(call: ServiceCall) -> ServiceResponse:
+        try:
+            return await handler(call)
+        except HomeAssistantError:
+            raise
+        except BleakError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="board_communication_failed",
+                translation_placeholders={"error": str(err) or type(err).__name__},
+            ) from err
+        except (RuntimeError, ValueError, OSError) as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="request_rejected",
+                translation_placeholders={"error": str(err) or type(err).__name__},
+            ) from err
+
+    return wrapped
+
+
+def _async_register_service(
+    hass: HomeAssistant,
+    domain: str,
+    service: str,
+    handler: Callable[[ServiceCall], Awaitable[ServiceResponse]],
+    **kwargs: Any,
+) -> None:
+    """Register a service whose expected failures are user-facing."""
+    hass.services.async_register(domain, service, _user_facing(handler), **kwargs)
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -849,6 +960,88 @@ def _register_services(hass: HomeAssistant) -> None:
                 "known": ", ".join(coordinators),
             },
         )
+
+    async def handle_save_game(call: ServiceCall) -> dict[str, Any]:
+        return await _get_coordinator(call).async_save_game()
+
+    async def handle_resume_game(call: ServiceCall) -> None:
+        await _get_coordinator(call).async_resume_game(call.data.get("game_id"))
+
+    async def handle_check_engine(call: ServiceCall) -> dict[str, Any]:
+        return await _get_coordinator(call).async_check_engine()
+
+    async def handle_start_puzzle(call: ServiceCall) -> dict[str, Any]:
+        return await _get_coordinator(call).async_start_puzzle(
+            call.data.get("source", "daily"), call.data.get("difficulty"), call.data.get("theme"),
+        )
+
+    async def handle_start_drill(call: ServiceCall) -> dict[str, Any]:
+        return await _get_coordinator(call).async_start_drill(call.data["drill"])
+
+    _async_register_service(
+        hass, DOMAIN, "start_drill", handle_start_drill,
+        schema=vol.Schema({
+            vol.Optional("entry_id"): cv.string,
+            vol.Required("drill"): vol.In([d.id for d in DRILLS]),
+        }),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    async def handle_puzzle_hint(call: ServiceCall) -> dict[str, Any]:
+        return await _get_coordinator(call).async_puzzle_hint()
+
+    async def handle_puzzle_show_solution(call: ServiceCall) -> dict[str, Any]:
+        return await _get_coordinator(call).async_puzzle_show_solution()
+
+    _async_register_service(
+        hass, DOMAIN, "start_puzzle", handle_start_puzzle,
+        schema=vol.Schema({
+            vol.Optional("entry_id"): cv.string,
+            vol.Optional("source", default="daily"): vol.In(["daily", "random"]),
+            vol.Optional("difficulty"): vol.In(list(PUZZLE_DIFFICULTIES)),
+            vol.Optional("theme"): vol.All(cv.string, vol.Match(r"^[A-Za-z0-9_]{1,40}$")),
+        }),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_service(
+        hass, DOMAIN, "puzzle_hint", handle_puzzle_hint,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_service(
+        hass, DOMAIN, "puzzle_show_solution", handle_puzzle_show_solution,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    _async_register_service(hass, 
+        DOMAIN, "check_engine", handle_check_engine,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    async def handle_game_library(call: ServiceCall) -> dict[str, Any]:
+        data = {k: v for k, v in call.data.items() if k not in ("entry_id", "action")}
+        return await _get_coordinator(call).async_game_library(call.data.get("action", "list"), **data)
+
+    _async_register_service(hass, 
+        DOMAIN, "save_game", handle_save_game,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_service(hass, 
+        DOMAIN, "resume_game", handle_resume_game,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("game_id"): cv.string}),
+    )
+    _async_register_service(hass, 
+        DOMAIN, "game_library", handle_game_library,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string,
+                           vol.Optional("action", default="list"): vol.In(["list", "import", "export", "delete", "practice", "analyze", "reanalyze", "review", "cancel_review"]),
+                           vol.Optional("game_id"): cv.string, vol.Optional("query"): cv.string,
+            vol.Optional("ply"): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                           vol.Optional("pgn"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
     async def handle_start_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
@@ -944,7 +1137,8 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_phantom_start_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
         await coordinator.async_phantom_start_game(
-            fen=call.data.get("fen"),
+            # The schema supplies a default FEN, so this is always a str.
+            fen=cast(str, call.data.get("fen")),
             side=call.data.get("side", "W"),
             wait_for_running_timeout_s=call.data.get("timeout", 60),
         )
@@ -997,91 +1191,91 @@ def _register_services(hass: HomeAssistant) -> None:
             promotion=call.data.get("promotion"),
         )
 
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_GAME, handle_start_game, schema=START_GAME_SCHEMA
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_LOCAL_GAME, handle_start_local_game,
         schema=vol.Schema({
             vol.Optional("color"): vol.In(["white", "black", "random"]),
             vol.Optional("entry_id"): cv.string,
         }),
     )
-    hass.services.async_register(DOMAIN, SERVICE_STOP_LOCAL_GAME, handle_stop_local_game)
-    hass.services.async_register(
+    _async_register_service(hass, DOMAIN, SERVICE_STOP_LOCAL_GAME, handle_stop_local_game)
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_AI_VS_AI_GAME, handle_start_ai_vs_ai_game,
         schema=START_AI_VS_AI_GAME_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_TWO_PLAYER_GAME, handle_start_two_player_game
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RESYNC_TWO_PLAYER, handle_resync_two_player
     )
     # v0.4-alpha3 service wrappers — replace user-side scripts.
-    hass.services.async_register(DOMAIN, SERVICE_BACK_TO_MODES, handle_back_to_modes)
-    hass.services.async_register(
+    _async_register_service(hass, DOMAIN, SERVICE_BACK_TO_MODES, handle_back_to_modes)
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RESYNC_DETECTION, handle_resync_detection
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_LICHESS_CONFIGURED, handle_start_lichess_configured,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_PLAY_SELECTED_SCULPTURE, handle_play_selected_sculpture,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_SEND_MOVE, handle_send_move, schema=SEND_MOVE_SCHEMA
     )
-    hass.services.async_register(DOMAIN, SERVICE_RESIGN, handle_resign)
-    hass.services.async_register(
+    _async_register_service(hass, DOMAIN, SERVICE_RESIGN, handle_resign)
+    _async_register_service(hass, 
         DOMAIN, SERVICE_TAKEBACK, handle_takeback, schema=TAKEBACK_SCHEMA
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_DEBUG_BLE_WRITE, handle_debug_ble_write,
         schema=DEBUG_BLE_WRITE_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_DIAGNOSE_GAME_START, handle_diagnose_game_start,
         schema=DIAGNOSE_GAME_START_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_PHANTOM_START_GAME, handle_phantom_start_game,
         schema=PHANTOM_START_GAME_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_PHANTOM_APPLY_AI_MOVE, handle_phantom_apply_ai_move,
         schema=PHANTOM_APPLY_AI_MOVE_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_MOVE_PIECE, handle_move_piece,
         schema=MOVE_PIECE_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_SCULPTURE, handle_start_sculpture,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RESET_POSITION, handle_reset_position,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_PLAY_SOUND, handle_play_sound,
         schema=vol.Schema({
             vol.Optional("sound", default="check"): vol.In(["check", "checkmate"]),
             vol.Optional("entry_id"): cv.string,
         }),
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_REQUEST_HINT, handle_request_hint,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_DISMISS_REVIEW, handle_dismiss_review,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RECONCILE_LICHESS_STATE, handle_reconcile_lichess_state,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RESUME_FROM_PHONE, handle_resume_from_phone,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_EXECUTE_MOVE, handle_execute_move,
         schema=EXECUTE_MOVE_SCHEMA,
     )

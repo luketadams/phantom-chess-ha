@@ -1,24 +1,9 @@
-"""AI-vs-AI loop resilience: a transient BLE drop should not kill the game.
-
-Regression test for the ply-9 disconnect observed live 2026-05-31. The
-``_ai_vs_ai_loop`` used to ``break`` permanently on the first
-``async_phantom_apply_ai_move`` failure. It now waits for the background
-maintain loop to reconnect (``_ai_vs_ai_await_reconnect``) and RE-DRIVES the
-already-pushed current position via ``_phantom_execute_position`` (it must NOT
-re-call ``apply_ai_move``, which would no-op because the move is already on
-``self._board``).
-
-These tests bind the *real* loop methods to a lightweight stub so they run
-with no Home Assistant and no hardware. ``asyncio.sleep`` is patched to a
-no-op so the move-delay / reconnect waits don't slow the suite.
-
-Runs in the minimal CI env (no HA) — only needs ``chess``.
-"""
+"""Spectator playback stops on ambiguous movement; reconnect discovery remains available."""
 from __future__ import annotations
 
 import asyncio
 import types
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import chess
 import pytest
@@ -88,7 +73,7 @@ def _no_sleep(monkeypatch):
     async def _instant(_seconds):
         return None
 
-    monkeypatch.setattr(coord_mod, "_sleep", _instant)
+    monkeypatch.setattr(coord_mod.rt, "_sleep", _instant)
 
 
 def _legal_uci(board: chess.Board) -> str:
@@ -96,61 +81,19 @@ def _legal_uci(board: chess.Board) -> str:
 
 
 @pytest.mark.asyncio
-async def test_transient_drop_is_re_driven_not_fatal(monkeypatch):
-    """One BLE failure mid-game → reconnect + re-drive, game continues."""
+async def test_transport_failure_stops_without_replaying_motion(monkeypatch):
+    """An ambiguous command stops playback before any further physical write."""
     stub = _make_stub()
-
-    async def _compute(_board):
-        return _legal_uci(stub._board)
-
-    stub._get_ai_move = AsyncMock(side_effect=_compute)
-
-    applies = {"n": 0}
-
-    async def _apply(uci):
-        applies["n"] += 1
-        # Fail on the 3rd ply, simulating a BLE drop: push the move (as the
-        # real apply_ai_move does before the failed write) but raise and drop
-        # the link.
-        if applies["n"] == 3:
-            stub._board.push(chess.Move.from_uci(uci))
-            stub._ble_connected = False
-            raise RuntimeError("apply_ai_move BLE write failed: BLE not connected")
-        stub._board.push(chess.Move.from_uci(uci))
-        if len(stub._board.move_stack) >= 6:
-            stub._ai_vs_ai_active = False
-
-    stub.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
-
-    redrives = {"n": 0}
-
-    async def _execute(*, fen, side, timeout_s, side_opcode):
-        redrives["n"] += 1
-        assert side == "W"  # _our_color is WHITE in AI-vs-AI
-        assert side_opcode == "1"
-        assert fen == stub._board.fen()  # re-drive targets the CURRENT position
-        return True
-
-    stub._phantom_execute_position = AsyncMock(side_effect=_execute)
-
-    # Emulate the background maintain loop reconnecting: whenever the real
-    # _ai_vs_ai_await_reconnect polls (via _sleep), restore the link.
-    # We override coord_mod._sleep so the helper's `if self._ble_connected`
-    # poll flips True on the next iteration.
-    async def _reconnecting_sleep(_seconds):
-        if not stub._ble_connected:
-            stub._ble_connected = True
-        return None
-
-    monkeypatch.setattr(coord_mod, "_sleep", _reconnecting_sleep)
-
+    stub._notify_wedge_circuit_breaker = MagicMock()
+    stub._get_ai_move = AsyncMock(return_value="e2e4")
+    stub.async_phantom_apply_ai_move = AsyncMock(side_effect=RuntimeError("BLE dropped"))
+    stub._phantom_execute_position = AsyncMock()
+    monkeypatch.setattr(coord_mod.rt, "_sleep", AsyncMock())
     await stub._ai_vs_ai_loop()
-
-    # The dropped move was re-driven exactly once, and the game ran on to our
-    # scripted end (6 plies) rather than dying at ply 3.
-    assert redrives["n"] == 1, f"expected 1 re-drive, got {redrives['n']}"
-    assert len(stub._board.move_stack) >= 6
-    assert stub._ai_vs_ai_active is False
+    stub.async_phantom_apply_ai_move.assert_awaited_once_with("e2e4")
+    stub._phantom_execute_position.assert_not_awaited()
+    stub._notify_wedge_circuit_breaker.assert_called_once()
+    assert len(stub._board.move_stack) == 0
 
 
 @pytest.mark.asyncio
@@ -196,12 +139,12 @@ async def test_await_reconnect_returns_true_when_link_restored():
         return None
 
     # Override the no-op sleep with one that flips the link after a couple polls.
-    orig = coord_mod._sleep
-    coord_mod._sleep = _flip
+    orig = coord_mod.rt._sleep
+    coord_mod.rt._sleep = _flip
     try:
         result = await stub._ai_vs_ai_await_reconnect(timeout=30.0)
     finally:
-        coord_mod._sleep = orig
+        coord_mod.rt._sleep = orig
     assert result is True
 
 

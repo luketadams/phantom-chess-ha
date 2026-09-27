@@ -32,6 +32,17 @@ from custom_components.phantom_chess.const import (  # noqa: E402
 )
 
 
+pytestmark = pytest.mark.usefixtures("mock_bluetooth")
+
+
+@pytest.fixture(autouse=True)
+def empty_adapter_history():
+    # phacc mocks Linux adapters even on macOS, but leaves .history touching
+    # DBus (not installed on macOS). Config-flow tests need no host history.
+    with patch("bluetooth_adapters.systems.linux.LinuxAdapters.history", {}):
+        yield
+
+
 # ─── Bluetooth discovery → confirm → token → entry creation ─────────────
 
 
@@ -106,6 +117,30 @@ async def test_user_flow_with_invalid_token(
         )
         assert result["type"] == FlowResultType.FORM
         assert result["errors"] == {CONF_LICHESS_TOKEN: "invalid_lichess_token"}
+
+
+async def test_user_flow_without_token_creates_local_only_entry(
+    hass: HomeAssistant,
+) -> None:
+    """A blank token is valid: local play needs no Lichess account."""
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_get_clientsession",
+    ) as session, patch(
+        "custom_components.phantom_chess.config_flow.async_discovered_service_info",
+        return_value=[],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"}
+        )
+        assert result["step_id"] == "lichess_token"
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_LICHESS_TOKEN] == ""
+        assert result["data"][CONF_LICHESS_USER] is None
+        session.assert_not_called()  # no Lichess request without a token
 
 
 # ─── Reauth flow ────────────────────────────────────────────────────────
@@ -192,6 +227,9 @@ async def test_options_flow_round_trip(hass: HomeAssistant) -> None:
         "tts_media_player_entity_id": "media_player.example",
         "debug_dump": True,
         "auto_provision_dashboard": True,
+        "homepod_speech": False,
+        "speech_volume": 0.8,
+        "cloud_analysis": True,
     }
 
 
@@ -508,7 +546,7 @@ async def test_reconfigure_flow_updates_lichess_token(
     with patch(
         "custom_components.phantom_chess.config_flow.async_get_clientsession",
         return_value=valid_session,
-    ):
+    ), patch.object(hass.config_entries, "async_reload", new_callable=AsyncMock) as reload_entry:
         result = await entry.start_reconfigure_flow(hass)
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "reconfigure"
@@ -525,6 +563,8 @@ async def test_reconfigure_flow_updates_lichess_token(
         assert entry.data[CONF_LICHESS_TOKEN] == "fresh-rotated-token"
         # Username auto-refreshed from the validated token's /api/account response
         assert entry.data[CONF_LICHESS_USER] == "TestUser"
+        await hass.async_block_till_done()
+        reload_entry.assert_awaited_once_with(entry.entry_id)
 
 
 async def test_reconfigure_flow_blank_token_is_no_op(
@@ -659,3 +699,102 @@ async def test_migrate_entry_v3_to_v4_bumps_version(
     assert entry.version >= 4
     # MAC was already canonical — should stay that way.
     assert entry.unique_id == "AA:BB:CC:DD:EE:FF"
+
+
+# ─── Discovered-board picker and manual entry ──────────────────────────
+
+
+def _service_info(address: str, name: str | None):
+    info = MagicMock(address=address)
+    info.name = name  # MagicMock(name=...) names the mock itself, not .name
+    return info
+
+
+async def test_user_flow_picker_lists_new_boards_only(hass: HomeAssistant) -> None:
+    """Discovered Phantom boards appear by name; configured and non-Phantom devices don't."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    MockConfigEntry(
+        domain=DOMAIN, unique_id="11:22:33:44:55:66",
+        data={CONF_BLE_ADDRESS: "11:22:33:44:55:66"},
+    ).add_to_hass(hass)
+    seen = [
+        _service_info("aa:bb:cc:dd:ee:ff", "Phantom 7C0A"),
+        _service_info("11:22:33:44:55:66", "Phantom Old"),
+        _service_info("99:99:99:99:99:99", "Speaker"),
+        _service_info("88:88:88:88:88:88", None),
+    ]
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_discovered_service_info",
+        return_value=seen,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        assert result["step_id"] == "user"
+        assert result["description_placeholders"] == {"discovered": "Phantom 7C0A"}
+        options = result["data_schema"].schema[CONF_BLE_ADDRESS].container
+        assert options == {
+            "AA:BB:CC:DD:EE:FF": "Phantom 7C0A (AA:BB:CC:DD:EE:FF)",
+            "manual": "Enter MAC address manually",
+        }
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"}
+        )
+        assert result["step_id"] == "lichess_token"
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Phantom 7C0A"
+    assert result["data"][CONF_BLE_ADDRESS] == "AA:BB:CC:DD:EE:FF"
+
+
+async def test_user_flow_manual_sentinel_then_manual_entry(hass: HomeAssistant) -> None:
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_discovered_service_info",
+        return_value=[_service_info("AA:BB:CC:DD:EE:FF", "Phantom 7C0A")],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BLE_ADDRESS: "manual"}
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "user_manual"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BLE_ADDRESS: "not-a-mac"}
+        )
+        assert result["step_id"] == "user_manual"
+        assert result["errors"] == {CONF_BLE_ADDRESS: "invalid_ble_address"}
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BLE_ADDRESS: "12-34-56-78-9a-bc"}
+        )
+        assert result["step_id"] == "lichess_token"
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_BLE_ADDRESS] == "12:34:56:78:9A:BC"
+    assert result["title"] == "Phantom 12:34:56:78:9A:BC"
+
+
+async def test_user_manual_rejects_already_configured(hass: HomeAssistant) -> None:
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    MockConfigEntry(
+        domain=DOMAIN, unique_id="12:34:56:78:9A:BC",
+        data={CONF_BLE_ADDRESS: "12:34:56:78:9A:BC"},
+    ).add_to_hass(hass)
+    with patch(
+        "custom_components.phantom_chess.config_flow.async_discovered_service_info",
+        return_value=[_service_info("AA:BB:CC:DD:EE:FF", "Phantom 7C0A")],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BLE_ADDRESS: "manual"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BLE_ADDRESS: "12:34:56:78:9a:bc"}
+        )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"

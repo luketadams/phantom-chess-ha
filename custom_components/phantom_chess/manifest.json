@@ -2,8 +2,10 @@
   "domain": "phantom_chess",
   "name": "Phantom Chess Board",
   "after_dependencies": [
+    "assist_pipeline",
     "http",
-    "lovelace"
+    "lovelace",
+    "tts"
   ],
   "bluetooth": [
     {
@@ -22,9 +24,9 @@
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/luketadams/phantom-chess-ha/issues",
-  "quality_scale": "silver",
+  "quality_scale": "platinum",
   "requirements": [
     "chess>=1.10.0,<2.0"
   ],
-  "version": "0.4.0b4"
+  "version": "0.5.0b9"
 }

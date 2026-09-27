@@ -65,59 +65,38 @@ jobs:
           PYTHONPATH=. pytest tests/ -v
 
   ha-tests:
-    # The config_flow tests use pytest-homeassistant-custom-component
-    # which pulls in the full HA dependency tree. They're skipped
-    # gracefully if the plugin isn't installed (see tests/test_config_flow.py).
-    # We install it here so the tests actually run in CI.
-    #
-    # Fable5 deep dive A1 (2026-07-06): this was the ONLY job running the
-    # full ~885-test suite and enforcing fail_under=95, but continue-on-error
-    # meant a coverage collapse (or a total install failure) still showed
-    # green. Gating for real now that the version underneath it is pinned
-    # instead of floating — see the pin rationale below.
+    # Both supported baselines run the complete suite and enforce coverage.
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.13"
+            ha: "2026.2.3"
+            phacc: "0.13.316"
+            pytest: "9.0.0"
+            coverage: "7.10.6"
+            usb: "aiousbwatcher pyserial"
+          - python: "3.14"
+            ha: "2026.9.3"
+            phacc: "0.13.366"
+            pytest: "9.0.3"
+            coverage: "7.15.4"
+            usb: "aiousbwatcher==1.1.2 serialx==1.8.2"
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.13
+      - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python }}
       - name: Install HA test scaffolding
-        # pytest-homeassistant-custom-component pulls HA core + pytest +
-        # most fixtures, but NOT optional integration deps.
-        # phantom_chess.config_flow imports homeassistant.components.bluetooth
-        # which transitively pulls in:
-        #   bluetooth → usb → aiousbwatcher (Linux inotify watcher)
-        #   bluetooth → usb → utils → pyserial (the `serial` module)
-        # Plus the integration's own runtime dep:
-        #   chess (python-chess, for AI move generation + board state)
-        # And coverage.py for the Silver `test-coverage` rule's trend
-        # tracking (fail_under threshold lives in pyproject.toml).
-        #
-        # VERSION PIN — read before bumping (Fable5 deep dive A1, 2026-07-06):
-        # pytest-homeassistant-custom-component tracks HA core 1:1 (each
-        # phacc release == one homeassistant release) and HA moved its
-        # Python floor to >=3.14 starting with HA 2026.3 (phacc 0.13.317+
-        # all declare Requires-Python >=3.14, verified against PyPI
-        # 2026-07-06). This runner is on Python 3.13, so 0.13.316 —
-        # tracking HA 2026.2.3, released 2026-02-21 — is the newest phacc
-        # release this job can install at all. That means this job now
-        # gates on a real HA snapshot instead of silently no-op'ing, but
-        # it's a ~5-month-old HA snapshot until someone deliberately bumps
-        # this job to Python 3.14 to follow current HA (a separate,
-        # bigger decision — not folded into this pin).
-        # pytest==9.0.0 and coverage==7.10.6 are pinned to match exactly
-        # what pytest-homeassistant-custom-component==0.13.316 itself
-        # declares in its own install_requires (see its
-        # requirements_test.txt at that tag) — installing a newer pytest
-        # here would conflict with phacc's internal exact pin and fail
-        # to resolve.
         run: |
           python -m pip install --upgrade pip
-          pip install pytest==9.0.0 pytest-homeassistant-custom-component==0.13.316 \
-                      aiousbwatcher pyserial \
-                      'chess>=1.10.0,<2.0' \
-                      coverage==7.10.6
+          pip install homeassistant==${{ matrix.ha }} \
+                      pytest==${{ matrix.pytest }} \
+                      pytest-homeassistant-custom-component==${{ matrix.phacc }} \
+                      ${{ matrix.usb }} 'chess>=1.10.0,<2.0' \
+                      coverage==${{ matrix.coverage }}
       - name: Run HA-integration tests with coverage
         # coverage run records hits across the whole package; coverage
         # report enforces the fail_under threshold set in pyproject.toml.
@@ -130,32 +109,31 @@ jobs:
           coverage report
 
   typecheck:
-    # Platinum quality scale prep — mypy must be clean.
-    # Gating as of alpha25; prior alphas ran this as continue-on-error
-    # while we drove the baseline from 17 errors down to 0.
+    # Platinum strict-typing: mypy --strict against Home Assistant's real
+    # installed types (no --ignore-missing-imports). Gating. Kept under the
+    # job id `typecheck` so main's required status check is unchanged; it
+    # replaced the earlier non-strict pass (HA treated as Any) on 2026-09-27.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.13
+      - name: Set up Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
-      - name: Install mypy + deps
-        # mypy pinned (Fable5 deep dive A1, 2026-07-06) — latest verified
-        # release as of that date, no HA scaffolding involved so no
-        # transitive-pin conflict to worry about here.
+          python-version: "3.14"
+      - name: Install HA test scaffolding + mypy
+        # Same pins as the ha-tests matrix row for HA 2026.9.3, plus mypy
+        # (pinned since the Fable5 deep dive A1, 2026-07-06) and the PyYAML
+        # stubs dashboard_provision.py needs.
         run: |
           python -m pip install --upgrade pip
-          pip install mypy==2.1.0 'chess>=1.10.0,<2.0' pyyaml aiohttp
-      - name: Run mypy
-        # --ignore-missing-imports because we don't install HA core
-        # here (way too heavy for a type check pass); HA's own types
-        # show up via stubs in pytest-homeassistant-custom-component
-        # if needed later. With those stubs unavailable, mypy treats
-        # `homeassistant.*` as Any — still catches our own type bugs.
+          pip install homeassistant==2026.9.3 \
+                      pytest==9.0.3 \
+                      pytest-homeassistant-custom-component==0.13.366 \
+                      aiousbwatcher==1.1.2 serialx==1.8.2 'chess>=1.10.0,<2.0' \
+                      mypy==2.1.0 types-PyYAML==6.0.12.20260906
+      - name: Run mypy --strict
         run: |
-          PYTHONPATH=. python -m mypy --ignore-missing-imports \
-            --no-incremental \
+          PYTHONPATH=. python -m mypy --strict --no-incremental \
             custom_components/phantom_chess/
 
   ruff:
@@ -213,3 +191,15 @@ jobs:
           assert 'homeassistant' in h, 'hacs.json missing homeassistant version floor'
           print(f'hacs.json OK — name={h[\"name\"]!r} ha-floor={h[\"homeassistant\"]}')
           "
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:frontend

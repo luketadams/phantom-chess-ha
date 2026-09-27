@@ -73,9 +73,11 @@ async def test_async_setup_creates_analysis_client_and_ble_task() -> None:
 
     fake_hass.loop.create_task = MagicMock(side_effect=_capture_task)
     coord.hass = fake_hass
+    store = AsyncMock()
+    store.async_load.return_value = None
     with patch(
         "custom_components.phantom_chess.lichess_analysis.LichessAnalysisClient"
-    ):
+    ), patch("homeassistant.helpers.storage.Store", return_value=store):
         await coord.async_setup()
     assert coord._analysis_client is not None
     # A BLE task was scheduled on the loop.
@@ -263,6 +265,7 @@ async def test_dashboard_move_local_playing_branch_triggers_ai() -> None:
 
     async def _apply(uci):
         coord._board.push_uci(uci)
+        return True
 
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
     coord._record_and_analyze_local_move = MagicMock()
@@ -284,6 +287,7 @@ async def test_dashboard_move_local_real_checkmate() -> None:
 
     async def _apply(uci):
         coord._board.push_uci(uci)
+        return True
 
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
     coord._record_and_analyze_local_move = MagicMock()
@@ -316,6 +320,7 @@ async def test_takeback_bad_count_raises() -> None:
 async def test_takeback_local_game_writes_opcode5() -> None:
     client = FakeBleakClient()
     coord = make_coordinator(client=client)
+    coord._await_takeback_completion = AsyncMock()
     coord._game_id = None
     coord._board = chess.Board()
     coord._board.push_uci("e2e4")
@@ -356,7 +361,7 @@ async def test_takeback_lichess_refusal_aborts_before_ble() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     session = MagicMock()
     session.post = MagicMock(return_value=ctx)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_takeback(count=1)
     # No BLE write — board must have stayed at 1 move (not popped).
     assert client.last_write_to(const.UUID_GAME) is None
@@ -366,6 +371,7 @@ async def test_takeback_lichess_refusal_aborts_before_ble() -> None:
 async def test_takeback_lichess_accept_then_ble_write() -> None:
     client = FakeBleakClient()
     coord = make_coordinator(client=client)
+    coord._await_takeback_completion = AsyncMock()
     coord._game_id = "game123"
     coord._board = chess.Board()
     coord._board.push_uci("e2e4")
@@ -379,7 +385,7 @@ async def test_takeback_lichess_accept_then_ble_write() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     session = MagicMock()
     session.post = MagicMock(return_value=ctx)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_takeback(count=1)
     payload = client.last_write_to(const.UUID_GAME)
     assert payload is not None and payload[0] == 0x05
@@ -393,7 +399,7 @@ async def test_takeback_lichess_exception_aborts() -> None:
     coord._board.push_uci("e2e4")
     session = MagicMock()
     session.post = MagicMock(side_effect=RuntimeError("network down"))
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_takeback(count=1)
     assert client.last_write_to(const.UUID_GAME) is None
     assert len(coord._board.move_stack) == 1
@@ -420,7 +426,7 @@ async def test_resign_no_game_is_noop() -> None:
     coord = make_coordinator()
     coord._game_id = None
     # Should return immediately without touching the network.
-    with patch.object(coord_mod, "async_get_clientsession") as sess:
+    with patch.object(coord_mod.rt, "async_get_clientsession") as sess:
         await coord.async_resign()
     sess.assert_not_called()
 
@@ -435,7 +441,7 @@ async def test_resign_success_clears_game() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     session = MagicMock()
     session.post = MagicMock(return_value=ctx)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_resign()
     assert coord._game_id is None
     assert coord._state["game_status"] == const.STATUS_RESIGNED
@@ -453,7 +459,7 @@ async def test_resign_failure_leaves_state() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     session = MagicMock()
     session.post = MagicMock(return_value=ctx)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_resign()
     # Game left intact.
     assert coord._game_id == "abc"
@@ -560,13 +566,14 @@ async def test_reset_position_finalizes_two_player() -> None:
     coord._finalize_two_player_game.assert_awaited_once()
 
 
-async def test_reset_position_logs_on_timeout() -> None:
+async def test_reset_position_timeout_reports_failure() -> None:
     coord = make_coordinator()
     coord._two_player_active = False
     coord._board = chess.Board()
     coord._phantom_execute_position = AsyncMock(return_value=False)
     # Should not raise even when the physical drive times out.
-    await coord.async_reset_position()
+    with pytest.raises(TimeoutError, match="did not confirm"):
+        await coord.async_reset_position()
     coord._phantom_execute_position.assert_awaited_once()
 
 
