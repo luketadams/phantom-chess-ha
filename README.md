@@ -1,60 +1,90 @@
 # Phantom Chess for Home Assistant
 
-Play chess on a Phantom robotic board from Home Assistant, with a bundled dashboard and voice announcements. This is an unofficial community integration.
+Play chess on a Phantom robotic chessboard from Home Assistant. The board moves the computer's pieces for you, and a bundled dashboard lets you play, review games with a local engine, and replay famous games. This is an unofficial community integration, not affiliated with Phantom.
 
-The current build is **0.5.0b7**. It adds a native Play / Learn / Review / Board & settings interface, automatic local-game saves, explicit recovery, PGN import/export and replay, and HomePod speech that follows the preferred Assist voice. Start with the [release handoff](docs/RELEASE_HANDOFF.md). Software validation and physical qualification are tracked separately in the [engineering reference](docs/ENGINEERING_REFERENCE.md).
+## What you can do
+
+- **Play** Stockfish on the physical board at eight difficulty levels, as either colour. Games save automatically and resume after a restart.
+- **Play online** on Lichess with your account, or record a two-player game between people at the board.
+- **Learn** with an optional advantage bar, move-quality badges and hints.
+- **Review** any saved or imported game with local Stockfish: mistakes, blunders, better moves, and practice positions.
+- **Watch** the computer play itself, or replay 18 historic games on the board.
+- **Hear** moves, checks and results on any Home Assistant speaker.
+
+## Requirements
+
+- A Phantom board. Tested on firmware 0.3.0 and 0.3.3.
+- Home Assistant **2026.2.3 or newer**. Tested on 2026.2.3 and 2026.9.3.
+- Bluetooth that reaches the board. For firmware **0.3.2 and later**, use an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html) near the board (any ESP32 works). In testing, direct connections through the Home Assistant host's own Bluetooth adapter failed with these firmware versions.
+- Internet access the first time you play locally, to download the chess engine (75–115 MB).
+
+The local engine installs automatically on Home Assistant OS and the official container (x86-64 and 64-bit ARM, such as a Raspberry Pi 4 or 5) and on x86-64 Linux installs. It is not yet available on 64-bit ARM systems that are not Alpine-based; there, local play and review say so clearly, and online play still works.
 
 ## Install
 
-1. Use HACS with this repository as a custom integration, or copy `custom_components/phantom_chess` into your HA configuration's `custom_components` directory.
-2. Restart Home Assistant. Add **Phantom Chess Board** under Settings → Devices & services.
-3. Select the board's Bluetooth address. A Lichess token is optional for local play.
-4. Open **Phantom Chess** in the sidebar. No additional dashboard cards, browser tokens, or CDN assets are required.
+1. In HACS, open the menu → **Custom repositories**, add `https://github.com/luketadams/phantom-chess-ha` as an **Integration**, then download **Phantom Chess Board**.
+2. Restart Home Assistant.
+3. Go to **Settings → Devices & services**. Home Assistant usually discovers the board; otherwise choose **Add integration → Phantom Chess Board** and enter its Bluetooth address.
+4. Optionally paste a Lichess token (see below). Leave it blank to play the local engine only.
+5. Open **Phantom Chess** in the sidebar.
 
-Validated Home Assistant baselines are **2026.2.3** and **2026.8.3**. Tested board firmware: **0.3.3**. Bluetooth behavior depends on adapter, proxy, firmware and host stack; a nearby ESPHome Bluetooth proxy is one supported transport. A universal claim that this firmware rejects every Linux Bluetooth adapter is not established. No firmware update is included in this build.
+Manual install: copy `custom_components/phantom_chess` into your configuration's `custom_components` folder and restart.
 
-## Play
+### Lichess token (optional)
 
-Choose **Play my usual game**. Your selected color and difficulty survive reloads. Move physical pieces, or select a legal piece and destination on the dashboard; dashboard moves drive the board. Promotion offers queen, rook, bishop or knight.
+Needed only for online games. Create a [personal access token](https://lichess.org/account/oauth/token) with the **Board API** scope and paste it during setup, or add it later with **Reconfigure** on the integration.
 
-Pause, take back, save and end controls are available during play. Local games save their legal move history automatically. After a restart, use **Resume saved game**: recovery explicitly synchronizes the physical position and waits for completion before continuing. A failed or uncertain physical move pauses play rather than recording an unconfirmed local move or retrying robot motion blindly.
+## The dashboard
 
-**Choose a game** offers local two-player recording, Lichess, and computer-versus-computer viewing. Historic-game playback remains available through the integration's sculpture selection and service. Online state remains authoritative at Lichess; a physical failure does not resign your online game.
+The **Phantom Chess** sidebar dashboard has four pages and needs no extra cards or plugins.
 
-## Learn and review
+- **Play**: start your usual game, or choose colour, level, opponent (Stockfish, Lichess, two players, computer against computer) and time control. During a game, move on the board or on screen, pause, take back, save or end.
+- **Learn**: the same game with coaching. Turn on the advantage bar and move badges. Hints come from full-strength analysis, not the opponent's level.
+- **Review**: search, replay, import and export PGN. **Analyze game** grades every move and lists key moments; **Practice before this move** saves a new position to play from.
+- **Board & settings**: board sound and speed, speech, **Check chess engine**, and **Reset board**, which returns every piece to its starting square.
 
-Play and Learn offer a **Show advantage bar** toggle, remembered in this browser. Scores are White-positive pawn units; mate scores name the winning side. Stale analysis stays visibly unavailable. With coaching enabled, recent moves and their destination squares carry quality badges. Live evaluation aids are hidden during online games.
+Move grades use the Lichess winning-chance model with published thresholds for inaccuracies, mistakes and blunders. They are not Chess.com accuracy scores.
 
-In **Review**, select a saved or imported game and choose **Analyze game**. Local Stockfish evaluates every position, shows progress, identifies mistakes and blunders, and supplies legal suggested continuations. Select a moment to revisit, then **Practice before this move** to save a separate practice position. Resume that position when the physical board is ready. **Reanalyze game** refreshes an existing report.
+## Speech
 
-Analysis continues when you leave the page. Cancel preserves progress; Continue analysis resumes it. HA restart leaves incomplete analysis paused until requested again. Active play pauses review between positions. Reviews support up to 400 half-moves and use one engine job per board, with bounded search times. Chance-loss labels are Phantom's transparent grading model, not proprietary Chess.com accuracy or brilliance ratings; live coaching shares these grades with live coaching. Full-strength analysis does not inherit the opponent's selected skill.
+In the integration's **Configure** options, choose a **TTS engine** and a **media player**. Announcements cover moves, checks and results, and can be muted from the dashboard. If speech fails, the reason appears on the dashboard.
 
-Review also searches saved games, replays each position, imports one PGN at a time and exports PGN. **Practice from here** creates an independent saved position without moving the board.
+Apple HomePods added through the Apple TV integration can use **managed speech** instead. It follows your preferred Assist pipeline's voice and buffers each message before playing it.
 
-The library holds up to 200 games and accepts PGNs up to 256 KB. Export and delete games to make room. Unreadable records are protected against overwriting. Saved games use Home Assistant Store under `.storage/phantom_chess_games_<board-address-without-colons>` and are part of your HA configuration backup. Review caches use `.storage/phantom_chess_reviews_<board-address-without-colons>`; cache failure does not overwrite saved moves. Two-player recordings also use `phantom_chess/recordings/`.
+Every announcement also fires a `phantom_chess_announce` event (`message`, `board_address`, `voice_enabled`, `delivery_managed`) for your own automations. To start games by voice ("I want to play chess"), install the [Assist example](examples/voice-assist.yaml) as a package.
 
-## Engine readiness
+## Services
 
-Use **Board & settings → Check chess engine** to prepare local analysis or recover a failed engine. The check never moves pieces or plays speech. Engine archives and executables must match pinned SHA-256 digests; downloads are streamed and installed atomically. New glibc x86 downloads use the baseline build without assuming AVX2. Automatic verified packages cover Linux x86 glibc/musl and ARM64 musl; glibc ARM64 currently reports unavailable. See [artifact verification](docs/ENGINE_ARTIFACTS.md).
+Every action is also a service under `phantom_chess.*`, for example `start_local_game`, `start_game` (Lichess), `start_two_player_game`, `start_ai_vs_ai_game`, `execute_move`, `takeback`, `save_game`, `resume_game`, `game_library`, `reset_position` and `check_engine`. See [services.yaml](custom_components/phantom_chess/services.yaml) for fields. With more than one board, pass `entry_id`.
 
-## Voice and HomePod
+## Privacy and network use
 
-For “I want to play chess,” install the [Assist package](examples/voice-assist.yaml) as a Home Assistant package and enable local handling in the preferred Assist pipeline. The integration services can also be called by other Assist agents.
+- **Lichess games**: your token is used only to create, stream and play your own board games. It is stored in Home Assistant's configuration and redacted from diagnostics.
+- **Analysis**: to show evaluations and opening names quickly, the integration may send board positions (not your identity or token) to Lichess's public cloud-evaluation and opening-explorer services, including during local games. Game review runs entirely on the local engine.
+- **Engine download**: Stockfish comes from the official Stockfish releases or, on Alpine-based installs, from [this project's mirror](https://github.com/luketadams/phantom-chess-engines) of Alpine's packages. Every download is checked against pinned SHA-256 digests before use.
 
-In integration options, select a native **Apple TV integration HomePod**, enable **Speak through HomePod using my preferred voice assistant**, and choose a speech volume from 0 to 1 (0.8 is 80%). Every announcement resolves the preferred Assist pipeline's TTS engine, language and exact voice. Complete audio is buffered before playback; this path does not manipulate Music Assistant queues. Speech preference changes do not reload a running game.
+## Troubleshooting
 
-Disable a separate speech-forwarding automation when enabling managed HomePod speech, or make it ignore events with `delivery_managed: true`. Other speakers can use the existing TTS entity/target options. The `phantom_chess_announce` event includes `message`, `board_address`, `voice_enabled` and `delivery_managed`.
+- **Board shows disconnected**: check that it is powered and within range of a Bluetooth proxy. If you use a proxy, make sure the host's own Bluetooth adapter is not taking the connection first; disabling that adapter in Home Assistant forces the proxy path.
+- **"The board did not confirm…" or play paused as uncertain**: a piece may have been lifted or left between squares. Straighten the pieces, then **Resume saved game** or **Reset board**. The integration never assumes a robot move succeeded.
+- **Missing pieces after a reset**: captured pieces left in the side tray cannot be moved back by the magnet. You will be asked to place them by hand.
+- **Local play says the engine is unavailable**: open **Board & settings → Check chess engine** to retry the download and see the error.
+- **No speech**: check the TTS engine and media player under **Configure**. The dashboard shows the last speech error.
 
-## Services and operation
+For bug reports, download diagnostics from the integration's device page and attach them to an [issue](https://github.com/luketadams/phantom-chess-ha/issues).
 
-See [services.yaml](custom_components/phantom_chess/services.yaml) for exact fields. Main services include `start_local_game`, `start_game`, `start_two_player_game`, `start_ai_vs_ai_game`, `execute_move`, `takeback`, `save_game`, `resume_game`, `game_library`, `back_to_modes`, `reset_position`, and `speak_homepod`. Supply `entry_id` when configuring multiple boards. The generated dashboard binds its calls to its configured entry; the sidebar dashboard currently represents one board at a time.
+## Removing the integration
 
-The engine is downloaded and cached when needed. Network access is required for its first installation and optional online analysis; there is no random-move fallback when engine move generation fails. Automated artifact checksum verification and broader hardware acceptance remain open engineering work.
+Deleting the integration removes its dashboard, the downloaded engine and cached analysis. Your saved games (`.storage/phantom_chess_games_*`) and two-player recordings (`phantom_chess/recordings/`) are kept so a reinstall finds them; delete them by hand if you no longer want them.
 
-If movement is uncertain, check the board and connection, then explicitly resume the saved game or reset. A command acknowledgement is not proof that all pieces reached their destination. Avoid overlapping physical actions. Reset can take minutes.
+## Known limits
 
-## Engineering
+- Hardware behaviour is qualified on the maintainer's board. Other firmware versions and Bluetooth setups may behave differently.
+- The dashboard shows one board at a time.
+- There is no setting yet that turns off the Lichess analysis lookups described above.
 
-[Engineering reference](docs/ENGINEERING_REFERENCE.md) · [release roadmap](docs/RELEASE_ROADMAP.md) · [tests](tests/README.md).
+## Development
 
-The Vault contains current working knowledge. Correct or remove stale claims in place; do not keep superseded conclusions as alternate guidance.
+[Engineering reference](docs/ENGINEERING_REFERENCE.md) · [engine artifacts](docs/ENGINE_ARTIFACTS.md) · [release roadmap](docs/RELEASE_ROADMAP.md) · [tests](tests/README.md) · [changelog](CHANGELOG.md)
+
+MIT License. Stockfish is GPLv3 software, downloaded separately at runtime.

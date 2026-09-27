@@ -17,28 +17,28 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 
 ## Milestones
 
-### M0 — Safeguard
+### M0 — Safeguard ✓
 - [x] Working-tree backup before any change
 - [x] Installation-specific records moved out of the published tree; public docs scrubbed
 - [x] 0.5.0b7 committed on `release/0.5` and pushed (fac4fac)
 
-### M1 — Build and CI green
-- [ ] Full suite against current HA (2026.9.x); fix breaks
-- [ ] Supported HA floor decided; `hacs.json`, `pyproject.toml` and the CI matrix aligned to floor + current
-- [ ] Frontend card tests run in CI; coverage gate enforcing; required checks updated
-- [ ] hassfest and HACS validation green
+### M1 — Build and CI green ✓
+- [x] Full suite against current HA 2026.9.3 and floor 2026.2.3 (9007fed)
+- [x] Floor 2026.2.3; `hacs.json`, `pyproject.toml` and the CI matrix aligned to floor + current
+- [x] Frontend card tests run in CI; coverage gate (94 %) enforcing; `main` requires all checks
+- [x] hassfest and HACS validation green
 
-### M2 — Clean-install and platform correctness
-- [ ] Fresh HA container: install, config flow without Lichess token or speaker, dashboard provisions, sensible entity names
-- [ ] Engine on amd64 and aarch64 musl: works or reports clearly; local play refuses to start with an actionable message rather than hanging
-- [ ] 0.4.0-beta4 → 0.5 upgrade: config-entry migration, orphaned entities, dashboard reprovision
-- [ ] Removal cleans up dashboard, `www` assets, engine binary and storage (or documents what remains)
-- [ ] Speech: generic media-player TTS works without the Apple TV integration; managed HomePod speech stays optional
+### M2 — Clean-install and platform correctness ✓
+- [x] Fresh HA 2026.9.3 container: token-less, speaker-less config flow; dashboard provisions (`scripts/ha_e2e.py`)
+- [x] Engine verified on aarch64 musl, amd64 musl (HA image) and amd64 glibc; launch failures report within the 150 s bound ([details](ENGINE_ARTIFACTS.md))
+- [x] 0.4.0-beta4 → 0.5 upgrade in a container: no lost entities or errors
+- [x] Removal deletes dashboard, engine, caches and copied images; saved games and recordings are kept and documented
+- [x] Speech: generic `tts.speak` path needs no Apple TV integration and reports failures; managed HomePod speech is opt-in. Audible check on a generic speaker moves to M4
 - [x] Reset confirmation: the unconfirmed Sept 2026 reset (firmware stuck at `N b?-b1` after GAME_END) is not diagnosable without the board. The timeout message is now actionable; root cause moves to the M4 capture below
 
 ### M3 — Docs
-- [ ] README rewritten for 0.5: requirements, install, setup, dashboard tour, voice, services, privacy, troubleshooting, limits
-- [ ] CHANGELOG: consolidated 0.5.0 section above the beta entries
+- [x] README rewritten for 0.5: requirements, install, setup, dashboard tour, voice, services, privacy, troubleshooting, limits
+- [x] CHANGELOG: consolidated 0.5.0 section above the beta entries
 - [ ] `quality_scale.yaml` re-audited against 0.5 code
 
 ### M4 — Hardware qualification (supervised, scripted, ~60–90 min)
@@ -46,13 +46,15 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 - [ ] Pause during motion; undo; reset; resign; back to modes
 - [ ] Reset capture: with `debug_dump` on, reset from a finished game and from a mid-game position; record `firmware_mode` transitions after GAME_END
 - [ ] Bluetooth loss mid-game (proxy power pulled); HA restart mid-game → resume
-- [ ] Voice start; speech for moves, check and mate
+- [ ] Voice start; speech for moves, check and mate, on the HomePod and on one generic TTS speaker
 - [ ] Lichess online game incl. takeback; two-player recording; one sculpture game
 
 ### M5 — Release
 - [ ] 0.5.0rc1 tag + GitHub prerelease, installed through HACS on the reference box
 - [ ] About one week of normal use
 - [ ] 0.5.0 final release and announcement draft
+
+Also done: the engine mirror carries the full GPLv3 Corresponding Source (September 27).
 
 ## Deferred past 0.5.0
 Session-controller extraction from `coordinator.py`; glibc ARM64 engine; explicit local-only analysis policy; puzzles, drills and variations; multi-board dashboard; HACS default-repository submission; open firmware questions for the manufacturer (matrix-mismatch text during valid play, BlueZ incompatibility root cause).

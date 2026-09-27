@@ -8,6 +8,36 @@ All notable changes to the Phantom Chess Board Home Assistant integration are do
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 0.5.0
+
+0.5.0 rebuilds the integration around a bundled dashboard and local analysis. The detailed beta entries follow; this summary is what changes for someone upgrading from 0.4.0-beta4.
+
+### Added
+
+- Play / Learn / Review / Board & settings dashboard with no extra frontend dependencies; it replaces the Mushroom-based layout on upgrade.
+- Local Stockfish 18 play and full-game review with move grades, key moments, suggested lines and practice positions.
+- Game library: automatic saves, restart recovery, search, PGN import/export and replay.
+- Managed HomePod speech that follows the preferred Assist pipeline voice.
+- `check_engine` service and dashboard control.
+
+### Changed
+
+- The Lichess token is optional. Setup without one creates a local-only entry; online play explains how to add a token with Reconfigure.
+- Local moves are recorded only after the board confirms them; an uncertain physical move pauses play instead of retrying.
+- Speech through a generic TTS engine now reports failures on the dashboard.
+- Removing the integration also deletes the downloaded engine, cached analysis, debug captures and copied images. Saved games and recordings are kept.
+- The engine download for Alpine-based installs (HAOS, container) uses a project mirror first, because Alpine's rolling repository drops old package builds. All sources are held to the same pinned digests.
+
+### Fixed
+
+- Checkmate after a preceding check is announced, and finished games show their result instead of looking frozen.
+- Declared `assist_pipeline` and `tts` as after-dependencies (hassfest).
+
+### Verified
+
+- Full suite on Home Assistant 2026.2.3 and 2026.9.3.
+- Fresh install, engine install on 64-bit ARM, removal, and upgrade from 0.4.0-beta4 in Home Assistant 2026.9.3 containers.
+
 ## [0.5.0b7] — 2026-09-05
 
 - Allow active move/result speech while game status is check. This fixes silent checkmate after a player escapes a preceding check.

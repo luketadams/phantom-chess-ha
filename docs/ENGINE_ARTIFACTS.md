@@ -10,7 +10,20 @@ New glibc x86 installations use the upstream baseline build, without assuming AV
 
 - [Stockfish 18 official release](https://github.com/official-stockfish/Stockfish/releases/tag/sf_18): both glibc archive hashes match the GitHub release API's published asset digests. Executable hashes were computed from those matching archives.
 - [Alpine x86 package](https://pkgs.alpinelinux.org/package/edge/testing/x86_64/stockfish) and [ARM64 package](https://pkgs.alpinelinux.org/package/edge/testing/aarch64/stockfish): archives were retrieved from the publisher's HTTPS repository and verified with `apk verify`. X86 verified with the HA add-on's existing Alpine key; ARM64 verified using the publisher's [616ae350 public key](https://alpinelinux.org/keys/alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub) in a temporary verification directory. System trust settings were not changed. SHA-256 digests below pin those signed package bytes; runtime uses these pinned digests rather than invoking apk.
-- The real installer verified and extracted all four pinned archives in an isolated directory. The reference installation's executable matches the x86 Alpine digest. Only that platform has received a live engine execution check; archive validation alone is not cross-platform runtime qualification.
+- The real installer verified and extracted all four pinned archives in an isolated directory. The reference installation's executable matches the x86 Alpine digest.
+
+## Runtime qualification — September 26–27, 2026
+
+Each selectable asset was downloaded, verified with the integration's own `_verify_install`/`_installed` checks, and run to a UCI `bestmove`:
+
+| Asset | Where it ran | Result |
+|---|---|---|
+| Alpine ARM64 (mirror) | `home-assistant:2026.9.3` container, aarch64, full config flow + engine preflight | installed in 4 s, ready |
+| Alpine x86 (mirror) | `home-assistant:2026.9.3` container, amd64 | Stockfish 18, `bestmove` |
+| Official glibc x86 baseline | Debian (`python:3.13-slim`), amd64 | Stockfish 18, `bestmove` |
+| Official glibc x86 AVX2 | not selected for new installs; accepted only if already installed and digest-matched | — |
+
+The Alpine executables link the system `libstdc++` and `libgcc`. The Home Assistant images (Alpine 3.24) ship both; a bare Alpine system without them fails at launch, which **Check chess engine** reports as a start failure rather than hanging.
 
 ### stockfish-ubuntu-x86-64-avx2.tar (official glibc x86)
 
@@ -38,7 +51,7 @@ New glibc x86 installations use the upstream baseline build, without assuming AV
 
 ## Sources and mirror
 
-Alpine publishes Stockfish only in `edge/testing`, a rolling repository, so a rebuild (`18-r1`) or promotion removes the pinned `18-r0` package. Each artifact therefore has an ordered source list: the musl packages are fetched first from the project mirror, [phantom-chess-engines release `stockfish-18`](https://github.com/luketadams/phantom-chess-engines/releases/tag/stockfish-18), then from Alpine. The mirror holds the unmodified signed packages (digests re-verified on upload, September 26, 2026) with the GPLv3 text and source links. Any source that fails, returns wrong bytes or is interrupted is skipped in favour of the next; every source must pass the same archive and executable digests, and the working engine is never replaced by an unverified file. The official glibc builds come from the Stockfish GitHub release, whose assets are permanent.
+Alpine publishes Stockfish only in `edge/testing`, a rolling repository, so a rebuild (`18-r1`) or promotion removes the pinned `18-r0` package. Each artifact therefore has an ordered source list: the musl packages are fetched first from the project mirror, [phantom-chess-engines release `stockfish-18`](https://github.com/luketadams/phantom-chess-engines/releases/tag/stockfish-18), then from Alpine. The mirror holds the unmodified signed packages (digests re-verified on upload, September 26, 2026) with the GPLv3 text and the complete Corresponding Source attached: the Stockfish `sf_18` source archive, both embedded NNUE networks, Alpine's `18-r0` APKBUILD and `no-lto.patch`, and a `SHA512SUMS` matching the APKBUILD's pins (added September 27, 2026). Any source that fails, returns wrong bytes or is interrupted is skipped in favour of the next; every source must pass the same archive and executable digests, and the working engine is never replaced by an unverified file. The official glibc builds come from the Stockfish GitHub release, whose assets are permanent.
 
 ## Maintenance
 
