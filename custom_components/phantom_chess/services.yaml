@@ -807,3 +807,29 @@ puzzle_show_solution:
     entry_id:
       selector:
         text:
+
+start_drill:
+  name: Start endgame drill
+  description: >-
+    Set up an endgame drill on the board and play it against the engine at
+    full strength. The drill ends when you reach its goal or fail it.
+  fields:
+    entry_id:
+      selector:
+        text:
+    drill:
+      name: Drill
+      required: true
+      selector:
+        select:
+          options:
+            - label: Two-rook ladder mate
+              value: ladder_mate
+            - label: Queen and king mate
+              value: queen_mate
+            - label: Rook and king mate
+              value: rook_mate
+            - label: "King and pawn: promote"
+              value: pawn_promotion
+            - label: "King and pawn: hold the draw"
+              value: hold_the_draw

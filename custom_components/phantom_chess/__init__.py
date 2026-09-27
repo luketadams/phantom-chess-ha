@@ -21,6 +21,7 @@ from homeassistant.helpers import (
 )
 
 from .issues import clear_legacy_issues
+from .drills import DRILLS
 from .puzzles import DIFFICULTIES as PUZZLE_DIFFICULTIES
 from .config_flow import _normalize_ble_address
 from .const import CONF_BLE_ADDRESS, CONF_DEVICE_NAME, DOMAIN
@@ -967,6 +968,18 @@ def _register_services(hass: HomeAssistant) -> None:
         return await _get_coordinator(call).async_start_puzzle(
             call.data.get("source", "daily"), call.data.get("difficulty"), call.data.get("theme"),
         )
+
+    async def handle_start_drill(call: ServiceCall) -> dict:
+        return await _get_coordinator(call).async_start_drill(call.data["drill"])
+
+    _async_register_service(
+        hass, DOMAIN, "start_drill", handle_start_drill,
+        schema=vol.Schema({
+            vol.Optional("entry_id"): cv.string,
+            vol.Required("drill"): vol.In([d.id for d in DRILLS]),
+        }),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
     async def handle_puzzle_hint(call: ServiceCall) -> dict:
         return await _get_coordinator(call).async_puzzle_hint()

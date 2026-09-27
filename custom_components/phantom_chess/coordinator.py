@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .game_review import ReviewManager
+    from .drill_mode import DrillSession
     from .puzzles import PuzzleSession
     from .lichess_analysis import LichessAnalysisClient
 
@@ -26,6 +27,7 @@ from homeassistant.helpers.issue_registry import async_delete_issue
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .issues import clear_ble_route_issue, raise_ble_route_issue
+from .drill_mode import DRILL_ENGINE_LEVEL, DrillModeMixin
 from .puzzle_mode import PuzzleModeMixin
 from .sessions import LocalSessionMixin
 
@@ -201,7 +203,7 @@ from .matrix import (  # noqa: E402 — intentional late import, kept beside the
 )
 
 
-class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoordinator[dict[str, Any]]):
+class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin, DataUpdateCoordinator[dict[str, Any]]):
     """Manages BLE connection to the Phantom board and the Lichess Board API game."""
 
     def __init__(
@@ -354,6 +356,8 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
         self._sculpture_move_delay: float = 2.0
         # Puzzle mode (puzzle_mode.py): the active or last-finished puzzle.
         self._puzzle: PuzzleSession | None = None
+        # Endgame drill mode (drill_mode.py): the active or last-finished drill.
+        self._drill: DrillSession | None = None
         self._sculpture_games_cache: dict | None = None
         # Serializes _local_game_task replacement so the four-or-more
         # sites that schedule an AI turn can't race and end up running
@@ -2895,6 +2899,8 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
         # A new start replaces the result card of a finished puzzle.
         if getattr(self, "_puzzle", None) is not None:
             self._clear_puzzle()
+        if getattr(self, "_drill", None) is not None:
+            self._clear_drill()
 
     async def async_start_game(
         self, clock_limit_seconds: int = 900, clock_increment_seconds: int = 10,
@@ -6072,6 +6078,8 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
         if (puzzle := getattr(self, "_puzzle", None)) is not None and puzzle.status == "active":
             await self._puzzle_turn()
             return
+        if self._drill_active() and self._check_drill():
+            return
         ai_uci = await self._get_ai_move(board.copy())
         if not current():
             return
@@ -6147,6 +6155,8 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
         if self._board.is_game_over():
             self._finish_local_game()
             return
+        if self._drill_active() and self._check_drill():
+            return
         self._state["game_status"] = (
             STATUS_PAUSED if self.paused else
             "check" if self._board.is_check() else STATUS_PLAYING
@@ -6169,6 +6179,9 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
                     name=f"{DOMAIN}_puzzle_judge_schedule",
                 )
             )
+            return
+        if self._drill_active():
+            self._check_drill()  # the drill decides success or failure
             return
         self._local_game_active = False
         self._state["local_game_active"] = False
@@ -6200,9 +6213,8 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
         # 1. Try local Stockfish via the shared engine.
         if self._analysis_client is not None:
             try:
-                uci = await self._analysis_client.best_move_for_ai_level(
-                    board, self.ai_level
-                )
+                level = DRILL_ENGINE_LEVEL if self._drill_active() else self.ai_level
+                uci = await self._analysis_client.best_move_for_ai_level(board, level)
                 if uci:
                     _LOGGER.debug(
                         "AI move via local Stockfish (level %d): %s",
@@ -6257,6 +6269,7 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
             await self.async_checkpoint("finished")
         self._saved_game_id = None
         self._clear_puzzle()
+        self._clear_drill()
         self._state["game_status"] = STATUS_IDLE
         self._state["lichess_game_id"] = None
         self._state["local_game_active"] = False  # Task #9

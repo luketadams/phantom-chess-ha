@@ -10,6 +10,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 import chess
 
+from .drills import catalogue as _drill_catalogue
 from .const import (
     CONF_BLE_ADDRESS,
     CONF_DEVICE_NAME,
@@ -49,6 +50,8 @@ from .coordinator import PhantomChessCoordinator
 # BLE notification stream + Lichess Board API stream. No parallel-
 # request concern (Silver quality scale rule `parallel-updates`).
 PARALLEL_UPDATES = 0
+
+DRILL_CATALOGUE = _drill_catalogue()
 
 
 async def async_setup_entry(
@@ -287,6 +290,10 @@ class PhantomLivePositionSensor(PhantomBleBaseSensor):
             "puzzle": data.get("puzzle"),
             "puzzle_hint": data.get("puzzle_hint"),
             "puzzle_error": data.get("puzzle_error"),
+            # Endgame drills (drill_mode.py): the catalogue and the active
+            # or last-finished drill.
+            "drills": DRILL_CATALOGUE,
+            "drill": data.get("drill"),
         }
 
 

@@ -15,6 +15,7 @@ Work on the `next` branch, kept out of the 0.5.0 release until it has been tried
 ### Added
 
 - Puzzle mode: the Lichess daily puzzle or a random one (optionally by difficulty or theme) is set up on the board. Your moves are checked against the solution; the board plays the replies, takes back a wrong try and says so, and accepts any checkmate like Lichess does. Hint names the piece to move; Show solution plays the rest of the line. Available from the Play page, the `start_puzzle`, `puzzle_hint` and `puzzle_show_solution` services, and a "give me a chess puzzle" sentence in the Assist example. Fetched anonymously; attempts are not saved.
+- Endgame drills: two-rook ladder, queen and king, rook and king, king-and-pawn promotion, and holding a king-and-pawn draw. The engine plays at full strength regardless of your usual level; each drill is judged after every move and ends with a spoken reason (for example stalemate, move limit, or the pawn promoting). Positions were checked with Stockfish 18. `start_drill` service and a Play-page list.
 - Option **Use Lichess cloud analysis** (on by default). Off keeps every position on the device: evaluations come from local Stockfish, openings are not named, and the computer opponent never falls back to Lichess. Applies without a reload.
 
 ## [Unreleased] — 0.5.0

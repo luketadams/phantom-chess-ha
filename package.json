@@ -1,1 +1,1 @@
-{"name":"phantom-chess-frontend-tests","private":true,"scripts":{"test:frontend":"node tests/frontend.cjs && node tests/frontend-review-recovery.cjs && node tests/frontend-puzzle.cjs"},"devDependencies":{"playwright":"1.62.1"}}
+{"name":"phantom-chess-frontend-tests","private":true,"scripts":{"test:frontend":"node tests/frontend.cjs && node tests/frontend-review-recovery.cjs && node tests/frontend-puzzle.cjs && node tests/frontend-drills.cjs"},"devDependencies":{"playwright":"1.62.1"}}
