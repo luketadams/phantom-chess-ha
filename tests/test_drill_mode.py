@@ -32,7 +32,7 @@ def _spoken(c) -> list[str]:
 
 
 async def _turn(c) -> None:
-    with patch("custom_components.phantom_chess.coordinator._sleep", new=AsyncMock()):
+    with patch("custom_components.phantom_chess.runtime._sleep", new=AsyncMock()):
         await c._local_ai_turn()
     await drain_tasks()
 

@@ -511,7 +511,7 @@ async def test_reconcile_still_active_no_sync(mock_aiohttp_session_factory):
     coord._game_id = "g1"
     coord._on_game_state = AsyncMock()
     session = mock_aiohttp_session_factory(status=200, json_data={"status": "started"})
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_reconcile_lichess_state()
     coord._on_game_state.assert_not_awaited()
 
@@ -524,7 +524,7 @@ async def test_reconcile_terminal_syncs(mock_aiohttp_session_factory):
         status=200,
         json_data={"status": "mate", "moves": "e2e4 e7e5", "winner": "white"},
     )
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_reconcile_lichess_state()
     coord._on_game_state.assert_awaited_once()
     synth = coord._on_game_state.await_args.args[0]
@@ -538,7 +538,7 @@ async def test_reconcile_non200_returns(mock_aiohttp_session_factory):
     coord._game_id = "g1"
     coord._on_game_state = AsyncMock()
     session = mock_aiohttp_session_factory(status=404, json_data={})
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_reconcile_lichess_state()
     coord._on_game_state.assert_not_awaited()
 
@@ -549,7 +549,7 @@ async def test_reconcile_query_exception_swallowed():
     coord._on_game_state = AsyncMock()
     session = MagicMock()
     session.get = MagicMock(side_effect=RuntimeError("boom"))
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_reconcile_lichess_state()  # must not raise
     coord._on_game_state.assert_not_awaited()
 
@@ -668,7 +668,7 @@ async def test_drain_skips_malformed_entry():
 async def test_push_move_noop_no_game():
     coord = make_coordinator()
     coord._game_id = None
-    with patch.object(coord_mod, "async_get_clientsession") as gs:
+    with patch.object(coord_mod.rt, "async_get_clientsession") as gs:
         await coord._push_move_to_lichess("e2e4")
     gs.assert_not_called()
 
@@ -677,7 +677,7 @@ async def test_push_move_accepted(mock_aiohttp_session_factory):
     coord = make_coordinator()
     coord._game_id = "g1"
     session = mock_aiohttp_session_factory(status=200)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord._push_move_to_lichess("e2e4")
     session.post.assert_called_once()
 
@@ -686,7 +686,7 @@ async def test_push_move_rejected_logs(mock_aiohttp_session_factory):
     coord = make_coordinator()
     coord._game_id = "g1"
     session = mock_aiohttp_session_factory(status=400)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord._push_move_to_lichess("e2e4")  # must not raise on rejection
     session.post.assert_called_once()
 
@@ -762,7 +762,7 @@ async def test_stream_loop_401_triggers_reauth():
     resp_cm.__aexit__ = AsyncMock(return_value=None)
     session = MagicMock()
     session.get = MagicMock(return_value=resp_cm)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord._lichess_stream_loop("g1")
     coord._entry.async_start_reauth.assert_called_once()
 
@@ -777,7 +777,7 @@ async def test_stream_loop_403_triggers_reauth_none_entry():
     resp_cm.__aexit__ = AsyncMock(return_value=None)
     session = MagicMock()
     session.get = MagicMock(return_value=resp_cm)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord._lichess_stream_loop("g1")  # returns without raising
 
 
@@ -785,7 +785,7 @@ async def test_stream_loop_stops_when_game_id_changes():
     coord = make_coordinator()
     coord._game_id = "other"  # loop guard sees a different game immediately
     session = MagicMock()
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord._lichess_stream_loop("g1")
     session.get.assert_not_called()
 
@@ -795,7 +795,7 @@ async def test_stream_loop_stops_when_stop_event_set():
     coord._game_id = "g1"
     coord._stop_event.set()
     session = MagicMock()
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord._lichess_stream_loop("g1")
     session.get.assert_not_called()
 
@@ -836,7 +836,7 @@ async def test_stream_loop_drives_events_then_exits():
 
     coord._handle_lichess_event = AsyncMock(side_effect=_handle)
 
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord._lichess_stream_loop("g1")
     # Only the valid JSON line dispatched; heartbeat + bad line skipped.
     coord._handle_lichess_event.assert_awaited_once()
@@ -856,8 +856,8 @@ async def test_stream_loop_non200_retries_then_exits():
     async def _sleep(_delay):
         coord._game_id = None
 
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session), \
-            patch.object(coord_mod, "_sleep", AsyncMock(side_effect=_sleep)):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session), \
+            patch.object(coord_mod.rt, "_sleep", AsyncMock(side_effect=_sleep)):
         await coord._lichess_stream_loop("g1")
     session.get.assert_called_once()
 
@@ -871,8 +871,8 @@ async def test_stream_loop_exception_retries_with_backoff():
     async def _sleep(_delay):
         coord._game_id = None  # break the loop after the first backoff sleep
 
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session), \
-            patch.object(coord_mod, "_sleep", AsyncMock(side_effect=_sleep)):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session), \
+            patch.object(coord_mod.rt, "_sleep", AsyncMock(side_effect=_sleep)):
         await coord._lichess_stream_loop("g1")
     session.get.assert_called_once()
 
@@ -882,5 +882,5 @@ async def test_stream_loop_cancelled_returns_cleanly():
     coord._game_id = "g1"
     session = MagicMock()
     session.get = MagicMock(side_effect=asyncio.CancelledError)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord._lichess_stream_loop("g1")  # CancelledError caught → return

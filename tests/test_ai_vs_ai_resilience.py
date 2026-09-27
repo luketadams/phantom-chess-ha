@@ -73,7 +73,7 @@ def _no_sleep(monkeypatch):
     async def _instant(_seconds):
         return None
 
-    monkeypatch.setattr(coord_mod, "_sleep", _instant)
+    monkeypatch.setattr(coord_mod.rt, "_sleep", _instant)
 
 
 def _legal_uci(board: chess.Board) -> str:
@@ -88,7 +88,7 @@ async def test_transport_failure_stops_without_replaying_motion(monkeypatch):
     stub._get_ai_move = AsyncMock(return_value="e2e4")
     stub.async_phantom_apply_ai_move = AsyncMock(side_effect=RuntimeError("BLE dropped"))
     stub._phantom_execute_position = AsyncMock()
-    monkeypatch.setattr(coord_mod, "_sleep", AsyncMock())
+    monkeypatch.setattr(coord_mod.rt, "_sleep", AsyncMock())
     await stub._ai_vs_ai_loop()
     stub.async_phantom_apply_ai_move.assert_awaited_once_with("e2e4")
     stub._phantom_execute_position.assert_not_awaited()
@@ -139,12 +139,12 @@ async def test_await_reconnect_returns_true_when_link_restored():
         return None
 
     # Override the no-op sleep with one that flips the link after a couple polls.
-    orig = coord_mod._sleep
-    coord_mod._sleep = _flip
+    orig = coord_mod.rt._sleep
+    coord_mod.rt._sleep = _flip
     try:
         result = await stub._ai_vs_ai_await_reconnect(timeout=30.0)
     finally:
-        coord_mod._sleep = orig
+        coord_mod.rt._sleep = orig
     assert result is True
 
 

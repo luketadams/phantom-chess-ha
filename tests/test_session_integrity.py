@@ -100,7 +100,7 @@ async def test_ai_turn_cannot_dispatch_when_paused(monkeypatch):
     from custom_components.phantom_chess import coordinator as module
     from unittest.mock import MagicMock
 
-    monkeypatch.setattr(module, "_sleep", AsyncMock())
+    monkeypatch.setattr(module.rt, "_sleep", AsyncMock())
     c = make_coordinator()
     c.paused = True
     c._local_game_active = True
@@ -126,7 +126,7 @@ async def test_online_start_preserves_active_local_game():
 async def test_pause_during_calculation_prevents_dispatch(monkeypatch):
     from custom_components.phantom_chess import coordinator as module
 
-    monkeypatch.setattr(module, "_sleep", AsyncMock())
+    monkeypatch.setattr(module.rt, "_sleep", AsyncMock())
     c = make_coordinator()
     c._local_game_active = True
     entered = asyncio.Event()
@@ -150,7 +150,7 @@ async def test_pause_during_calculation_prevents_dispatch(monkeypatch):
 async def test_replaced_board_during_calculation_prevents_dispatch(monkeypatch):
     from custom_components.phantom_chess import coordinator as module
 
-    monkeypatch.setattr(module, "_sleep", AsyncMock())
+    monkeypatch.setattr(module.rt, "_sleep", AsyncMock())
     c = make_coordinator()
     c._local_game_active = True
 
@@ -218,7 +218,7 @@ async def test_reset_timeout_preserves_last_position():
 async def test_pausing_then_resuming_invalidates_old_calculation(monkeypatch):
     from custom_components.phantom_chess import coordinator as module
 
-    monkeypatch.setattr(module, "_sleep", AsyncMock())
+    monkeypatch.setattr(module.rt, "_sleep", AsyncMock())
     c = make_coordinator()
     c._local_game_active = True
     c._our_color = chess.WHITE

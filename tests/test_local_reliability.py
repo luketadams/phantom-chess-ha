@@ -115,7 +115,7 @@ async def test_physical_human_mate_finishes_without_scheduling_ai():
 
 async def test_unconfirmed_ai_move_halts_local_game(monkeypatch):
     from custom_components.phantom_chess import coordinator as module
-    monkeypatch.setattr(module, "_sleep", AsyncMock())
+    monkeypatch.setattr(module.rt, "_sleep", AsyncMock())
     coord = make_coordinator(ble_connected=True)
     quiet(coord)
     coord._local_game_active = True

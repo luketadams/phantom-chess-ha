@@ -171,7 +171,7 @@ async def test_opponent_turn_routes_to_puzzle_not_engine() -> None:
     await c.async_start_puzzle("daily")
     c._get_ai_move = AsyncMock(return_value="e2e4")
     c._board.push_uci(PUZZLE.solution[0])
-    with patch("custom_components.phantom_chess.coordinator._sleep", new=AsyncMock()):
+    with patch("custom_components.phantom_chess.runtime._sleep", new=AsyncMock()):
         await c._local_ai_turn()
     c._get_ai_move.assert_not_awaited()
     c.async_phantom_apply_ai_move.assert_awaited_once_with(PUZZLE.solution[1])
@@ -280,6 +280,6 @@ async def test_engine_move_has_no_cloud_fallback_when_analysis_is_local() -> Non
     c = make_coordinator()
     c._analysis_client = MagicMock(allow_cloud=False,
                                    best_move_for_ai_level=AsyncMock(return_value=None))
-    with patch("custom_components.phantom_chess.coordinator.async_get_clientsession") as session:
+    with patch("custom_components.phantom_chess.runtime.async_get_clientsession") as session:
         assert await c._get_ai_move(chess.Board()) is None
     session.assert_not_called()

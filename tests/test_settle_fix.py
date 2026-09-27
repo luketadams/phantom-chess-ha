@@ -253,8 +253,8 @@ async def test_b_resign_non200_notifies_and_retries_once():
     _stub_services(coord)
     session = _session_with_statuses([500, 500])
 
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session), \
-            patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session), \
+            patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord.async_resign()
 
     assert session.post.call_count == 2  # original + ONE retry
@@ -268,8 +268,8 @@ async def test_b_resign_retry_succeeds_on_second_attempt():
     _stub_services(coord)
     session = _session_with_statuses([500, 200])
 
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session), \
-            patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session), \
+            patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord.async_resign()
 
     assert session.post.call_count == 2
@@ -289,7 +289,7 @@ async def test_b_resign_success_clears_state_even_with_dead_stream(
     _stub_services(coord)
     session = mock_aiohttp_session_factory(status=200)
 
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_resign()
     await drain_tasks()
 
@@ -321,7 +321,7 @@ async def test_c_back_to_modes_tears_down_active_lichess_game(
     coord.async_reset_position = AsyncMock()
     session = mock_aiohttp_session_factory(status=200)
 
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_back_to_modes()
     await drain_tasks()
 

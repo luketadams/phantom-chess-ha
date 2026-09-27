@@ -458,7 +458,7 @@ async def test_sculpture_loop_plays_all_moves_then_completes():
 
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._sculpture_loop(["e2e4", "e7e5"])
 
     assert coord._sculpture_active is False
@@ -477,7 +477,7 @@ async def test_sculpture_loop_stops_on_illegal_move():
     coord._local_game_active = True
     coord._sculpture_move_delay = 0.0
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         # e7e5 is illegal as the very first move (white to move).
         await coord._sculpture_loop(["e7e5"])
 
@@ -494,7 +494,7 @@ async def test_sculpture_loop_stops_on_bad_uci():
     coord._sculpture_active = True
     coord._sculpture_move_delay = 0.0
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._sculpture_loop(["zzzz"])
 
     coord.async_phantom_apply_ai_move.assert_not_awaited()
@@ -512,7 +512,7 @@ async def test_sculpture_loop_reconnect_recovery():
     coord._ai_vs_ai_await_reconnect = AsyncMock(return_value=True)
     coord._phantom_execute_position = AsyncMock(return_value=True)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._sculpture_loop(["e2e4"])
 
     coord._ai_vs_ai_await_reconnect.assert_not_awaited()
@@ -528,7 +528,7 @@ async def test_sculpture_loop_reconnect_fails_stops():
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=RuntimeError("ble drop"))
     coord._ai_vs_ai_await_reconnect = AsyncMock(return_value=False)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._sculpture_loop(["e2e4"])
 
     # Never re-drove because reconnect failed.
@@ -542,7 +542,7 @@ async def test_sculpture_loop_inactive_flag_breaks_immediately():
     coord._sculpture_active = False  # cleared before loop body
     coord._sculpture_move_delay = 0.0
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._sculpture_loop(["e2e4", "e7e5"])
 
     coord.async_phantom_apply_ai_move.assert_not_awaited()
@@ -565,7 +565,7 @@ async def test_async_start_sculpture_writes_mode_and_ends_game():
     coord._ble_write = AsyncMock()
     coord._phantom_session_initialized = True
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord.async_start_sculpture()
 
     coord._phantom_send_game_end.assert_awaited_once()
@@ -635,7 +635,7 @@ async def test_await_reconnect_returns_true_when_connected():
     coord = make_coordinator(ble_connected=True)
     coord._ai_vs_ai_active = True
     coord._ble_connected = True
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         ok = await coord._ai_vs_ai_await_reconnect(timeout=5.0)
     assert ok is True
 
@@ -645,7 +645,7 @@ async def test_await_reconnect_returns_false_when_inactive():
     coord._ai_vs_ai_active = False
     coord._sculpture_active = False
     coord._ble_connected = False
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         ok = await coord._ai_vs_ai_await_reconnect(timeout=5.0)
     assert ok is False
 
@@ -655,7 +655,7 @@ async def test_await_reconnect_times_out_when_never_connects():
     coord._ai_vs_ai_active = True
     coord._sculpture_active = False
     coord._ble_connected = False
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         # hass.loop.time() advances via the real loop; give a tiny timeout so
         # the deadline is reached after a couple of iterations.
         ok = await coord._ai_vs_ai_await_reconnect(timeout=0.0)
@@ -688,7 +688,7 @@ async def test_ai_vs_ai_loop_plays_moves_then_stops_on_flag():
 
     coord._get_ai_move = AsyncMock(side_effect=_next_move)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
     assert coord._ai_vs_ai_active is False
@@ -705,7 +705,7 @@ async def test_ai_vs_ai_loop_no_move_breaks():
     coord._ai_vs_ai_move_delay = 0.0
     coord._get_ai_move = AsyncMock(return_value=None)  # Stockfish gave nothing
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
     coord.async_phantom_apply_ai_move.assert_not_awaited()
@@ -728,7 +728,7 @@ async def test_ai_vs_ai_loop_reaches_checkmate():
 
     coord._get_ai_move = AsyncMock(side_effect=_next_move)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
     assert coord._state["game_status"] == const.STATUS_CHECKMATE
@@ -759,7 +759,7 @@ async def test_ai_vs_ai_loop_reconnect_recovery():
     coord._ai_vs_ai_await_reconnect = AsyncMock(return_value=True)
     coord._phantom_execute_position = AsyncMock(return_value=True)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
     coord._ai_vs_ai_await_reconnect.assert_not_awaited()
@@ -781,7 +781,7 @@ async def test_ai_vs_ai_loop_reconnect_fails_stops():
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=RuntimeError("ble drop"))
     coord._ai_vs_ai_await_reconnect = AsyncMock(return_value=False)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
     coord._phantom_execute_position.assert_not_awaited()
@@ -817,7 +817,7 @@ async def test_ai_vs_ai_loop_wedge_trips_circuit_breaker():
     # Every ply times out (wedge signal).
     coord.async_phantom_apply_ai_move = AsyncMock(return_value=False)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
     assert coord.async_phantom_apply_ai_move.await_count == 1  # stopped at limit
@@ -853,7 +853,7 @@ async def test_ai_vs_ai_loop_stops_before_later_success_can_mask_failure():
     coord._get_ai_move = AsyncMock(side_effect=_next_move)
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._ai_vs_ai_loop()
 
     coord._notify_wedge_circuit_breaker.assert_called_once()
@@ -876,7 +876,7 @@ async def test_sculpture_loop_wedge_trips_circuit_breaker():
 
     coord.async_phantom_apply_ai_move = AsyncMock(side_effect=_apply)
 
-    with patch.object(coord_mod, "_sleep", new=AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", new=AsyncMock()):
         await coord._sculpture_loop(["e2e4", "e7e5", "g1f3", "b8c6"])
 
     assert coord.async_phantom_apply_ai_move.await_count == 1

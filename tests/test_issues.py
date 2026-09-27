@@ -132,8 +132,8 @@ async def test_game_start_length_rejection_raises_route_issue() -> None:
     coordinator = make_coordinator()
     coordinator._state["firmware_version"] = "0.3.3"
     coordinator._ble_write = AsyncMock(side_effect=BleakError("ATT error: 0x0d (INVALID_ATTRIBUTE_VALUE_LENGTH)"))
-    with patch("custom_components.phantom_chess.coordinator.raise_ble_route_issue") as raised, \
-         patch("custom_components.phantom_chess.coordinator.clear_ble_route_issue") as cleared:
+    with patch("custom_components.phantom_chess.protocol.raise_ble_route_issue") as raised, \
+         patch("custom_components.phantom_chess.protocol.clear_ble_route_issue") as cleared:
         with pytest.raises(Exception):
             await coordinator._phantom_send_game_start()
     raised.assert_called_once_with(coordinator.hass, coordinator._ble_address, "0.3.3")
@@ -143,7 +143,7 @@ async def test_game_start_length_rejection_raises_route_issue() -> None:
 async def test_game_start_success_clears_route_issue() -> None:
     coordinator = make_coordinator()
     coordinator._ble_write = AsyncMock()
-    with patch("custom_components.phantom_chess.coordinator.clear_ble_route_issue") as cleared:
+    with patch("custom_components.phantom_chess.protocol.clear_ble_route_issue") as cleared:
         await coordinator._phantom_send_game_start()
     cleared.assert_called_once_with(coordinator.hass, coordinator._ble_address)
 
@@ -151,7 +151,7 @@ async def test_game_start_success_clears_route_issue() -> None:
 async def test_game_start_other_ble_errors_do_not_raise_issue() -> None:
     coordinator = make_coordinator()
     coordinator._ble_write = AsyncMock(side_effect=BleakError("disconnected"))
-    with patch("custom_components.phantom_chess.coordinator.raise_ble_route_issue") as raised:
+    with patch("custom_components.phantom_chess.protocol.raise_ble_route_issue") as raised:
         with pytest.raises(BleakError):
             await coordinator._phantom_send_game_start()
     raised.assert_not_called()
@@ -160,7 +160,7 @@ async def test_game_start_other_ble_errors_do_not_raise_issue() -> None:
 async def test_route_issue_failure_never_breaks_game_start() -> None:
     coordinator = make_coordinator()
     coordinator._ble_write = AsyncMock()
-    with patch("custom_components.phantom_chess.coordinator.clear_ble_route_issue",
+    with patch("custom_components.phantom_chess.protocol.clear_ble_route_issue",
                side_effect=KeyError("registry not loaded")):
         await coordinator._phantom_send_game_start()
     coordinator._ble_write.assert_awaited_once()

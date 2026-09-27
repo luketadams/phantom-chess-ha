@@ -240,7 +240,7 @@ class _FakeSession:
 
 def _patch_session(coord, resp):
     session = _FakeSession(resp)
-    coord_mod.async_get_clientsession = MagicMock(return_value=session)
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=session)
     return session
 
 
@@ -276,11 +276,11 @@ async def test_start_game_happy_path(monkeypatch):
     resp = _FakeResp(201, json_data={"id": "abc123"})
     session = _patch_session(coord, resp)
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         await coord.async_start_game(clock_limit_seconds=600, clock_increment_seconds=5)
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
 
     # game id captured + state marked playing
     assert coord._game_id == "abc123"
@@ -305,12 +305,12 @@ async def test_start_game_lichess_error_raises():
     resp = _FakeResp(400, text_data="Invalid clock")
     _patch_session(coord, resp)
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         with pytest.raises(RuntimeError, match="Lichess challenge failed"):
             await coord.async_start_game()
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
 
 
 async def test_start_game_black_uses_side_opcode_2():
@@ -338,11 +338,11 @@ async def test_start_game_black_uses_side_opcode_2():
     resp = _FakeResp(200, json_data={"id": "xyz"})
     _patch_session(coord, resp)
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         await coord.async_start_game()
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
 
     assert coord._phantom_execute_position.await_args.kwargs["side_opcode"] == "2"
 
@@ -372,11 +372,11 @@ async def test_start_game_stream_slow_falls_back_to_preference():
     resp = _FakeResp(200, json_data={"id": "slow"})
     _patch_session(coord, resp)
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         await coord.async_start_game()
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
 
     # our_color stayed None → fallback branch: player_color "black" → "2"
     assert coord._phantom_execute_position.await_args.kwargs["side_opcode"] == "2"
@@ -406,12 +406,12 @@ async def test_start_game_execute_position_failure_is_swallowed():
     _patch_session(coord, resp)
     coord._our_color = chess.WHITE
 
-    orig_get = coord_mod.async_get_clientsession
+    orig_get = coord_mod.rt.async_get_clientsession
     try:
         # execute_position raising must NOT propagate (warning-logged only).
         await coord.async_start_game()
     finally:
-        coord_mod.async_get_clientsession = orig_get
+        coord_mod.rt.async_get_clientsession = orig_get
     assert coord._game_id == "q"
 
 
@@ -704,7 +704,7 @@ def _fast_sleep(monkeypatch):
     async def _instant(_s):
         return None
 
-    monkeypatch.setattr(coord_mod, "_sleep", _instant)
+    monkeypatch.setattr(coord_mod.rt, "_sleep", _instant)
 
 
 async def test_local_ai_turn_no_move_returns():
@@ -846,12 +846,12 @@ async def test_get_ai_move_stockfish_error_falls_to_cloud():
         def get(self, url, **kwargs):
             return resp
 
-    coord_mod.async_get_clientsession = MagicMock(return_value=_GetSession())
-    orig = coord_mod.async_get_clientsession
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=_GetSession())
+    orig = coord_mod.rt.async_get_clientsession
     try:
         uci = await coord._get_ai_move(chess.Board())
     finally:
-        coord_mod.async_get_clientsession = orig
+        coord_mod.rt.async_get_clientsession = orig
     assert uci == "e2e4"
 
 
@@ -864,13 +864,13 @@ async def test_get_ai_move_cloud_empty_reports_unavailable():
         def get(self, url, **kwargs):
             return resp
 
-    coord_mod.async_get_clientsession = MagicMock(return_value=_GetSession())
-    orig = coord_mod.async_get_clientsession
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=_GetSession())
+    orig = coord_mod.rt.async_get_clientsession
     try:
         board = chess.Board()
         uci = await coord._get_ai_move(board)
     finally:
-        coord_mod.async_get_clientsession = orig
+        coord_mod.rt.async_get_clientsession = orig
     assert uci is None
 
 
@@ -882,13 +882,13 @@ async def test_get_ai_move_cloud_exception_reports_unavailable():
         def get(self, url, **kwargs):
             raise RuntimeError("network down")
 
-    coord_mod.async_get_clientsession = MagicMock(return_value=_GetSession())
-    orig = coord_mod.async_get_clientsession
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=_GetSession())
+    orig = coord_mod.rt.async_get_clientsession
     try:
         board = chess.Board()
         uci = await coord._get_ai_move(board)
     finally:
-        coord_mod.async_get_clientsession = orig
+        coord_mod.rt.async_get_clientsession = orig
     assert uci is None
 
 
@@ -900,14 +900,14 @@ async def test_get_ai_move_no_legal_returns_none():
         def get(self, url, **kwargs):
             raise RuntimeError("down")
 
-    coord_mod.async_get_clientsession = MagicMock(return_value=_GetSession())
-    orig = coord_mod.async_get_clientsession
+    coord_mod.rt.async_get_clientsession = MagicMock(return_value=_GetSession())
+    orig = coord_mod.rt.async_get_clientsession
     try:
         # checkmate position → no legal moves.
         board = chess.Board("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
         uci = await coord._get_ai_move(board)
     finally:
-        coord_mod.async_get_clientsession = orig
+        coord_mod.rt.async_get_clientsession = orig
     assert uci is None
 
 

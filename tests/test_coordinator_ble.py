@@ -371,7 +371,7 @@ async def test_matrix_poll_loop_reads_then_stops():
     coord = make_coordinator(client=client)
     coord._handle_matrix_bytes = MagicMock()
     coord._handle_firmware_mode_bytes = MagicMock()
-    with patch.object(coord_mod, "_sleep", AsyncMock(side_effect=asyncio.CancelledError)):
+    with patch.object(coord_mod.rt, "_sleep", AsyncMock(side_effect=asyncio.CancelledError)):
         await coord._matrix_poll_loop()
     coord._handle_matrix_bytes.assert_called_once()
     coord._handle_firmware_mode_bytes.assert_called_once()
@@ -395,7 +395,7 @@ async def test_matrix_poll_loop_battery_clamps_over_100_percent():
     coord = make_coordinator(client=client)
     coord._handle_matrix_bytes = MagicMock()
     coord._handle_firmware_mode_bytes = MagicMock()
-    with patch.object(coord_mod, "_sleep", AsyncMock(side_effect=asyncio.CancelledError)):
+    with patch.object(coord_mod.rt, "_sleep", AsyncMock(side_effect=asyncio.CancelledError)):
         await coord._matrix_poll_loop()
     assert coord._state["battery_percent"] == 100
 
@@ -444,7 +444,7 @@ async def test_ble_loop_runs_once_then_stops():
         coord._stop_event.set()
 
     coord._ble_connect_and_run = fake_connect
-    with patch.object(coord_mod, "_sleep", AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", AsyncMock()):
         await coord._ble_loop()
     assert calls["n"] == 1
 
@@ -460,7 +460,7 @@ async def test_ble_loop_logs_and_retries_on_exception():
         raise RuntimeError("link down")
 
     coord._ble_connect_and_run = failing_connect
-    with patch.object(coord_mod, "_sleep", AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", AsyncMock()):
         await coord._ble_loop()
     assert calls["n"] == 2
     assert coord._ble_connected is False
@@ -556,7 +556,7 @@ async def test_drop_to_home_times_out():
     client = FakeBleakClient()
     coord = make_coordinator(client=client)
     coord._state["firmware_mode"] = "Running"  # never HOME
-    with patch.object(coord_mod, "_sleep", AsyncMock()):
+    with patch.object(coord_mod.rt, "_sleep", AsyncMock()):
         # loop.time advances via real loop; force a tiny timeout
         with pytest.raises(TimeoutError):
             await coord._phantom_drop_to_home(timeout=-1)

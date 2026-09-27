@@ -86,7 +86,7 @@ def _no_sleep(monkeypatch):
     async def _instant(_seconds):
         return None
 
-    monkeypatch.setattr(coord_mod, "_sleep", _instant)
+    monkeypatch.setattr(coord_mod.rt, "_sleep", _instant)
 
 
 # Scholar's mate — 7 plies ending in checkmate.
@@ -196,7 +196,7 @@ async def test_transport_failure_stops_without_replaying_motion(monkeypatch):
     stub._get_ai_move = AsyncMock(return_value="e2e4")
     stub.async_phantom_apply_ai_move = AsyncMock(side_effect=RuntimeError("BLE dropped"))
     stub._phantom_execute_position = AsyncMock()
-    monkeypatch.setattr(coord_mod, "_sleep", AsyncMock())
+    monkeypatch.setattr(coord_mod.rt, "_sleep", AsyncMock())
     await stub._sculpture_loop(["e2e4", "e7e5"])
     stub.async_phantom_apply_ai_move.assert_awaited_once_with("e2e4")
     stub._phantom_execute_position.assert_not_awaited()

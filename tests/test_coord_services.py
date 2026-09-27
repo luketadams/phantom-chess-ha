@@ -361,7 +361,7 @@ async def test_takeback_lichess_refusal_aborts_before_ble() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     session = MagicMock()
     session.post = MagicMock(return_value=ctx)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_takeback(count=1)
     # No BLE write — board must have stayed at 1 move (not popped).
     assert client.last_write_to(const.UUID_GAME) is None
@@ -385,7 +385,7 @@ async def test_takeback_lichess_accept_then_ble_write() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     session = MagicMock()
     session.post = MagicMock(return_value=ctx)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_takeback(count=1)
     payload = client.last_write_to(const.UUID_GAME)
     assert payload is not None and payload[0] == 0x05
@@ -399,7 +399,7 @@ async def test_takeback_lichess_exception_aborts() -> None:
     coord._board.push_uci("e2e4")
     session = MagicMock()
     session.post = MagicMock(side_effect=RuntimeError("network down"))
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_takeback(count=1)
     assert client.last_write_to(const.UUID_GAME) is None
     assert len(coord._board.move_stack) == 1
@@ -426,7 +426,7 @@ async def test_resign_no_game_is_noop() -> None:
     coord = make_coordinator()
     coord._game_id = None
     # Should return immediately without touching the network.
-    with patch.object(coord_mod, "async_get_clientsession") as sess:
+    with patch.object(coord_mod.rt, "async_get_clientsession") as sess:
         await coord.async_resign()
     sess.assert_not_called()
 
@@ -441,7 +441,7 @@ async def test_resign_success_clears_game() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     session = MagicMock()
     session.post = MagicMock(return_value=ctx)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_resign()
     assert coord._game_id is None
     assert coord._state["game_status"] == const.STATUS_RESIGNED
@@ -459,7 +459,7 @@ async def test_resign_failure_leaves_state() -> None:
     ctx.__aexit__ = AsyncMock(return_value=False)
     session = MagicMock()
     session.post = MagicMock(return_value=ctx)
-    with patch.object(coord_mod, "async_get_clientsession", return_value=session):
+    with patch.object(coord_mod.rt, "async_get_clientsession", return_value=session):
         await coord.async_resign()
     # Game left intact.
     assert coord._game_id == "abc"
