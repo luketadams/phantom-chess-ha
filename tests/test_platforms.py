@@ -1094,3 +1094,31 @@ async def test_usual_game_preferences_restore(cls, attr, value, expected, coord,
     await entity.async_added_to_hass()
     assert getattr(coord, attr) == expected
     assert type(getattr(coord, attr)) is type(expected)
+
+
+async def test_dashboard_references_only_real_entities(coord, entry):
+    """Every entity the bundled dashboard names must be created by a platform.
+
+    A stale reference (e.g. the removed firmware_version sensor) resolves to
+    a guessed ID that never exists, so its card control reads "unavailable".
+    """
+    from custom_components.phantom_chess.dashboard_provision import (
+        _TEMPLATE_ENTITY_REF,
+        _TEMPLATE_PATH,
+        _TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES,
+    )
+
+    entry.runtime_data = coord
+    hass = MagicMock()
+    hass.async_add_executor_job = AsyncMock(side_effect=lambda f, *a: f(*a))
+    created: set[tuple[str, str]] = set()
+    for domain, module in (("sensor", sensor_mod), ("binary_sensor", bs_mod),
+                           ("button", button_mod), ("switch", switch_mod),
+                           ("select", select_mod), ("number", number_mod),
+                           ("image", image_mod)):
+        add = MagicMock()
+        await module.async_setup_entry(hass, entry, add)
+        created |= {(domain, e._attr_unique_id[len(ADDRESS) + 1:]) for e in _added(add)}
+    refs = {(m["domain"], _TEMPLATE_TO_UNIQUE_SUFFIX_ALIASES.get(m["suffix"], m["suffix"]))
+            for m in _TEMPLATE_ENTITY_REF.finditer(_TEMPLATE_PATH.read_text())}
+    assert refs and refs <= created, sorted(refs - created)

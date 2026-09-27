@@ -24,6 +24,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.issue_registry import async_delete_issue
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .issues import clear_ble_route_issue, raise_ble_route_issue
 from .sessions import LocalSessionMixin
 
 from .const import (
@@ -2285,8 +2286,22 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         except BleakError as err:
             if self._is_invalid_attr_value_length(err):
                 _LOGGER.error("Phantom gameStart length-rejected — %s", diag)
+                self._set_route_issue(rejected=True)
                 raise self._game_start_length_error(err, len(payload), diag) from err
             raise
+        self._set_route_issue(rejected=False)
+
+    def _set_route_issue(self, *, rejected: bool) -> None:
+        """Raise or clear the Bluetooth-route repair issue; never breaks play."""
+        try:
+            if rejected:
+                raise_ble_route_issue(
+                    self.hass, self._ble_address, self._state.get("firmware_version")
+                )
+            else:
+                clear_ble_route_issue(self.hass, self._ble_address)
+        except Exception:  # noqa: BLE001 — the registry is advisory only
+            _LOGGER.debug("Could not update the Bluetooth route repair issue", exc_info=True)
 
     async def _phantom_send_side(self, side_value: str) -> None:
         """Send GameOPCode 10 (side) with payload '0', '1', or '2'.
@@ -2876,8 +2891,7 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         """Serialize online activation with local and two-player starts."""
         if not self._lichess_token:
             raise HomeAssistantError(
-                "Online play needs a Lichess token. Add one under Settings → Devices & "
-                "services → Phantom Chess Board → Reconfigure, or start a local game."
+                translation_domain=DOMAIN, translation_key="lichess_token_required"
             )
         async with self._local_start_lock:
             self._assert_no_active_game()

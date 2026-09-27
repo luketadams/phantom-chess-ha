@@ -19,12 +19,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Game library: automatic saves, restart recovery, search, PGN import/export and replay.
 - Managed HomePod speech that follows the preferred Assist pipeline voice.
 - `check_engine` service and dashboard control.
+- Settings → Repairs entries for an unsupported or failed chess engine, and for a board that rejects game commands on the host Bluetooth adapter (firmware 0.3.2+ needs an ESPHome proxy). Each clears itself once fixed.
 
 ### Changed
 
 - The Lichess token is optional. Setup without one creates a local-only entry; online play explains how to add a token with Reconfigure.
 - Local moves are recorded only after the board confirms them; an uncertain physical move pauses play instead of retrying.
 - Speech through a generic TTS engine now reports failures on the dashboard.
+- Service errors are translated and readable: refusals such as "a game is already running" show as validation messages instead of unhandled errors, and Bluetooth failures say to check the board and proxy.
+- The bundled card's cache-busting URL follows the installed version, so browsers load the new card after an update.
+- Removed the unused 0.4 "classic" dashboard renderer and its mascot images (about 1.6 MB), and the obsolete missing-HACS-plugins repair issue.
 - Removing the integration also deletes the downloaded engine, cached analysis, debug captures and copied images. Saved games and recordings are kept.
 - The engine download for Alpine-based installs (HAOS, container) uses a project mirror first, because Alpine's rolling repository drops old package builds. All sources are held to the same pinned digests.
 
@@ -32,10 +36,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Checkmate after a preceding check is announced, and finished games show their result instead of looking frozen.
 - Declared `assist_pipeline` and `tts` as after-dependencies (hassfest).
+- The dashboard's pause control resolves to the real pause switch on installs whose entity IDs don't use the board's MAC address.
 
 ### Verified
 
-- Full suite on Home Assistant 2026.2.3 and 2026.9.3.
+- Full suite on Home Assistant 2026.2.3 and 2026.9.3; line coverage above 95 %, enforced in CI (Silver quality scale).
 - Fresh install, engine install on 64-bit ARM, removal, and upgrade from 0.4.0-beta4 in Home Assistant 2026.9.3 containers.
 
 ## [0.5.0b7] — 2026-09-05

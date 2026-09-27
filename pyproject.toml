@@ -64,6 +64,9 @@ exclude_lines = [
 #   coordinator lifecycle) aren't fully covered yet. Floored at 94 to stay
 #   ENFORCING without blocking the release; RELEASE_ROADMAP queues the coverage
 #   pass (dashboard_provision 83%, config_flow 86%) to restore >=95.
-fail_under = 94
+# - 0.5.0 quality pass: config-flow picker/manual paths, dashboard
+#   registration failures, managed speech, repair issues; dead classic
+#   renderer removed → above 95% again. Restored to 95 (Silver).
+fail_under = 95
 skip_empty = true
 precision = 1

@@ -196,7 +196,7 @@ ENTITY_PICKER_AVAILABLE = "picker_available"
 # (so it stayed visible if the board wedged mid-snap while on "Choose a
 # mode"). That coverage moves to the interstitials: dropping their
 # "Choose a mode" exclusion lets them own the transient states for every
-# setup mode uniformly (see dashboard_template.yaml).
+# setup mode uniformly.
 #
 # "unknown"/"unavailable" cover a freshly-connected or wedged firmware_mode
 # sensor (in the binary sensor a firmware_mode of None maps here); the

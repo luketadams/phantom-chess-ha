@@ -15,7 +15,6 @@ views:
         color: select.phantom_YOUR_BOARD_MAC_player_color
         connected: binary_sensor.phantom_YOUR_BOARD_MAC_connected
         battery: sensor.phantom_YOUR_BOARD_MAC_battery
-        firmware: sensor.phantom_YOUR_BOARD_MAC_firmware_version
   - title: Learn
     path: learn
     icon: mdi:school-outline
@@ -31,7 +30,6 @@ views:
         color: select.phantom_YOUR_BOARD_MAC_player_color
         connected: binary_sensor.phantom_YOUR_BOARD_MAC_connected
         battery: sensor.phantom_YOUR_BOARD_MAC_battery
-        firmware: sensor.phantom_YOUR_BOARD_MAC_firmware_version
   - title: Review
     path: review
     icon: mdi:history
@@ -47,7 +45,6 @@ views:
         color: select.phantom_YOUR_BOARD_MAC_player_color
         connected: binary_sensor.phantom_YOUR_BOARD_MAC_connected
         battery: sensor.phantom_YOUR_BOARD_MAC_battery
-        firmware: sensor.phantom_YOUR_BOARD_MAC_firmware_version
   - title: Board & settings
     path: board
     icon: mdi:cog-outline
@@ -63,4 +60,3 @@ views:
         color: select.phantom_YOUR_BOARD_MAC_player_color
         connected: binary_sensor.phantom_YOUR_BOARD_MAC_connected
         battery: sensor.phantom_YOUR_BOARD_MAC_battery
-        firmware: sensor.phantom_YOUR_BOARD_MAC_firmware_version

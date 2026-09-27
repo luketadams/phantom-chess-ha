@@ -53,9 +53,67 @@ Apple HomePods added through the Apple TV integration can use **managed speech**
 
 Every announcement also fires a `phantom_chess_announce` event (`message`, `board_address`, `voice_enabled`, `delivery_managed`) for your own automations. To start games by voice ("I want to play chess"), install the [Assist example](examples/voice-assist.yaml) as a package.
 
+## Configuration options
+
+Set under **Settings → Devices & services → Phantom Chess Board → Configure**. All are optional.
+
+| Option | What it does |
+|---|---|
+| Text-to-speech engine | TTS entity used for announcements. Blank means announcements only fire the `phantom_chess_announce` event. |
+| Speaker for play-by-play | Media player that plays announcements. Required when a TTS engine is set. |
+| Voice language, Voice | Override the engine's default language or voice. |
+| Speak through HomePod | Managed HomePod speech (see above) instead of the generic TTS path. |
+| Speech volume | 0–1 volume for managed HomePod speech. |
+| Auto-provision dashboard | On by default. Turn off to build your own dashboard; the bundled one is removed on the next reload. |
+| Developer debug artifacts | Writes protocol traces under `phantom_chess/debug/`. Leave off unless troubleshooting. |
+
 ## Services
 
 Every action is also a service under `phantom_chess.*`, for example `start_local_game`, `start_game` (Lichess), `start_two_player_game`, `start_ai_vs_ai_game`, `execute_move`, `takeback`, `save_game`, `resume_game`, `game_library`, `reset_position` and `check_engine`. See [services.yaml](custom_components/phantom_chess/services.yaml) for fields. With more than one board, pass `entry_id`.
+
+## Entities
+
+One device per board. The dashboard uses these entities, and they are available to your own automations and cards:
+
+- **Board state**: Connected, Battery, Firmware Mode, Live Position (FEN, with legal moves and saved games as attributes), Piece Count, Matrix Status, Board Idle, Board image.
+- **Game**: Move History, Opening Name, Last Game Result, Last Game Review, Lichess game ID, player names and clocks.
+- **Analysis**: evaluation (centipawns, mate, depth, source), best move, threat, last-move grade, centipawn loss and tactical motif, last game accuracy per colour.
+- **Controls**: Paused, Voice announcements, Training wheels (coaching), Study mode, AI level, Player colour, mechanism speed and sound level, Lichess clock, and the computer-vs-computer levels and move delay.
+- **Diagnostics** (disabled by default): Start Game and Movement Verify buttons.
+
+## How it updates
+
+The integration is local push. The board streams its sensor matrix and firmware state over Bluetooth notifications, and online games stream from the Lichess Board API; entity states change as those events arrive. A 30-second refresh is only a safety net. The integration reconnects on its own when the board is switched off and on or drops out of range, and it logs the outage once rather than on every retry.
+
+## Automation examples
+
+Send a phone notification when a game ends:
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: sensor.phantom_chess_board_last_game_result
+    not_to: [unknown, unavailable]
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      message: "Chess game over: {{ trigger.to_state.state }}"
+```
+
+Warn when the board's battery runs low:
+
+```yaml
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.phantom_chess_board_battery
+    below: 15
+actions:
+  - action: persistent_notification.create
+    data:
+      message: "The chess board battery is at {{ states('sensor.phantom_chess_board_battery') }}%."
+```
+
+Replace the entity IDs with your board's; they depend on the device name.
 
 ## Privacy and network use
 
@@ -64,6 +122,8 @@ Every action is also a service under `phantom_chess.*`, for example `start_local
 - **Engine download**: Stockfish comes from the official Stockfish releases or, on Alpine-based installs, from [this project's mirror](https://github.com/luketadams/phantom-chess-engines) of Alpine's packages. Every download is checked against pinned SHA-256 digests before use.
 
 ## Troubleshooting
+
+Problems the integration can detect itself (the chess engine is unavailable or failed, or the board rejects commands on the current Bluetooth route) also appear under **Settings → Repairs**, with the fix, and clear automatically once resolved.
 
 - **Board shows disconnected**: check that it is powered and within range of a Bluetooth proxy. If you use a proxy, make sure the host's own Bluetooth adapter is not taking the connection first; disabling that adapter in Home Assistant forces the proxy path.
 - **"The board did not confirm…" or play paused as uncertain**: a piece may have been lifted or left between squares. Straighten the pieces, then **Resume saved game** or **Reset board**. The integration never assumes a robot move succeeded.

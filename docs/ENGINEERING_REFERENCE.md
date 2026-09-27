@@ -1,6 +1,6 @@
 # Phantom Chess — engineering reference
 
-Canonical working knowledge for build **0.5.0b7**, September 2026. Correct or remove stale claims in place. Keep dated observations as evidence; do not retain superseded conclusions as alternate guidance.
+Canonical working knowledge for build **0.5.0b8**, September 2026. Correct or remove stale claims in place. Keep dated observations as evidence; do not retain superseded conclusions as alternate guidance.
 
 **Product goal:** say “I want to play chess,” start reliably, play a physical game, hear spoken commentary on a chosen speaker, and return later without losing the game.
 
@@ -24,7 +24,7 @@ The review report includes legal PVs capped at eight half-moves, pre/post score,
 
 [Primary Lichess research](https://lichess.org/page/accuracy) supports the winning-chance curve. Phantom's live/review thresholds are 5/10/20 percentage points lost for inaccuracy/mistake/blunder, with engine-best matching below 5 and excellent below 2. These are a disclosed heuristic, not a calibrated probability for this player or Chess.com's proprietary expected-points model. [Chess.com's classification documentation](https://support.chess.com/en/articles/8572705-how-are-moves-classified-what-is-a-blunder-or-brilliant-etc) distinguishes special Great/Brilliant rules; matching Stockfish's first choice alone does not justify those awards. No proprietary game-accuracy score or unsupported brilliance detector is claimed.
 
-Validation: 1,562 tests passed on both supported HA versions, 94.23% coverage, 54 browser assertions. A separate Stockfish 18 process on the HA host analyzed Fool's Mate through the actual new review manager, identified the mating blunder, and restored an identical report from storage. This involved no board or audio commands.
+Validation (0.5.0b8, September 27): 1,150 tests on HA 2026.9.3 at 95.6 % line coverage; CI runs the suite on 2026.2.3 and 2026.9.3 with a 95 % gate. The count fell from 1,562 at 0.5.0b7 because the unused classic-dashboard renderer and its parametrized tests were removed. Earlier (0.5.0b7): 1,562 tests passed on both supported HA versions, 94.23% coverage, 54 browser assertions. A separate Stockfish 18 process on the HA host analyzed Fool's Mate through the actual new review manager, identified the mating blunder, and restored an identical report from storage. This involved no board or audio commands.
 
 ## Engine and cache reliability
 
@@ -41,9 +41,9 @@ Build 0.5.0b7 adds [pinned engine artifacts and preflight](ENGINE_ARTIFACTS.md),
 | `game_review.py` | Bounded local game-analysis jobs, restart-safe cache, position-relative grading and legal-line coaching |
 | `sessions.py` | Checkpoints, explicit physical recovery, library actions and practice forks |
 | `dashboard_app.yaml` + `www/phantom-chess-card.js` | Default Play/Learn/Review/Board interface; HA authenticated WebSocket service calls |
-| `dashboard_template.yaml` | Optional classic renderer; no longer the default interface |
+| `issues.py` | Repair issues: engine unsupported/failed (from engine health), Bluetooth route rejected (ATT 0x0D on game start); each clears on recovery |
 | `homepod_speech.py` | Whole-message buffered native HomePod playback and current Assist voice resolution |
-| `config_flow.py` / `__init__.py` | Options and services; speech-only changes apply without reload |
+| `config_flow.py` / `__init__.py` | Options and services; speech-only changes apply without reload. Every service is wrapped by `_user_facing` (refusals → translated ServiceValidationError, Bluetooth failures → HomeAssistantError) |
 | `examples/voice-assist.yaml` | Start/stop conversation automations and usual-game script |
 
 Local code: `custom_components/phantom_chess/`. Production: `/config/custom_components/phantom_chess/`. Engines: `/config/phantom_chess/bin/`. Two-player recordings: `/config/phantom_chess/recordings/`. Local journal: HA Store `.storage/phantom_chess_games_<MAC-without-colons>`, version 1, up to 200 games. Credentials stay in existing credential storage.

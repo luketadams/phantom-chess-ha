@@ -1,13 +1,17 @@
 """Phantom Chess Board integration."""
 from __future__ import annotations
 
+import functools
 import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
-from homeassistant.exceptions import ServiceValidationError
+from bleak.exc import BleakError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
@@ -16,6 +20,7 @@ from homeassistant.helpers import (
     entity_registry as er,
 )
 
+from .issues import clear_legacy_issues
 from .config_flow import _normalize_ble_address
 from .const import CONF_BLE_ADDRESS, CONF_DEVICE_NAME, DOMAIN
 from .coordinator import PhantomChessCoordinator
@@ -604,6 +609,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: PhantomChessConfigEntry
 ) -> bool:
     """Set up Phantom Chess Board from a config entry."""
+    clear_legacy_issues(hass)
     coordinator = PhantomChessCoordinator(hass, dict(entry.data), entry=entry)
     await coordinator.async_setup()
 
@@ -820,6 +826,52 @@ async def async_remove_entry(
             )
 
 
+def _user_facing(
+    handler: Callable[[ServiceCall], Awaitable[Any]],
+) -> Callable[[ServiceCall], Awaitable[Any]]:
+    """Translate expected failures into errors the UI can show.
+
+    Coordinator methods signal refusals ("a game is already running", "the
+    board is not ready", bad PGN, engine timeouts) with plain Python
+    exceptions. Unwrapped, those reach the frontend as unhandled errors with
+    a traceback in the log. Refusals become ServiceValidationError and
+    Bluetooth failures become HomeAssistantError, both with translation keys
+    (quality scale rule exception-translations).
+    """
+
+    @functools.wraps(handler)
+    async def wrapped(call: ServiceCall) -> Any:
+        try:
+            return await handler(call)
+        except HomeAssistantError:
+            raise
+        except BleakError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="board_communication_failed",
+                translation_placeholders={"error": str(err) or type(err).__name__},
+            ) from err
+        except (RuntimeError, ValueError, OSError) as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="request_rejected",
+                translation_placeholders={"error": str(err) or type(err).__name__},
+            ) from err
+
+    return wrapped
+
+
+def _async_register_service(
+    hass: HomeAssistant,
+    domain: str,
+    service: str,
+    handler: Callable[[ServiceCall], Awaitable[Any]],
+    **kwargs: Any,
+) -> None:
+    """Register a service whose expected failures are user-facing."""
+    hass.services.async_register(domain, service, _user_facing(handler), **kwargs)
+
+
 def _register_services(hass: HomeAssistant) -> None:
     """Register domain-level services.
 
@@ -899,46 +951,34 @@ def _register_services(hass: HomeAssistant) -> None:
         )
 
     async def handle_save_game(call: ServiceCall) -> dict:
-        try:
-            return await _get_coordinator(call).async_save_game()
-        except (ValueError, RuntimeError, OSError) as err:
-            raise ServiceValidationError(str(err)) from err
+        return await _get_coordinator(call).async_save_game()
 
     async def handle_resume_game(call: ServiceCall) -> None:
-        try:
-            await _get_coordinator(call).async_resume_game(call.data.get("game_id"))
-        except (ValueError, RuntimeError, OSError) as err:
-            raise ServiceValidationError(str(err)) from err
+        await _get_coordinator(call).async_resume_game(call.data.get("game_id"))
 
     async def handle_check_engine(call: ServiceCall) -> dict:
-        try:
-            return await _get_coordinator(call).async_check_engine()
-        except (ValueError, RuntimeError, OSError) as err:
-            raise ServiceValidationError(str(err)) from err
+        return await _get_coordinator(call).async_check_engine()
 
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, "check_engine", handle_check_engine,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
         supports_response=SupportsResponse.OPTIONAL,
     )
 
     async def handle_game_library(call: ServiceCall) -> dict:
-        try:
-            data = {k: v for k, v in call.data.items() if k not in ("entry_id", "action")}
-            return await _get_coordinator(call).async_game_library(call.data.get("action", "list"), **data)
-        except (ValueError, RuntimeError, OSError) as err:
-            raise ServiceValidationError(str(err)) from err
+        data = {k: v for k, v in call.data.items() if k not in ("entry_id", "action")}
+        return await _get_coordinator(call).async_game_library(call.data.get("action", "list"), **data)
 
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, "save_game", handle_save_game,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
         supports_response=SupportsResponse.OPTIONAL,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, "resume_game", handle_resume_game,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string, vol.Optional("game_id"): cv.string}),
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, "game_library", handle_game_library,
         schema=vol.Schema({vol.Optional("entry_id"): cv.string,
                            vol.Optional("action", default="list"): vol.In(["list", "import", "export", "delete", "practice", "analyze", "reanalyze", "review", "cancel_review"]),
@@ -979,10 +1019,7 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator = _get_coordinator(call)
         if color := call.data.get("color"):
             coordinator.player_color = color
-        try:
-            await coordinator.async_start_local_game()
-        except (RuntimeError, TimeoutError) as err:
-            raise ServiceValidationError(str(err)) from err
+        await coordinator.async_start_local_game()
 
     async def handle_stop_local_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
@@ -1098,91 +1135,91 @@ def _register_services(hass: HomeAssistant) -> None:
             promotion=call.data.get("promotion"),
         )
 
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_GAME, handle_start_game, schema=START_GAME_SCHEMA
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_LOCAL_GAME, handle_start_local_game,
         schema=vol.Schema({
             vol.Optional("color"): vol.In(["white", "black", "random"]),
             vol.Optional("entry_id"): cv.string,
         }),
     )
-    hass.services.async_register(DOMAIN, SERVICE_STOP_LOCAL_GAME, handle_stop_local_game)
-    hass.services.async_register(
+    _async_register_service(hass, DOMAIN, SERVICE_STOP_LOCAL_GAME, handle_stop_local_game)
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_AI_VS_AI_GAME, handle_start_ai_vs_ai_game,
         schema=START_AI_VS_AI_GAME_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_TWO_PLAYER_GAME, handle_start_two_player_game
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RESYNC_TWO_PLAYER, handle_resync_two_player
     )
     # v0.4-alpha3 service wrappers — replace user-side scripts.
-    hass.services.async_register(DOMAIN, SERVICE_BACK_TO_MODES, handle_back_to_modes)
-    hass.services.async_register(
+    _async_register_service(hass, DOMAIN, SERVICE_BACK_TO_MODES, handle_back_to_modes)
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RESYNC_DETECTION, handle_resync_detection
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_LICHESS_CONFIGURED, handle_start_lichess_configured,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_PLAY_SELECTED_SCULPTURE, handle_play_selected_sculpture,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_SEND_MOVE, handle_send_move, schema=SEND_MOVE_SCHEMA
     )
-    hass.services.async_register(DOMAIN, SERVICE_RESIGN, handle_resign)
-    hass.services.async_register(
+    _async_register_service(hass, DOMAIN, SERVICE_RESIGN, handle_resign)
+    _async_register_service(hass, 
         DOMAIN, SERVICE_TAKEBACK, handle_takeback, schema=TAKEBACK_SCHEMA
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_DEBUG_BLE_WRITE, handle_debug_ble_write,
         schema=DEBUG_BLE_WRITE_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_DIAGNOSE_GAME_START, handle_diagnose_game_start,
         schema=DIAGNOSE_GAME_START_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_PHANTOM_START_GAME, handle_phantom_start_game,
         schema=PHANTOM_START_GAME_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_PHANTOM_APPLY_AI_MOVE, handle_phantom_apply_ai_move,
         schema=PHANTOM_APPLY_AI_MOVE_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_MOVE_PIECE, handle_move_piece,
         schema=MOVE_PIECE_SCHEMA,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_START_SCULPTURE, handle_start_sculpture,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RESET_POSITION, handle_reset_position,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_PLAY_SOUND, handle_play_sound,
         schema=vol.Schema({
             vol.Optional("sound", default="check"): vol.In(["check", "checkmate"]),
             vol.Optional("entry_id"): cv.string,
         }),
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_REQUEST_HINT, handle_request_hint,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_DISMISS_REVIEW, handle_dismiss_review,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RECONCILE_LICHESS_STATE, handle_reconcile_lichess_state,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_RESUME_FROM_PHONE, handle_resume_from_phone,
     )
-    hass.services.async_register(
+    _async_register_service(hass, 
         DOMAIN, SERVICE_EXECUTE_MOVE, handle_execute_move,
         schema=EXECUTE_MOVE_SCHEMA,
     )

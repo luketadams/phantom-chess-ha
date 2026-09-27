@@ -255,6 +255,11 @@ async def test_online_start_without_token_is_refused_with_guidance():
     from .ble_mock import make_coordinator
     coord = make_coordinator(ble_connected=True)
     coord._lichess_token = ""
-    with pytest.raises(HomeAssistantError, match="Reconfigure"):
+    with pytest.raises(HomeAssistantError) as info:
         await coord.async_start_game()
+    assert info.value.translation_key == "lichess_token_required"
+    import json
+    from pathlib import Path
+    strings = json.loads((Path(__file__).parent.parent / "custom_components/phantom_chess/strings.json").read_text())
+    assert "Reconfigure" in strings["exceptions"]["lichess_token_required"]["message"]
     assert not coord._state.get("lichess_active")

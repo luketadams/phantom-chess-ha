@@ -1542,26 +1542,58 @@ async def test_async_unprovision_dashboard_no_panel_no_data() -> None:
     store.async_save.assert_not_awaited()
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# _sync_frontend_deps_issue
-# ─────────────────────────────────────────────────────────────────────────
-
-
-def test_sync_frontend_deps_issue_creates_when_missing() -> None:
+async def test_provision_tolerates_panel_registered_elsewhere() -> None:
+    """A panel already registered under another owner must not abort provisioning."""
     hass = MagicMock()
-    with patch.object(dp, "_missing_frontend_deps", return_value=["Mushroom"]), \
-         patch.object(dp.ir, "async_create_issue") as create, \
-         patch.object(dp.ir, "async_delete_issue") as delete:
-        dp._sync_frontend_deps_issue(hass)
-    create.assert_called_once()
-    delete.assert_not_called()
+    entry = MagicMock()
+    entry.data = {CONF_BLE_ADDRESS: "AA:BB:CC:DD:EE:FF"}
+    store = MagicMock()
+    store.async_save = AsyncMock()
+    lovelace_storage = MagicMock()
+    lovelace_storage.async_save = AsyncMock()
+    lovelace_data = MagicMock()
+    lovelace_data.dashboards = {}
+    hass.data = {dp.LOVELACE_DATA: lovelace_data}
+    with patch.object(dp, "build_dashboard_config", new=AsyncMock(return_value={"views": []})), \
+         patch.object(dp.ll_dashboard, "LovelaceStorage", return_value=lovelace_storage), \
+         patch.object(dp, "_async_load_dashboards_store", new=AsyncMock(return_value=(store, []))), \
+         patch.object(dp.frontend, "async_panel_exists", return_value=False, create=True), \
+         patch.object(dp.frontend, "async_register_built_in_panel", side_effect=ValueError("taken")), \
+         patch.object(dp.frontend, "add_extra_js_url") as register_js:
+        await dp.async_provision_dashboard(hass, entry)
+    register_js.assert_called_once_with(hass, dp.CARD_URL_VERSIONED)
+    assert lovelace_data.dashboards[dp.DASHBOARD_URL_PATH] is lovelace_storage
 
 
-def test_sync_frontend_deps_issue_clears_when_present() -> None:
+async def test_unprovision_survives_panel_and_storage_failures() -> None:
     hass = MagicMock()
-    with patch.object(dp, "_missing_frontend_deps", return_value=[]), \
-         patch.object(dp.ir, "async_create_issue") as create, \
-         patch.object(dp.ir, "async_delete_issue") as delete:
-        dp._sync_frontend_deps_issue(hass)
-    delete.assert_called_once()
-    create.assert_not_called()
+    lovelace_storage = MagicMock()
+    lovelace_storage.async_delete = AsyncMock(side_effect=OSError("read-only"))
+    lovelace_data = MagicMock()
+    lovelace_data.dashboards = {dp.DASHBOARD_URL_PATH: lovelace_storage}
+    hass.data = {dp.LOVELACE_DATA: lovelace_data}
+    store = MagicMock()
+    store.async_save = AsyncMock()
+    rows = [{dp.CONF_URL_PATH: dp.DASHBOARD_URL_PATH}, {dp.CONF_URL_PATH: "other"}]
+    with patch.object(dp.frontend, "async_panel_exists", return_value=True, create=True), \
+         patch.object(dp.frontend, "async_remove_panel", side_effect=KeyError("gone"), create=True), \
+         patch.object(dp, "_async_load_dashboards_store", new=AsyncMock(return_value=(store, rows))):
+        await dp.async_unprovision_dashboard(hass)
+    assert dp.DASHBOARD_URL_PATH not in lovelace_data.dashboards
+    store.async_save.assert_awaited_once_with({"items": [{dp.CONF_URL_PATH: "other"}]})
+
+
+async def test_load_dashboards_store_reads_items(hass) -> None:
+    from homeassistant.helpers.storage import Store
+    await Store(hass, dp.DASHBOARDS_STORAGE_VERSION, dp.DASHBOARDS_STORAGE_KEY).async_save(
+        {"items": [{"id": "x", dp.CONF_URL_PATH: "x"}]}
+    )
+    _, items = await dp._async_load_dashboards_store(hass)
+    assert items == [{"id": "x", dp.CONF_URL_PATH: "x"}]
+
+
+async def test_build_dashboard_config_rejects_non_mapping() -> None:
+    with patch.object(dp, "_resolve_entity_ids", return_value={}), \
+         patch.object(dp, "_render_template", return_value="- just\n- a list\n"):
+        with pytest.raises(ValueError):
+            await dp.build_dashboard_config(MagicMock(), "AA:BB:CC:DD:EE:FF")

@@ -84,3 +84,57 @@ async def test_preferred_pipeline_voice_is_resolved_for_each_message(setup_speec
     await speech.async_speak(hass, data)
     assert generate.call_args.kwargs['options'] == {'voice': 'changed-voice'}
     assert resolve.call_count == 2
+
+
+async def test_pipeline_without_speech_provider_is_rejected(setup_speech, monkeypatch):
+    hass, _, _, fetch, _, data = setup_speech
+    pipeline = SimpleNamespace(tts_engine=None, tts_language=None, tts_voice=None)
+    monkeypatch.setitem(sys.modules, 'homeassistant.components.assist_pipeline.pipeline',
+                        SimpleNamespace(async_get_pipeline=MagicMock(return_value=pipeline)))
+    data.pop('tts_entity_id')
+    with pytest.raises(speech.ServiceValidationError) as info:
+        await speech.async_speak(hass, data)
+    assert info.value.translation_key == 'speech_no_provider'
+    fetch.assert_not_awaited()
+
+
+async def test_speaker_reconnect_during_synthesis_is_not_played(setup_speech):
+    """A reconnect replaces the pyatv connection; streaming to the stale one would fail silently."""
+    hass, manager, _, fetch, _, data = setup_speech
+    stale = manager.atv
+
+    async def reconnect_while_fetching(*_):
+        manager.atv = SimpleNamespace(audio=SimpleNamespace(set_volume=AsyncMock()),
+                                      stream=SimpleNamespace(stream_file=AsyncMock()))
+        return ('mp3', b'audio')
+    fetch.side_effect = reconnect_while_fetching
+    with pytest.raises(speech.ServiceValidationError) as info:
+        await speech.async_speak(hass, data)
+    assert info.value.translation_key == 'speech_homepod_reconnected'
+    stale.stream.stream_file.assert_not_awaited()
+
+
+async def test_service_serializes_announcements_per_speaker(monkeypatch):
+    import asyncio
+    order: list[str] = []
+    gate = asyncio.Event()
+
+    async def fake_speak(_hass, data):
+        order.append(f"start {data['message']}")
+        if data['message'] == 'first':
+            await gate.wait()
+        order.append(f"end {data['message']}")
+    monkeypatch.setattr(speech, 'async_speak', fake_speak)
+    hass = MagicMock()
+    speech.register_service(hass)
+    handler = hass.services.async_register.call_args.args[2]
+    call = lambda msg, player='media_player.a': SimpleNamespace(data={'media_player_entity_id': player, 'message': msg})
+    first = asyncio.ensure_future(handler(call('first')))
+    second = asyncio.ensure_future(handler(call('second')))
+    other = asyncio.ensure_future(handler(call('other', 'media_player.b')))
+    await asyncio.sleep(0)
+    await other  # a different speaker is not blocked
+    assert order == ['start first', 'start other', 'end other']
+    gate.set()
+    await asyncio.gather(first, second)
+    assert order[3:] == ['end first', 'start second', 'end second']

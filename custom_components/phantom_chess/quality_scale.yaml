@@ -3,544 +3,314 @@
 # Reference: https://developers.home-assistant.io/docs/core/integration-quality-scale/
 # Checklist: https://developers.home-assistant.io/docs/core/integration-quality-scale/checklist
 #
-# Updated for v0.4.0-alpha10 (2026-05-26) — claiming Bronze except for the
-# brands rule, which requires a separate PR to home-assistant/brands and is
-# tracked as a follow-up.
+# Re-audited against the 0.5.0 code (2026-09-27). manifest.json claims
+# "silver". Every Bronze, Silver and Gold rule below is done or exempt;
+# Platinum strict-typing is not claimed (see its comment).
 
 rules:
   # ── Bronze ─────────────────────────────────────────────────────────────
   action-setup:
     status: done
     comment: |
-      Service actions registered in async_setup (custom_components/phantom_chess/__init__.py)
-      so they're available before any config entry loads. _get_coordinator
-      resolves the target entry at call time via hass.config_entries.async_entries(DOMAIN)
-      and entry.runtime_data.
+      Services are registered in async_setup via _register_services, so
+      they exist before any entry loads. The target board is resolved at
+      call time (entry_id, or the only configured board).
 
   appropriate-polling:
     status: exempt
     comment: |
-      The integration is local-push (iot_class: local_push). State updates
-      arrive via BLE notifications + Lichess Board API streaming; no polling
-      interval applies.
+      Local push (iot_class local_push): Bluetooth notifications and the
+      Lichess Board API stream drive state. The coordinator's 30 s
+      update_interval is only a safety net.
 
   brands:
     status: done
     comment: |
-      Brand assets ship locally in custom_components/phantom_chess/brand/
-      (icon.png 256x256 + icon@2x.png 512x512, transparent, trimmed) using
-      the HA 2026.3+ local brand-images mechanism, which takes precedence
-      over the home-assistant/brands repo and needs no external PR. The art
-      is square, so the icon doubles as the logo per the brands spec.
-      Verified rendering on the live integration card after an HA restart.
+      Local brand images in brand/ (icon.png 256x256, icon@2x.png 512x512),
+      the HA 2026.3+ mechanism that needs no home-assistant/brands PR. The
+      art is square, so the icon doubles as the logo.
 
   common-modules:
     status: done
     comment: |
-      Common code is split across purpose-specific modules:
-      - matrix.py: pure-function board/sensor matrix helpers
-      - coordinator.py: BLE + Lichess + game state
-      - lichess_analysis.py: cloud-eval, classification, accuracy, Stockfish fallback
-      - dashboard_provision.py: Lovelace dashboard renderer
-      - config_flow.py: setup + options + reauth
-      No "everything in __init__.py" anti-pattern.
+      coordinator.py (BLE + game state), sessions.py (local-game
+      persistence/recovery), matrix.py (pure board-matrix helpers),
+      lichess_analysis.py (evaluation, Stockfish), engine_artifacts.py
+      (verified engine install), game_library.py / game_review.py (PGN
+      library and review), move_quality.py (grading), homepod_speech.py,
+      dashboard_provision.py, issues.py (repair issues), config_flow.py.
 
   config-flow-test-coverage:
     status: done
     comment: |
-      tests/test_config_flow.py covers:
-      - user flow with valid Lichess token (entry created)
-      - user flow with invalid Lichess token (form error)
-      - reauth happy path (entry data updated)
-      - options flow round-trip (TTS + debug_dump + auto_provision_dashboard)
-      - bluetooth-discovery → confirm → token → entry creation
-      - bluetooth-discovery aborts when board is already configured
-      Six tests covering every entry path the user can hit.
+      tests/test_config_flow.py covers user flow (valid, invalid, blank
+      token, network error, timeout, bad MAC), the discovered-board picker
+      and manual-entry step, Bluetooth discovery and its already-configured
+      abort, reauth (success and invalid token), reconfigure (token update,
+      blank no-op, MAC change rejected, invalid token), options round trip
+      and entry migrations.
 
   config-flow:
     status: done
     comment: |
-      Set up via UI only (manifest config_flow: true, no YAML schema).
-      strings.json includes data_description for every user-facing field
-      in the user, lichess_token, and reauth_confirm steps.
-      ConfigEntry.data carries identity + credential fields (BLE address,
-      Lichess token, user); ConfigEntry.options carries user-tunable
-      runtime settings (TTS, debug_dump, auto_provision_dashboard).
+      UI-only setup. Every field has data_description. entry.data holds the
+      board address, Lichess token and user; entry.options holds tunables
+      (speech, dashboard provisioning, debug).
 
   dependency-transparency:
     status: done
     comment: |
-      manifest.json["requirements"] lists "chess>=1.10.0,<2.0" (python-chess)
-      as the only runtime requirement. All other imports are from the
-      Python stdlib, HA core, or HA's bundled deps (aiohttp).
-      No vendored binaries — Stockfish is downloaded on demand at runtime
-      from official upstream releases (Alpine apk for musl, GitHub releases
-      for glibc); see lichess_analysis.StockfishFallback.
+      Only runtime requirement: chess (python-chess). Stockfish is not
+      vendored; it is downloaded on demand from official Stockfish releases
+      or the project's Alpine package mirror and verified against pinned
+      SHA-256 digests before use (engine_artifacts.py, docs/ENGINE_ARTIFACTS.md).
 
   docs-actions:
     status: done
-    comment: |
-      README.md "Services" section lists every phantom_chess.* service
-      with parameters and expected behavior. services.yaml provides the
-      structured schema that HA's developer-tools/services UI consumes.
+    comment: README "Services" plus services.yaml for every action's fields.
 
   docs-high-level-description:
     status: done
-    comment: |
-      README.md opens with an integration-level description of what the
-      Phantom Chess Board is, what the integration drives, and the device
-      the integration connects to.
+    comment: README introduction and "What you can do".
 
   docs-installation-instructions:
     status: done
-    comment: |
-      README.md "Installation" section covers HACS (preferred) and manual
-      install. "Setup" section walks through the config flow.
+    comment: README "Install" covers HACS, manual install and setup steps.
 
   docs-removal-instructions:
     status: done
     comment: |
-      README.md "Removal" section walks through deleting the integration,
-      what HA cleans up automatically, and what files at /config/phantom_chess/
-      are kept (Stockfish binary cache, debug dumps).
+      README "Removing the integration" lists what is deleted (dashboard,
+      engine, caches, copied images) and what is kept (saved games,
+      recordings).
 
   entity-event-setup:
     status: done
     comment: |
-      All entities inherit from homeassistant.helpers.update_coordinator.CoordinatorEntity,
-      which subscribes/unsubscribes to coordinator updates in
-      async_added_to_hass / async_will_remove_from_hass — the correct
-      lifecycle hooks. No __init__-time event subscription.
+      Entities are CoordinatorEntity subclasses; subscriptions follow the
+      async_added_to_hass / async_will_remove_from_hass lifecycle.
 
   entity-unique-id:
     status: done
-    comment: |
-      Every entity sets _attr_unique_id (and _attr_has_entity_name = True)
-      in its constructor. unique_id format: "{ble_address}_{suffix}" with
-      the BLE address canonicalised to upper-case (see
-      phantom-chess-unique-id-canonicalization).
+    comment: 'Every entity sets unique_id "<ADDRESS>_<suffix>" (upper-case address).'
 
   has-entity-name:
     status: done
-    comment: |
-      All seven entity platforms (binary_sensor, button, image, number,
-      select, sensor, switch) set _attr_has_entity_name = True on every
-      entity class. Names derive from device_name slug + entity_name slug
-      via HA's standard entity-naming.
+    comment: All entity classes set _attr_has_entity_name = True.
 
   runtime-data:
     status: done
     comment: |
-      v0.4.0-alpha10 migrated from hass.data[DOMAIN][entry.entry_id] to
-      entry.runtime_data. Typed alias PhantomChessConfigEntry =
-      ConfigEntry[PhantomChessCoordinator] is exported from __init__.py.
-      All seven platform setup_entry functions, diagnostics, and
-      service-handler routing read entry.runtime_data.
+      entry.runtime_data holds the coordinator; typed alias
+      PhantomChessConfigEntry = ConfigEntry[PhantomChessCoordinator].
 
   test-before-configure:
     status: done
     comment: |
-      Config flow makes a real GET https://lichess.org/api/account call
-      with the user-provided token (config_flow.py async_step_lichess_token,
-      line ~227). Invalid tokens surface as a form error before the entry
-      is created.
+      A supplied Lichess token is verified against /api/account before the
+      entry is created. The token is optional (local play needs none); a
+      blank token skips the request.
 
   test-before-setup:
     status: exempt
     comment: |
-      Integration is iot_class: local_push over BLE. Raising
-      ConfigEntryNotReady on a missing/disconnected board would be hostile —
-      Phantom boards spend most of their life powered off, and the
-      integration is designed to reconnect when the board appears (HA's
-      Bluetooth integration drives the connection lifecycle). The
-      coordinator's async_setup starts the BLE loop in a background task;
-      no synchronous "are we able to set it up" probe applies.
+      The board is battery powered and usually off. Raising
+      ConfigEntryNotReady while it is away would keep the entry failing;
+      instead the coordinator reconnects in the background when the board
+      appears, and entities report unavailable meanwhile.
 
   unique-config-entry:
     status: done
     comment: |
-      Both the bluetooth and user (manual MAC) flows call
-      async_set_unique_id(canonicalised_address) followed by
-      _abort_if_unique_id_configured() before advancing. v3 migration
-      (config_flow.py async_migrate_entry) canonicalises pre-existing
-      entries to upper-case so the abort path works for any case the
-      user originally entered.
+      Bluetooth, user and manual flows set the canonical upper-case address
+      as unique_id and abort when it is already configured.
 
   # ── Silver ─────────────────────────────────────────────────────────────
   action-exceptions:
     status: done
     comment: |
-      Service handlers raise ServiceValidationError when the user's
-      input references something that doesn't exist (no board
-      configured, wrong entry_id) — see _get_coordinator in
-      __init__.py. Lower-level BLE-write failures propagate from the
-      coordinator as the native exception type (bleak.BleakError etc.),
-      which HA surfaces verbatim. alpha11 replaced an earlier vol.Invalid
-      pattern which produced opaque "unknown" failures in the UI.
+      Every service is registered through _user_facing: refusals raised by
+      the coordinator (a game already running, board not ready, bad PGN,
+      engine timeout) become ServiceValidationError; Bluetooth failures
+      become HomeAssistantError. Both carry translation keys.
 
   config-entry-unloading:
     status: done
     comment: |
-      async_unload_entry (in __init__.py) calls
-      coordinator.async_shutdown() to stop all BLE / Lichess / matrix-
-      poll tasks, then unloads every platform via
-      async_unload_platforms. HA garbage-collects entry.runtime_data
-      automatically.
+      async_unload_entry shuts the coordinator down (cancels and awaits the
+      BLE, game, AI and review tasks, closes Stockfish) and unloads platforms.
 
   docs-configuration-parameters:
     status: done
-    comment: |
-      README "Configuration Options" section lists every options-flow
-      field (tts_service, tts_media_player_entity_id, debug_dump,
-      auto_provision_dashboard) with default + description. Includes a
-      separate "Rotating the Lichess token" subsection because the
-      token lives in entry data (not options) and is rotated via the
-      reauth flow, which would otherwise be non-obvious.
+    comment: README "Configuration options" lists every options-flow field.
 
   docs-installation-parameters:
     status: done
     comment: |
-      README "Setup parameters" subsection under Setup lists the two
-      config-flow fields (Board Bluetooth Address, Lichess Board API
-      Token) with whether required, format, and where to find each.
+      README "Install" and "Lichess token (optional)" cover the Bluetooth
+      address and the optional token, including where to create the token.
 
   entity-unavailable:
     status: done
     comment: |
-      Each platform's base entity class (PhantomBaseBinary,
-      PhantomBaseSensor, PhantomChessBoardImage, _PhantomBaseButton,
-      PhantomBaseNumber, PhantomPauseSwitch) overrides `available` to
-      `super().available and self.coordinator.is_ble_connected`.
-      PhantomConnectedSensor overrides back to always-True so the
-      connectivity sensor itself stays visible. The select platform and
-      pure-local config storage entities (Lichess clock minutes /
-      increment, training_wheels switch) stay always-available because
-      their value doesn't depend on BLE — users can pre-configure them
-      while the board is off.
+      Board-backed entities are unavailable while Bluetooth is disconnected;
+      the Connected sensor stays available, and pure configuration entities
+      (clock, levels, toggles) stay available so they can be set in advance.
 
   integration-owner:
     status: done
-    comment: |
-      manifest.json codeowners lists @luketadams. No additional owners.
+    comment: codeowners lists @luketadams.
 
   log-when-unavailable:
     status: done
     comment: |
-      coordinator.py:_ble_loop logs the "BLE connection lost" WARNING
-      only on the first retry of an outage cluster
-      (first_failure_of_cluster flag); subsequent retry attempts during
-      the same outage stay DEBUG-level. _on_ble_disconnect logs the
-      disconnect event itself once. _ble_connect_and_run's "Connected"
-      INFO line completes the rule's "back connected" half on
-      recovery. alpha11 added the cluster-tracking flag — pre-alpha11
-      every retry logged WARNING, which spammed the system log during
-      multi-hour outages.
+      The BLE loop logs the first failure of an outage at WARNING and later
+      retries at DEBUG, then logs the reconnection at INFO.
 
   parallel-updates:
     status: done
     comment: |
-      Every platform sets PARALLEL_UPDATES at module level:
-        binary_sensor.py = 0 (read-only, coordinator-centralised)
-        sensor.py        = 0 (read-only, coordinator-centralised)
-        image.py         = 0 (read-only, coordinator-centralised)
-        select.py        = 0 (pure-local config storage, no BLE writes)
-        button.py        = 1 (serialise BLE writes per platform)
-        number.py        = 1 (serialise BLE writes per platform)
-        switch.py        = 1 (serialise BLE writes per platform)
-      The shared GATT client doesn't support concurrent writes safely,
-      so 1 is the right ceiling for action-issuing platforms.
+      PARALLEL_UPDATES is 0 on read-only platforms (sensor, binary_sensor,
+      image, select) and 1 on platforms that write to the board (button,
+      number, switch).
 
   reauthentication-flow:
     status: done
     comment: |
-      config_flow.py's async_step_reauth + async_step_reauth_confirm
-      handle Lichess-token rejection. Reauth gets triggered from the
-      coordinator's Lichess stream task on a 401/expired-token
-      response. UI flow shows the existing user's name and prompts for
-      a fresh Board API token — tested in tests/test_config_flow.py
-      (test_reauth_flow_success).
+      A rejected Lichess token starts reauth; the user enters a new token.
+      Covered by test_reauth_flow_success / _rejects_invalid_new_token.
 
   test-coverage:
     status: done
     comment: |
-      beta3: 95.4% combined coverage (up from the alpha14 44.5% baseline),
-      clearing the Silver 95% threshold. The CI fail_under gate in
-      pyproject.toml is now locked at 95.
-      The gap was closed by a BLE-mocked coordinator test suite built on a
-      reusable harness (tests/ble_mock.py): a FakeBleakClient (GATT
-      read/write/notify + injectable failures, faithful to the UUID_GAME
-      opcode map) plus a make_coordinator() factory that bypasses
-      DataUpdateCoordinator scheduling. New suites:
-      test_coordinator_ble (senders, _ble_write, notify handlers, poll/
-      connect/reconnect loops, snapshot-move orchestration),
-      test_coord_lifecycle / _lichess / _analysis / _modes / _services
-      (game lifecycle, Lichess bridge, analysis+announce, two-player+
-      sculpture+AI-vs-AI, HA services + state handlers + diagnostics),
-      test_coord_discovery (the in-connect human-move discovery callback),
-      test_platforms (all 7 entity platforms → 100%),
-      test_init_and_dashboard (setup/unload/services/migration +
-      dashboard storage provision), test_lichess_analysis_extra
-      (HTTP client + Stockfish fallback → 99%), and test_coverage_gaps
-      (residual branches). Per-module: platforms 100%, diagnostics 100%,
-      lichess_analysis 99%, __init__ 98%, matrix 98%, config_flow 96%,
-      coordinator 93%, dashboard_provision 89%.
+      Above 95 % line coverage on HA 2026.2.3 and 2026.9.3; CI enforces
+      fail_under = 95 in pyproject.toml.
 
   # ── Gold ───────────────────────────────────────────────────────────────
-  repair-issues:
-    status: done
-    comment: |
-      v0.4.0-alpha15 (2026-05-27) — surfaces missing HACS frontend
-      dependencies (mushroom-template-card, layout-card, card-mod) as a
-      WARNING-severity Settings → Repairs entry. The dashboard works
-      without them but renders visually broken; the repair entry tells
-      the user exactly which plugins to install. Issue is non-fixable
-      (the fix is "install via HACS"); auto-clears on next reload when
-      the plugins are detected. Detection lives in
-      `dashboard_provision._missing_frontend_deps`; the sync call runs
-      at the end of `async_provision_dashboard`.
-
-      Other repair-issue surfaces in the integration:
-      - The sensor-mismatch persistent notification (managed by
-        `coordinator._update_mismatch_notification`) is informational and
-        auto-dismisses on consistency restored — could be promoted to a
-        Repair issue in a future alpha but the current notification is
-        already user-actionable.
-      - The AI-move-not-delivered persistent notification (managed by
-        coordinator). Same pattern; could be a Repair issue.
-
-  # ── Gold (continued — alpha16 docs additions) ──────────────────────────
   devices:
     status: done
-    comment: |
-      Every entity is attached to a `(DOMAIN, ble_address)` device via
-      `_attr_device_info` (manufacturer="Phantom", model="Phantom Chess
-      Board"). One device per config entry / per physical board.
+    comment: One device per board, identified by its Bluetooth address.
 
   diagnostics:
     status: done
     comment: |
-      `diagnostics.py` implements `async_get_config_entry_diagnostics`.
-      Token fully redacted via TO_REDACT; BLE address and Lichess
-      username partially masked via `_mask_ble_address` / `_mask_username`
-      so multi-report correlation works without leaking identifiers.
-      Stockfish state + environment block included for download triage.
+      async_get_config_entry_diagnostics redacts the Lichess token and
+      partially masks the board address and Lichess username; includes
+      engine and environment state for troubleshooting.
 
   discovery:
     status: done
     comment: |
-      manifest.json `bluetooth` block advertises the service UUID
-      `fd31a840-22e7-11eb-adc1-0242ac120002`. config_flow's
-      `async_step_bluetooth` handles the discovery; the user gets a
-      pre-filled "found Phantom XXXX at AA:BB:..." card in
-      Settings → Devices & Services → Discovered.
+      manifest.json declares the board's Bluetooth service UUID; discovered
+      boards appear under Discovered and in the user-flow picker.
 
   discovery-update-info:
     status: exempt
-    comment: |
-      The integration only uses the BLE address as identity. There's no
-      separate network info (IP, hostname) that subsequent discoveries
-      would update.
+    comment: The Bluetooth address is the only identity; there is no network info to update.
 
   docs-data-update:
     status: done
-    comment: |
-      README "Data Update Flow" section documents the two state-update
-      paths: BLE notify on UUID_SEND_MATRIX → coordinator state, and
-      Lichess Board API stream → coordinator state. Explicitly notes
-      the integration is local-push, with the 30s coordinator
-      update_interval being a safety net only.
+    comment: README "How it updates".
 
   docs-examples:
     status: done
-    comment: |
-      README "Automation Examples" section: TTS announcements,
-      resume-after-AI-failure, sculpture-on-arrival, accuracy
-      statistics-graph card. Pasted ready-to-use.
+    comment: README "Automation examples"; examples/voice-assist.yaml for voice starts.
 
   docs-known-limitations:
     status: done
-    comment: |
-      README "Known Limitations" section: multi-board partially-tested,
-      `move_piece` bypasses python-chess validation, sculpture playback
-      stub, AI-vs-AI hang around move 45, cloud-eval rate-limiting,
-      Stockfish download dependency, GATT cache staleness, Lichess
-      anonymous-play not supported.
+    comment: README "Known limits" and the engine platform note under "Requirements".
 
   docs-supported-devices:
     status: done
-    comment: |
-      README "Supported Devices" section: firmware 0.3.0+ supported,
-      0.3.2+ forward-compatible, pre-0.3.0 NOT supported. Bluetooth
-      surfaces matrix (Yellow / Green / Pi / BT proxy / USB dongle /
-      Classic-only ✗).
+    comment: README "Requirements" (firmware tested, Bluetooth proxy requirement for 0.3.2+).
 
   docs-supported-functions:
     status: done
-    comment: |
-      README "Supported Functions" section: every entity enumerated
-      (sensors, binary_sensors, image, switches, numbers, selects,
-      buttons) with descriptions. The Services section earlier in the
-      README covers the action surface.
+    comment: README "The dashboard", "Entities" and "Services".
 
   docs-troubleshooting:
     status: done
-    comment: |
-      README "Troubleshooting" section: 7 common-issue troubleshooting
-      entries covering BLE discovery, TTS, Lichess sync, AI-move
-      failures, Managing-Mismatch loops, ARM Stockfish, ATT errors.
+    comment: README "Troubleshooting", including the Repairs entries.
 
   docs-use-cases:
     status: done
-    comment: |
-      README "Use Cases" section: solo training, voice-driven start,
-      AI-vs-AI demo, correspondence play with notifications, sculpture
-      mode for guests, accuracy tracking over time.
+    comment: README "What you can do" and "Automation examples".
 
   dynamic-devices:
     status: exempt
-    comment: |
-      One device per config entry; users get a new board by adding a
-      second config entry, not by the integration discovering new
-      devices on an existing entry. No "device list" to keep in sync.
+    comment: One board per config entry; a second board is a second entry.
 
   entity-category:
     status: done
     comment: |
-      v0.4.0-alpha17 — audit pass:
-      - `EntityCategory.CONFIG` on all selects (AI level, player color,
-        setup mode, sculpture game) via base class.
-      - `EntityCategory.CONFIG` on all numbers (mechanism speed, sound
-        level, Lichess clock minutes / increment) via base class.
-      - `EntityCategory.CONFIG` on both switches (paused, training
-        wheels).
-      - `EntityCategory.DIAGNOSTIC` already on both buttons (start_game,
-        movement_verify) — set in alpha6.
-      - `EntityCategory.DIAGNOSTIC` already on several diagnostic-grade
-        sensors (Lichess ID, eval source, eval depth, etc.).
-
-      Primary state surfaces (battery %, firmware mode, live position,
-      classification, history, accuracy) intentionally have no
-      category — they're the front-page "what's happening on the
-      board" view.
+      Selects, numbers and switches are CONFIG; diagnostic sensors and both
+      buttons are DIAGNOSTIC. Primary game state has no category.
 
   entity-device-class:
     status: done
     comment: |
-      v0.4.0-alpha17 — audit pass:
-      - `BinarySensorDeviceClass.CONNECTIVITY` on the connected sensor
-      - `BinarySensorDeviceClass.RUNNING` on lichess_active /
-        local_game_active / lichess_review_ready / learning_view_active /
-        board_idle
-      - `SensorDeviceClass.BATTERY` on battery sensor (+ PERCENTAGE
-        unit, MEASUREMENT state_class)
-      - `SensorDeviceClass.DURATION` on Lichess white/black clock
-        sensors (+ "s" unit, MEASUREMENT state_class)
-
-      Sensors without a meaningful device_class (firmware_mode is a
-      label, opening_name is a string, etc.) intentionally don't have
-      one — there's no HA device_class that fits and inventing one
-      would hurt rather than help.
+      Connectivity and running classes on binary sensors; battery and
+      duration classes on the battery and clock sensors. Text-like sensors
+      (FEN, opening, firmware mode) have no fitting class.
 
   entity-disabled-by-default:
     status: done
-    comment: |
-      The two `button.*` entities are diagnostic-grade and marked
-      `_attr_entity_registry_enabled_default = False`. Most sensors
-      are useful to most users; case-by-case disabling is overkill.
+    comment: The Start Game and Movement Verify diagnostic buttons are disabled by default.
 
   entity-translations:
     status: done
-    comment: |
-      v0.4.0-alpha20 — 46 entities across all 7 platforms migrated from
-      `_attr_name = "X"` to `_attr_translation_key = "x_snake_case"`.
-      Display names live in `strings.json` under `entity.<platform>.
-      <key>.name`. English is the only shipped translation; translators
-      can add new locales by dropping `translations/<locale>.json`
-      alongside `strings.json` per HA's standard mechanism.
+    comment: All entities use translation_key; names live in strings.json.
 
   exception-translations:
     status: done
     comment: |
-      v0.4.0-alpha21 — `_get_coordinator`'s three ServiceValidationError
-      raises now use `translation_domain=DOMAIN` + `translation_key` +
-      `translation_placeholders`. Messages live under
-      `exceptions.no_board_configured` / `unknown_entry_id` /
-      `ambiguous_target_entry` in `strings.json`. HA shows the
-      translated message in the UI when a service call fails.
+      Every ServiceValidationError / HomeAssistantError raised by the
+      integration uses translation_domain + translation_key
+      (strings.json "exceptions"). Refusals from deep in the coordinator
+      carry their detail through the request_rejected placeholder.
+      tests/test_issues.py guards against untranslated raises and unknown keys.
 
   icon-translations:
     status: done
-    comment: |
-      v0.4.0-alpha21 — `icons.json` ships state-based icon mappings
-      for entities where state-derived icons help (binary sensors:
-      connectivity / Lichess active / review-ready / learning-view /
-      board-idle all swap icons on state; selects: setup_mode /
-      player_color swap per option; switch: paused / training_wheels;
-      sensors: firmware_mode / eval_source / matrix_status /
-      last_move_classification). Entities with a single sensible icon
-      get a `default` entry only. Static `_attr_icon` left in place on
-      each entity class as a fallback for HA versions / forks that
-      don't read icons.json yet.
+    comment: icons.json supplies default and state-based icons.
 
   reconfiguration-flow:
     status: done
     comment: |
-      v0.4.0-alpha19 — `async_step_reconfigure` implemented. Settings →
-      Devices & Services → Phantom Chess Board → ⋮ → Reconfigure now
-      opens a form pre-filled with the existing BLE address; the user
-      can paste a fresh Lichess token to rotate it preemptively
-      (without waiting for the reauth flow's 401 trigger). The BLE
-      address field is shown but submitting a different MAC aborts
-      with `ble_address_mismatch` — a different physical board should
-      be a new entry, not a reconfigure. Tests cover happy path, blank-
-      token no-op, MAC-mismatch reject, invalid-token reject.
+      Reconfigure adds or rotates the Lichess token; a different board
+      address is rejected (that is a new entry).
+
+  repair-issues:
+    status: done
+    comment: |
+      issues.py raises and clears three repair issues the integration can
+      observe directly: engine_unsupported_platform, engine_failed (cleared
+      when the engine reports ready) and ble_route_unsupported (ATT 0x0D
+      game-start rejection on firmware 0.3.2+; cleared by the next
+      successful start). The stale 0.4 missing_frontend_deps issue is
+      removed at setup.
 
   stale-devices:
     status: exempt
-    comment: |
-      One device per config entry. The user removes the device by
-      removing the integration (`async_remove_entry` cleans up).
+    comment: One device per config entry, removed with the entry.
 
-  # ── Platinum (prep, not yet claimed) ──────────────────────────────────
+  # ── Platinum ───────────────────────────────────────────────────────────
   async-dependency:
     status: done
     comment: |
-      All runtime dependencies are async-native or async-compatible:
-      `chess` is pure-Python (sync) but called only synchronously
-      inside the loop (chess.Board operations are CPU-bound and fast);
-      `aiohttp` (HA-bundled); `bleak` (HA-bundled). No sync HTTP, no
-      blocking I/O on the event loop except the brief Stockfish
-      binary download which runs in an executor job.
+      python-chess's engine layer is asyncio-native; HTTP uses aiohttp;
+      Bluetooth uses bleak through HA. Blocking file work (engine install,
+      library files) runs in the executor.
 
   inject-websession:
     status: done
     comment: |
-      Both Lichess endpoints (cloud-eval, opening explorer) use
-      `homeassistant.helpers.aiohttp_client.async_get_clientsession`,
-      which returns HA's shared aiohttp session. The integration never
-      creates its own ClientSession.
+      Lichess requests and the engine download use HA's shared session
+      (async_get_clientsession); the integration never creates its own.
 
   strict-typing:
-    status: done
+    status: todo
     comment: |
-      v0.4.0-alpha25 — mypy clean. CI's typecheck job now gates on
-      zero errors (was continue-on-error: true through alpha24 while
-      we drove the count from 17 to 0). Note: `--ignore-missing-imports`
-      is used because HA core isn't installed in the typecheck job
-      (way too heavy); HA's own types show up as Any. With those
-      treated as Any, mypy still catches our integration's type bugs
-      cleanly. A full `--strict` pass would require installing HA core
-      + bleak + chess.engine stubs; that's a separate effort.
-
-      Fixed in alpha25:
-      - `_analysis_client` typed `"LichessAnalysisClient | None"` (with
-        `TYPE_CHECKING` import to avoid the runtime circular).
-      - `_transport: Any` (concrete type is `asyncio.SubprocessTransport`
-        but only `.close()` is called on it).
-      - `_entry` checks narrowed via two-step assignment so mypy can
-        track the None-narrowing past the truthy guard.
-      - `diagnostics.py` analysis_client deref restructured for the
-        same reason.
-      - `PhantomChessConfigFlow(... domain=DOMAIN)` suppressed with
-        `# type: ignore[call-arg]` — HA's metaclass-registration kwarg
-        is invisible to mypy.
+      mypy passes in CI in default mode with --ignore-missing-imports (HA
+      core is not installed in that job). The rule requires a strict mypy
+      pass against HA's types, which has not been done.

@@ -74,9 +74,17 @@
     }
   },
   "issues": {
-    "missing_frontend_deps": {
-      "title": "Phantom Chess dashboard is missing HACS plugins",
-      "description": "The auto-provisioned Chess dashboard at /phantom-chess uses these HACS frontend plugins for its visual polish: **{missing}**.\n\nThe dashboard still loads, but tiles will render with broken styling and template substitutions won't run. Install the missing plugins via HACS → Frontend, then reload the Phantom Chess integration (or restart Home Assistant) to clear this notice.\n\nIf you've intentionally turned off the auto-provisioned dashboard via the integration's options (Configure → Auto-provision dashboard), you can dismiss this issue — it won't reappear until you re-enable the dashboard."
+    "engine_unsupported_platform": {
+      "title": "Chess engine not available on this system",
+      "description": "Phantom Chess could not find a verified Stockfish package for this Home Assistant host ({detail}). Local games against the computer, hints and game review are unavailable. Online Lichess play, two-player recording and sculpture playback still work.\n\nSupported hosts are 64-bit x86 (Home Assistant OS, Container, Core) and 64-bit ARM running Home Assistant OS or Container."
+    },
+    "engine_failed": {
+      "title": "Chess engine could not start",
+      "description": "The Stockfish engine used for local play and review could not be installed or started: {detail}\n\nOpen the Phantom Chess dashboard → Board & settings → Check chess engine to retry. This notice clears when the engine starts."
+    },
+    "ble_route_unsupported": {
+      "title": "Chess board rejects game commands on this Bluetooth connection",
+      "description": "The board at {address} (firmware {firmware}) refused a game-start command with ATT error 0x0D. Boards on firmware 0.3.2 and later reject commands sent through the Home Assistant host's own Bluetooth adapter.\n\nConnect the board through an ESPHome Bluetooth proxy and disable the host adapter in Settings → Devices & services → Bluetooth so the proxy is used. This notice clears after the next successful game start."
     }
   },
   "options": {
@@ -101,7 +109,8 @@
           "tts_voice": "Optional. Force a specific voice. For Home Assistant Cloud use a short neural voice name like RyanNeural. Leave blank for the engine default.",
           "debug_dump": "Off by default. Only enable when troubleshooting an issue.",
           "auto_provision_dashboard": "On by default. When enabled the integration creates and maintains the /phantom-chess dashboard automatically. Disable if you prefer to author your own dashboard — the existing /phantom-chess dashboard will be removed on the next reload.",
-          "homepod_speech": "Use the selected media player from the Apple TV integration. Follows the preferred Assist pipeline voice. Disable any separate announcement automation to avoid duplicates."
+          "homepod_speech": "Use the selected media player from the Apple TV integration. Follows the preferred Assist pipeline voice. Disable any separate announcement automation to avoid duplicates.",
+          "speech_volume": "Volume from 0 to 1 used for managed HomePod speech."
         }
       }
     }
@@ -287,6 +296,30 @@
     },
     "ambiguous_target_entry": {
       "message": "{count} Phantom Chess Boards configured — service call must include an entry_id field to target one specifically. Known entry_ids: {known}"
+    },
+    "request_rejected": {
+      "message": "{error}"
+    },
+    "board_communication_failed": {
+      "message": "Could not talk to the chess board over Bluetooth: {error}. Check that the board is on and in range of its Bluetooth proxy."
+    },
+    "lichess_token_required": {
+      "message": "Online play needs a Lichess token. Add one under Settings → Devices & services → Phantom Chess Board → Reconfigure, or start a local game."
+    },
+    "speech_no_provider": {
+      "message": "The selected voice assistant has no speech provider."
+    },
+    "speech_not_homepod": {
+      "message": "Choose a HomePod from the Apple TV integration."
+    },
+    "speech_homepod_offline": {
+      "message": "The HomePod is not connected."
+    },
+    "speech_empty_audio": {
+      "message": "The speech provider returned empty audio."
+    },
+    "speech_homepod_reconnected": {
+      "message": "The HomePod reconnected; please try again."
     }
   },
   "services": {

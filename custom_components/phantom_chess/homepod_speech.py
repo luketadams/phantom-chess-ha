@@ -38,19 +38,19 @@ async def async_speak(hass: HomeAssistant, data: dict) -> None:
         from homeassistant.components.assist_pipeline.pipeline import async_get_pipeline
         pipeline = async_get_pipeline(hass, data.get("pipeline_id"))
         if not pipeline.tts_engine:
-            raise ServiceValidationError("The selected voice assistant has no speech provider")
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="speech_no_provider")
         data["tts_entity_id"] = pipeline.tts_engine
         data["language"] = pipeline.tts_language or "en"
         if pipeline.tts_voice:
             data["voice"] = pipeline.tts_voice
     entity = er.async_get(hass).async_get(data["media_player_entity_id"])
     if entity is None or entity.platform != "apple_tv" or not entity.config_entry_id:
-        raise ServiceValidationError("Choose a HomePod from the Apple TV integration")
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="speech_not_homepod")
     entry = hass.config_entries.async_get_entry(entity.config_entry_id)
     manager = getattr(entry, "runtime_data", None)
     atv: Any = getattr(manager, "atv", None)
     if atv is None:
-        raise ServiceValidationError("HomePod is not connected")
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="speech_homepod_offline")
     options = {"voice": data["voice"]} if data.get("voice") else {}
     source = generate_media_source_id(
         hass, data["message"], engine=data["tts_entity_id"],
@@ -59,9 +59,9 @@ async def async_speak(hass: HomeAssistant, data: dict) -> None:
     async with asyncio.timeout(60):
         _, audio = await async_get_media_source_audio(hass, source)
     if not audio:
-        raise ServiceValidationError("Speech provider returned empty audio")
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="speech_empty_audio")
     if getattr(manager, "atv", None) is not atv:
-        raise ServiceValidationError("HomePod reconnected; please try again")
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="speech_homepod_reconnected")
     connection = cast(Any, atv)
     async with asyncio.timeout(120):
         await connection.audio.set_volume(data["volume_level"] * 100)

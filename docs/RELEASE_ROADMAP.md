@@ -36,10 +36,10 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 - [x] Speech: generic `tts.speak` path needs no Apple TV integration and reports failures; managed HomePod speech is opt-in. Audible check on a generic speaker moves to M4
 - [x] Reset confirmation: the unconfirmed Sept 2026 reset (firmware stuck at `N b?-b1` after GAME_END) is not diagnosable without the board. The timeout message is now actionable; root cause moves to the M4 capture below
 
-### M3 — Docs
-- [x] README rewritten for 0.5: requirements, install, setup, dashboard tour, voice, services, privacy, troubleshooting, limits
+### M3 — Docs and quality scale ✓
+- [x] README rewritten for 0.5: requirements, install, setup, dashboard tour, voice, configuration, entities, updates, examples, services, privacy, troubleshooting, limits
 - [x] CHANGELOG: consolidated 0.5.0 section above the beta entries
-- [ ] `quality_scale.yaml` re-audited against 0.5 code
+- [x] `quality_scale.yaml` re-audited against 0.5 code (0.5.0b8). Findings fixed: repair issues rebuilt (engine, Bluetooth route), all service errors translated, coverage restored above 95 %, dead classic renderer removed, dashboard pause-switch reference fixed. Platinum strict-typing honestly marked todo
 
 ### M4 — Hardware qualification (supervised, scripted, ~60–90 min)
 - [ ] Local game with capture, castling, en passant and promotion
