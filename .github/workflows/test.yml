@@ -137,6 +137,35 @@ jobs:
             --no-incremental \
             custom_components/phantom_chess/
 
+  typecheck-strict:
+    # Strict mypy against HA's real installed types (no
+    # --ignore-missing-imports). continue-on-error: true for now —
+    # becomes blocking once strict typing lands (Phase 2).
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install HA test scaffolding + mypy
+        # Same pins as the ha-tests matrix row for HA 2026.9.3, plus
+        # mypy==2.1.0 (same pin as the typecheck job) — installing the
+        # real homeassistant package gives mypy actual types to check
+        # against instead of treating homeassistant.* as Any.
+        run: |
+          python -m pip install --upgrade pip
+          pip install homeassistant==2026.9.3 \
+                      pytest==9.0.3 \
+                      pytest-homeassistant-custom-component==0.13.366 \
+                      aiousbwatcher==1.1.2 serialx==1.8.2 'chess>=1.10.0,<2.0' \
+                      mypy==2.1.0
+      - name: Run mypy --strict
+        run: |
+          PYTHONPATH=. python -m mypy --strict --no-incremental \
+            custom_components/phantom_chess/
+
   ruff:
     # Code-quality linter — catches unused imports, undefined names,
     # mutable default args, F-style errors. Faster than pyflakes/flake8.
