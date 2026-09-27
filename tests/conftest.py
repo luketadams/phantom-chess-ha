@@ -92,6 +92,7 @@ except ImportError:
         "homeassistant.components.lovelace.dashboard",
         "homeassistant.components.lovelace.const",
         "homeassistant.config_entries",
+        "homeassistant.const",
         "homeassistant.core",
         "homeassistant.exceptions",
         "homeassistant.helpers",
@@ -127,6 +128,8 @@ except ImportError:
     _ll_const.CONF_URL_PATH = "url_path"
     _ll_const.LOVELACE_DATA = "lovelace_data"
     _ll_const.MODE_STORAGE = "storage"
+    # dashboard_provision imports CONF_ICON from its defining module.
+    sys.modules["homeassistant.const"].CONF_ICON = "icon"
     sys.modules["homeassistant.config_entries"].ConfigEntry = type("ConfigEntry", (), {})
     sys.modules["homeassistant.core"].HomeAssistant = type("HomeAssistant", (), {})
     class _StubHomeAssistantError(Exception):

@@ -46,8 +46,9 @@ AI_VS_AI_TWO_STEP_SETTLE_S: float = 3.0
 
 # Lazy import bleak — HA installs it as part of the bluetooth stack
 try:
-    from bleak import BleakClient, BleakError
+    from bleak import BleakClient
     from bleak.backends.characteristic import BleakGATTCharacteristic
+    from bleak.exc import BleakError
 except ImportError:
     BleakClient = None  # type: ignore[assignment,misc]
     BleakError = Exception  # type: ignore[assignment,misc]

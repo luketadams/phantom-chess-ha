@@ -1,10 +1,13 @@
 """Switch entities for Phantom Chess Board."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from typing import Any
+
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -20,6 +23,9 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
+
 # Mixed platform — PhantomPauseSwitch writes BLE (pause/resume the
 # mechanism); PhantomTrainingWheelsSwitch is pure-local config storage
 # for the training-wheels glyph overlay. Serializing BLE writes against
@@ -30,7 +36,7 @@ PARALLEL_UPDATES = 1
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: PhantomChessCoordinator = entry.runtime_data
@@ -58,7 +64,7 @@ class PhantomPauseSwitch(CoordinatorEntity[PhantomChessCoordinator], SwitchEntit
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
     ) -> None:
@@ -84,10 +90,10 @@ class PhantomPauseSwitch(CoordinatorEntity[PhantomChessCoordinator], SwitchEntit
         """
         return super().available and self.coordinator.is_ble_connected
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_pause(True)
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.async_set_pause(False)
 
 
@@ -112,7 +118,7 @@ class PhantomTrainingWheelsSwitch(
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
     ) -> None:
@@ -136,11 +142,11 @@ class PhantomTrainingWheelsSwitch(
     def is_on(self) -> bool:
         return bool(self.coordinator.training_wheels)
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         self.coordinator.training_wheels = True
         self.async_write_ha_state()
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         self.coordinator.training_wheels = False
         self.async_write_ha_state()
 
@@ -171,7 +177,7 @@ class PhantomVoiceAnnouncementsSwitch(
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
     ) -> None:
@@ -195,11 +201,11 @@ class PhantomVoiceAnnouncementsSwitch(
     def is_on(self) -> bool:
         return bool(self.coordinator.voice_announcements)
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         self.coordinator.voice_announcements = True
         self.async_write_ha_state()
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         self.coordinator.voice_announcements = False
         self.async_write_ha_state()
 
@@ -233,7 +239,7 @@ class PhantomStudyViewSwitch(
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
     ) -> None:
@@ -257,10 +263,10 @@ class PhantomStudyViewSwitch(
     def is_on(self) -> bool:
         return bool(self.coordinator.study_view)
 
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         self.coordinator.study_view = True
         self.async_write_ha_state()
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         self.coordinator.study_view = False
         self.async_write_ha_state()

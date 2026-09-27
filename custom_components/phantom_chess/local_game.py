@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .coordinator import PhantomChessCoordinator  # noqa: F401
@@ -50,7 +50,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__.rsplit(".", 1)[0] + ".coordinator")
 
 
-async def async_start_local_game(self) -> None:
+async def async_start_local_game(self: PhantomChessCoordinator) -> None:
     """Start once, preserving an existing game when a voice request repeats."""
     async with self._local_start_lock:
         if self._state.get("physical_operation") in ("moving", "undoing", "uncertain"):
@@ -76,7 +76,7 @@ async def async_start_local_game(self) -> None:
             raise
 
 
-async def _async_start_local_game(self) -> None:
+async def _async_start_local_game(self: PhantomChessCoordinator) -> None:
     """Start a local game against the built-in AI — no Lichess required.
 
     Delegates BLE activation to async_phantom_start_game (the validated
@@ -192,7 +192,7 @@ async def _async_start_local_game(self) -> None:
         await self._replace_local_game_task(name=f"{DOMAIN}_local_ai_first")
 
 
-def _record_and_analyze_local_move(self, move: chess.Move, mover_is_white: bool) -> None:
+def _record_and_analyze_local_move(self: PhantomChessCoordinator, move: chess.Move, mover_is_white: bool) -> None:
     """Fire the analysis pipeline for a single local-game move.
 
     Mirrors what _process_move_list does inline for each Lichess move:
@@ -234,7 +234,7 @@ def _record_and_analyze_local_move(self, move: chess.Move, mover_is_white: bool)
     )
 
 
-async def _push_move_to_local_ai(self, uci: str) -> None:
+async def _push_move_to_local_ai(self: PhantomChessCoordinator, uci: str) -> None:
     """Apply the player's physical move to the local board and get AI response."""
     if not self._local_game_active:
         return
@@ -282,7 +282,7 @@ async def _push_move_to_local_ai(self, uci: str) -> None:
     await self._replace_local_game_task(name=f"{DOMAIN}_local_ai")
 
 
-async def _replace_local_game_task(self, *, name: str) -> None:
+async def _replace_local_game_task(self: PhantomChessCoordinator, *, name: str) -> None:
     """Cancel any in-flight _local_game_task, await its cancellation,
     and start a fresh ``_local_ai_turn`` task in its place.
 
@@ -324,7 +324,7 @@ async def _replace_local_game_task(self, *, name: str) -> None:
         )
 
 
-async def _local_ai_turn(self) -> None:
+async def _local_ai_turn(self: PhantomChessCoordinator) -> None:
     """Calculate and execute the AI's response move.
 
     Routes the engine's move through async_phantom_apply_ai_move so the
@@ -439,7 +439,7 @@ async def _local_ai_turn(self) -> None:
     self.async_set_updated_data(dict(self._state))
 
 
-def _finish_local_game(self) -> None:
+def _finish_local_game(self: PhantomChessCoordinator) -> None:
     """Finalize an automatic chess result for either player's last move."""
     outcome = self._board.outcome()
     if outcome is None:
@@ -468,7 +468,7 @@ def _finish_local_game(self) -> None:
     self.hass.async_create_task(self._build_post_game_review())
 
 
-async def _get_ai_move(self, board: chess.Board) -> str | None:
+async def _get_ai_move(self: PhantomChessCoordinator, board: chess.Board) -> str | None:
     """Get best move for a local-Stockfish game.
 
     Cascade:
@@ -506,10 +506,10 @@ async def _get_ai_move(self, board: chess.Board) -> str | None:
         url = f"https://lichess.org/api/cloud-eval?fen={fen}&multiPv=1"
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
             if resp.status == 200:
-                data = await resp.json()
-                pvs = data.get("pvs", [])
+                data: dict[str, Any] = await resp.json()
+                pvs: list[dict[str, Any]] = data.get("pvs", [])
                 if pvs:
-                    moves = pvs[0].get("moves", "").split()
+                    moves: list[str] = pvs[0].get("moves", "").split()
                     if moves:
                         _LOGGER.debug("AI move via Lichess cloud eval: %s", moves[0])
                         return moves[0]
@@ -520,7 +520,7 @@ async def _get_ai_move(self, board: chess.Board) -> str | None:
     return None
 
 
-async def async_stop_local_game(self) -> None:
+async def async_stop_local_game(self: PhantomChessCoordinator) -> None:
     """Stop the local AI game and return board to idle.
 
     Also clears `_ai_vs_ai_active` so the AI-vs-AI loop halts on

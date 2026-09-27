@@ -43,7 +43,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__.rsplit(".", 1)[0] + ".coordinator")
 
 
-async def async_start_two_player_game(self) -> None:
+async def async_start_two_player_game(self: PhantomChessCoordinator) -> None:
     """Activate two-player recording atomically with other game starts."""
     async with self._local_start_lock:
         self._assert_no_active_game()
@@ -58,7 +58,7 @@ async def async_start_two_player_game(self) -> None:
             raise
 
 
-async def _async_start_two_player_game(self) -> None:
+async def _async_start_two_player_game(self: PhantomChessCoordinator) -> None:
     """Start a two-human recording game on the physical board.
 
     Both players move the physical pieces; the board's sensors report each
@@ -135,7 +135,9 @@ async def _async_start_two_player_game(self) -> None:
     _LOGGER.info("Two-player recording started (SIDE-0 2-local-player)")
 
 
-def _flag_two_player_out_of_sync(self, raw_uci: str, rotated_uci: str) -> None:
+def _flag_two_player_out_of_sync(
+    self: PhantomChessCoordinator, raw_uci: str, rotated_uci: str,
+) -> None:
     """Surface a rejected (illegal) physical move during a two-player game.
 
     Runs on the event loop (scheduled via call_soon_threadsafe from the
@@ -176,7 +178,7 @@ def _flag_two_player_out_of_sync(self, raw_uci: str, rotated_uci: str) -> None:
         ))
 
 
-def _clear_two_player_out_of_sync(self) -> None:
+def _clear_two_player_out_of_sync(self: PhantomChessCoordinator) -> None:
     """Clear the two-player out-of-sync flag + dismiss its notification."""
     self._state["two_player_out_of_sync"] = False
     try:
@@ -188,7 +190,7 @@ def _clear_two_player_out_of_sync(self) -> None:
         _LOGGER.debug("two-player sync dismiss failed: %s", err)
 
 
-async def async_resync_two_player(self) -> None:
+async def async_resync_two_player(self: PhantomChessCoordinator) -> None:
     """Re-drive the physical board to the last recorded (model) position.
 
     Conservative recovery for the two-player out-of-sync case. Rather than
@@ -231,7 +233,7 @@ async def async_resync_two_player(self) -> None:
     ))
 
 
-async def _finalize_two_player_game(self) -> None:
+async def _finalize_two_player_game(self: PhantomChessCoordinator) -> None:
     """End a two-player recording: set result, build review, save PGN."""
     if not self._two_player_active:
         return
@@ -276,7 +278,7 @@ async def _finalize_two_player_game(self) -> None:
     )
 
 
-def _save_two_player_pgn(self):
+def _save_two_player_pgn(self: PhantomChessCoordinator) -> str:
     """Write the recorded game to <config>/phantom_chess/recordings/<ts>.pgn.
 
     Runs in the executor (blocking file IO). Returns the path or None.

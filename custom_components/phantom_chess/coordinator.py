@@ -4,9 +4,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
     from .game_review import ReviewManager
     from .drill_mode import DrillSession
     from .puzzles import PuzzleSession
@@ -16,7 +18,6 @@ import aiohttp
 import chess
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.issue_registry import async_delete_issue
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -82,6 +83,9 @@ _LOGGER = logging.getLogger(__name__)
 
 class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin, DataUpdateCoordinator[dict[str, Any]]):
     """Manages BLE connection to the Phantom board and the Lichess Board API game."""
+
+    # Set by __init__.async_setup_entry; compared on options updates.
+    _options_snapshot: dict[str, Any]
 
     # ── Methods defined in session modules (bound here; see each module) ──
     # protocol.py
@@ -176,7 +180,7 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
         self,
         hass: HomeAssistant,
         entry_data: dict[str, Any],
-        entry: "ConfigEntry | None" = None,
+        entry: "PhantomChessConfigEntry | None" = None,
     ) -> None:
         super().__init__(
             hass,
@@ -196,12 +200,12 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
 
         # BLE
         self._ble_client: BleakClient | None = None
-        self._ble_task: asyncio.Task | None = None
-        self._matrix_poll_task: asyncio.Task | None = None
+        self._ble_task: asyncio.Task[None] | None = None
+        self._matrix_poll_task: asyncio.Task[None] | None = None
         self._ble_connected = False
 
         # Lichess
-        self._lichess_task: asyncio.Task | None = None
+        self._lichess_task: asyncio.Task[None] | None = None
         self._game_id: str | None = None
         self._our_color: chess.Color | None = None  # chess.WHITE or chess.BLACK
         self._processed_moves: int = 0  # how many UCI moves we've already handled
@@ -292,7 +296,7 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
         self._local_game_active: bool = False
         # v0.4-beta2: two-human recording mode (board in SIDE-0 2-local-player).
         self._two_player_active: bool = False
-        self._local_game_task: asyncio.Task | None = None
+        self._local_game_task: asyncio.Task[None] | None = None
         self._local_start_lock = asyncio.Lock()
         self._physical_operation_lock = asyncio.Lock()
         self._play_revision = 0
@@ -324,7 +328,7 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
         self._puzzle: PuzzleSession | None = None
         # Endgame drill mode (drill_mode.py): the active or last-finished drill.
         self._drill: DrillSession | None = None
-        self._sculpture_games_cache: dict | None = None
+        self._sculpture_games_cache: dict[str, Any] | None = None
         # Serializes _local_game_task replacement so the four-or-more
         # sites that schedule an AI turn can't race and end up running
         # two AI turns concurrently. All assignments to
@@ -427,7 +431,7 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
         # (opcode 0x0C) notification arrives on cc68a66e. Created by
         # _phantom_execute_position before each snapshot write; awaited with
         # a timeout so callers know when the magnet has finished moving.
-        self._move_done_future: asyncio.Future | None = None
+        self._move_done_future: asyncio.Future[bool] | None = None
         # Last target FEN sent over BLE. The firmware's CLEAN: Match notification
         # doesn't echo the matrix back, so the parser uses this as the
         # authoritative state on a clean match. See XOUXOU_PROTOCOL.md.
@@ -435,7 +439,7 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
         # Signature of the most-recent sensor mismatch set we surfaced as a
         # persistent_notification (Task #8). None if no current mismatch.
         # See _update_mismatch_notification for the signature scheme.
-        self._last_mismatch_signature: tuple | None = None
+        self._last_mismatch_signature: tuple[tuple[str, str], ...] | None = None
         # Set of characteristic UUIDs (lowercase) that GATT discovery
         # actually returned on this BLE connection. Used by `_ble_write`
         # to distinguish "stale cache, force reconnect" (UUID was here
@@ -1211,7 +1215,7 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
 
         # Acknowledge on cc68a66e with movementVerify "1"
         # (firmware 0.3.0 — UUID_CHECK_MOVE doesn't exist).
-        async def _ack(move_str: str = payload_str):
+        async def _ack(move_str: str = payload_str) -> None:
             try:
                 await client.write_gatt_char(
                     UUID_GAME, b"\x031", response=True
@@ -1454,10 +1458,12 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
                     if uuid_lower in _KNOWN_UUIDS or uuid_lower in _SKIP_UUIDS:
                         continue
 
-                    def _make_discovery_cb(u: str):
+                    def _make_discovery_cb(
+                        u: str,
+                    ) -> Callable[[BleakGATTCharacteristic, bytearray], None]:
                         # Track last-seen value per UUID to suppress repeated identical messages
                         last_seen: dict[str, str] = {}
-                        def _cb(characteristic, data: bytearray) -> None:
+                        def _cb(characteristic: BleakGATTCharacteristic, data: bytearray) -> None:
                             try:
                                 decoded = data.decode("utf-8", errors="replace").strip()
                             except Exception:
@@ -1738,7 +1744,7 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
             f.writelines(lines)
 
     @staticmethod
-    def _reject_move_done_future(fut: "asyncio.Future") -> None:
+    def _reject_move_done_future(fut: "asyncio.Future[bool]") -> None:
         """Reject a pending BLE_MOVE_DONE waiter — runs on the event loop.
 
         Re-checks ``done()`` because the future may have been resolved (by a

@@ -16,6 +16,8 @@ condition is gone:
 """
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
@@ -51,7 +53,7 @@ def _create(
     )
 
 
-def sync_engine_issue(hass: HomeAssistant, state: dict) -> None:
+def sync_engine_issue(hass: HomeAssistant, state: dict[str, Any]) -> None:
     """Mirror the engine health state into Repairs.
 
     Only terminal states change issues: ``unavailable`` and ``error`` raise

@@ -32,6 +32,8 @@ import aiohttp
 import chess
 import chess.engine
 
+from homeassistant.core import HomeAssistant
+
 from .engine_artifacts import ASSETS, ensure_verified_engine
 from .move_quality import chance_loss, quality_grade, winning_chances
 
@@ -130,7 +132,7 @@ class LichessAnalysisClient:
     HTTP_TIMEOUT_SEC = 6.0
     HTTP_RETRY_BACKOFF_SEC = 0.5
 
-    def __init__(self, hass, stockfish_bin_dir: Path | str | None = None) -> None:
+    def __init__(self, hass: HomeAssistant, stockfish_bin_dir: Path | str | None = None) -> None:
         self.hass = hass
         # Lazy session — fetched on first call so HA's event loop is up
         self._eval_cache: OrderedDict[str, EvalResult] = OrderedDict()
@@ -393,7 +395,7 @@ class StockfishFallback:
     TIME_LIMIT_SEC = 1.5
     DOWNLOAD_TIMEOUT_SEC = 120.0
 
-    def __init__(self, hass, bin_dir: Path | str) -> None:
+    def __init__(self, hass: HomeAssistant, bin_dir: Path | str) -> None:
         self.hass = hass
         self.engine_state: dict[str, Any] = {"status": "not_checked", "error": None}
         self.status_callback: Any = None

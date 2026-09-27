@@ -1,10 +1,11 @@
 """Number entities for Phantom Chess Board."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.components.number import NumberEntity, NumberMode
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -23,6 +24,9 @@ from .const import (
 )
 from .coordinator import PhantomChessCoordinator
 
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
+
 # Action-issuing platform — each set_native_value triggers a BLE
 # characteristic write. Serialize so we don't overlap writes on the
 # single GATT client (Silver quality scale rule `parallel-updates`).
@@ -31,7 +35,7 @@ PARALLEL_UPDATES = 1
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: PhantomChessCoordinator = entry.runtime_data
@@ -72,7 +76,7 @@ class PhantomBaseNumber(CoordinatorEntity[PhantomChessCoordinator], NumberEntity
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
         unique_suffix: str,
@@ -115,7 +119,13 @@ class PhantomMechanismSpeedNumber(PhantomBaseNumber):
     _attr_native_max_value = 5
     _attr_native_step = 1
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_MECH_SPEED)
 
     @property
@@ -135,7 +145,13 @@ class PhantomSoundLevelNumber(PhantomBaseNumber):
     _attr_native_max_value = 32
     _attr_native_step = 1
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_SOUND_LEVEL)
 
     @property
@@ -217,7 +233,13 @@ class PhantomLichessClockMinutesNumber(_PhantomRestorableNumber):
     _attr_native_unit_of_measurement = "min"
     _coord_attr = "lichess_clock_minutes"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_CLOCK_MINUTES)
 
     @property
@@ -243,7 +265,13 @@ class PhantomLichessClockIncrementNumber(_PhantomRestorableNumber):
     _attr_native_unit_of_measurement = "s"
     _coord_attr = "lichess_clock_increment"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_LICHESS_CLOCK_INCREMENT)
 
     @property
@@ -275,7 +303,13 @@ class PhantomWhiteAILevelNumber(_PhantomRestorableNumber):
     _attr_native_step = 1
     _coord_attr = "white_ai_level"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_WHITE_AI_LEVEL)
 
     @property
@@ -296,7 +330,13 @@ class PhantomBlackAILevelNumber(_PhantomRestorableNumber):
     _attr_native_step = 1
     _coord_attr = "black_ai_level"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_BLACK_AI_LEVEL)
 
     @property
@@ -324,7 +364,13 @@ class PhantomAIvsAIMoveDelayNumber(_PhantomRestorableNumber):
     _coord_attr = "ai_vs_ai_move_delay"
     _coord_attr_type = float
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_AI_VS_AI_MOVE_DELAY)
 
     @property

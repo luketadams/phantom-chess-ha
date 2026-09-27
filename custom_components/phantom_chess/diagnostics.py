@@ -9,11 +9,12 @@ Added 2026-05-16 (release-readiness Task #22).
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import platform
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import (
@@ -24,6 +25,9 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import PhantomChessCoordinator
+
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
 
 # Sensitive keys that are masked when serialized.
 # CONF_LICHESS_TOKEN is fully redacted; CONF_BLE_ADDRESS and
@@ -76,7 +80,7 @@ def _mask_device_name(name: str | None, address: str | None) -> str | None:
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: PhantomChessConfigEntry
 ) -> dict[str, Any]:
     """Build a redacted diagnostics dump for the given config entry."""
     coordinator: PhantomChessCoordinator | None = getattr(

@@ -3,13 +3,18 @@ from __future__ import annotations
 
 import functools
 import logging
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any, cast
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
 from bleak.exc import BleakError
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
@@ -211,7 +216,7 @@ MOVE_PIECE_SCHEMA = vol.Schema(
 )
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_migrate_entry(hass: HomeAssistant, entry: PhantomChessConfigEntry) -> bool:
     """Migrate older config entries to the current schema.
 
     v1 → v2 (2026-05-24):
@@ -353,7 +358,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 def _consolidate_registries_to_canonical(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     canonical: str,
     canonical_lower: str,
 ) -> None:
@@ -399,7 +404,7 @@ def _consolidate_registries_to_canonical(
         if e.config_entry_id == entry.entry_id
     ]
 
-    by_suffix: dict[str, dict[str, list]] = {}
+    by_suffix: dict[str, dict[str, list[er.RegistryEntry]]] = {}
     for e in our_entities:
         uid = e.unique_id or ""
         if "_" not in uid:
@@ -471,13 +476,13 @@ def _consolidate_registries_to_canonical(
                                   dup.entity_id, err)
 
     # ── 2. Device registry consolidation ────────────────────────────────
-    our_devices = [
-        d for d in list(dev_reg.devices.values())
+    our_devices: list[dr.DeviceEntry] = [
+        d for d in list(dev_reg.devices.values())  # type: ignore[attr-defined]  # mapping access; typed as Collection since HA 2026.9, still a dict on the 2026.2 floor
         if entry.entry_id in d.config_entries
     ]
 
-    canonical_devs: list = []
-    noncanonical_devs: list = []
+    canonical_devs: list[dr.DeviceEntry] = []
+    noncanonical_devs: list[dr.DeviceEntry] = []
     for d in our_devices:
         for ident in d.identifiers:
             if len(ident) < 2 or ident[0] != DOMAIN:
@@ -495,47 +500,47 @@ def _consolidate_registries_to_canonical(
     devices_removed = 0
     if noncanonical_devs and not canonical_devs:
         # Promote the first non-canonical device's identifier.
-        keeper = noncanonical_devs[0]
+        keeper_dev = noncanonical_devs[0]
         new_identifiers = set()
-        for ident in keeper.identifiers:
+        for ident in keeper_dev.identifiers:
             if len(ident) >= 2 and ident[0] == DOMAIN and ident[1].lower() == canonical_lower:
                 new_identifiers.add((DOMAIN, canonical))
             else:
-                new_identifiers.add(tuple(ident))
+                new_identifiers.add(ident)  # already a tuple; tuple(ident) returned it unchanged
         try:
-            dev_reg.async_update_device(keeper.id, new_identifiers=new_identifiers)
+            dev_reg.async_update_device(keeper_dev.id, new_identifiers=new_identifiers)
             devices_rewritten += 1
         except Exception as err:
             _LOGGER.debug("v3: failed to rewrite device %s identifier: %s",
-                          keeper.id, err)
+                          keeper_dev.id, err)
         # Remove any further duplicates (rare).
-        for dup in noncanonical_devs[1:]:
+        for dup_dev in noncanonical_devs[1:]:
             try:
-                dev_reg.async_remove_device(dup.id)
+                dev_reg.async_remove_device(dup_dev.id)
                 devices_removed += 1
             except Exception as err:
                 _LOGGER.debug("v3: failed to remove duplicate device %s: %s",
-                              dup.id, err)
+                              dup_dev.id, err)
     elif canonical_devs and noncanonical_devs:
         # Canonical exists; reassign entities then remove non-canonicals.
-        keeper = canonical_devs[0]
-        for dup in noncanonical_devs:
+        keeper_dev = canonical_devs[0]
+        for dup_dev in noncanonical_devs:
             # Re-fetch our_entities post-rewrite so we see updated device_ids.
             for e in list(er_inst.entities.values()):
-                if e.config_entry_id == entry.entry_id and e.device_id == dup.id:
+                if e.config_entry_id == entry.entry_id and e.device_id == dup_dev.id:
                     try:
-                        er_inst.async_update_entity(e.entity_id, device_id=keeper.id)
+                        er_inst.async_update_entity(e.entity_id, device_id=keeper_dev.id)
                     except Exception as err:
                         _LOGGER.debug(
                             "v3: failed to reassign %s to device %s: %s",
-                            e.entity_id, keeper.id, err,
+                            e.entity_id, keeper_dev.id, err,
                         )
             try:
-                dev_reg.async_remove_device(dup.id)
+                dev_reg.async_remove_device(dup_dev.id)
                 devices_removed += 1
             except Exception as err:
                 _LOGGER.debug("v3: failed to remove duplicate device %s: %s",
-                              dup.id, err)
+                              dup_dev.id, err)
 
     _LOGGER.info(
         "v3: entity registry — rewrote %d unique_ids, removed %d duplicates. "
@@ -546,7 +551,7 @@ def _consolidate_registries_to_canonical(
 
 def _rename_collision_suffix_entity_ids(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
 ) -> int:
     """v3→v4 helper: rename any ``_2``-suffix entity_ids belonging to
     ``entry`` back to their base form (without the suffix), provided the
@@ -683,7 +688,7 @@ async def async_setup_entry(
     return True
 
 
-async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _async_options_updated(hass: HomeAssistant, entry: PhantomChessConfigEntry) -> None:
     """Apply speech and cloud-analysis preferences without interrupting a game."""
     coordinator = getattr(entry, "runtime_data", None)
     previous = getattr(coordinator, "_options_snapshot", None)
@@ -719,7 +724,9 @@ async def _register_static_paths(hass: HomeAssistant) -> None:
     if hass.data.get(STATIC_PATH_MARKER):
         return
     try:
-        from homeassistant.components.http import StaticPathConfig
+        from homeassistant.components.http import (  # type: ignore[attr-defined]  # re-exported without __all__; its defining module differs across supported HA versions
+            StaticPathConfig,
+        )
         import os
         www_dir = os.path.join(os.path.dirname(__file__), "www")
         if not os.path.isdir(www_dir):
@@ -784,7 +791,7 @@ def _remove_shared_files(hass: HomeAssistant) -> None:
 
 
 async def _async_remove_entry_artifacts(
-    hass: HomeAssistant, entry: ConfigEntry, *, last: bool
+    hass: HomeAssistant, entry: PhantomChessConfigEntry, *, last: bool
 ) -> None:
     """Delete this board's review cache and, for the last board, shared files."""
     from homeassistant.helpers.storage import Store
@@ -832,8 +839,8 @@ async def async_remove_entry(
 
 
 def _user_facing(
-    handler: Callable[[ServiceCall], Awaitable[Any]],
-) -> Callable[[ServiceCall], Awaitable[Any]]:
+    handler: Callable[[ServiceCall], Awaitable[ServiceResponse]],
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
     """Translate expected failures into errors the UI can show.
 
     Coordinator methods signal refusals ("a game is already running", "the
@@ -845,7 +852,7 @@ def _user_facing(
     """
 
     @functools.wraps(handler)
-    async def wrapped(call: ServiceCall) -> Any:
+    async def wrapped(call: ServiceCall) -> ServiceResponse:
         try:
             return await handler(call)
         except HomeAssistantError:
@@ -870,7 +877,7 @@ def _async_register_service(
     hass: HomeAssistant,
     domain: str,
     service: str,
-    handler: Callable[[ServiceCall], Awaitable[Any]],
+    handler: Callable[[ServiceCall], Awaitable[ServiceResponse]],
     **kwargs: Any,
 ) -> None:
     """Register a service whose expected failures are user-facing."""
@@ -955,21 +962,21 @@ def _register_services(hass: HomeAssistant) -> None:
             },
         )
 
-    async def handle_save_game(call: ServiceCall) -> dict:
+    async def handle_save_game(call: ServiceCall) -> dict[str, Any]:
         return await _get_coordinator(call).async_save_game()
 
     async def handle_resume_game(call: ServiceCall) -> None:
         await _get_coordinator(call).async_resume_game(call.data.get("game_id"))
 
-    async def handle_check_engine(call: ServiceCall) -> dict:
+    async def handle_check_engine(call: ServiceCall) -> dict[str, Any]:
         return await _get_coordinator(call).async_check_engine()
 
-    async def handle_start_puzzle(call: ServiceCall) -> dict:
+    async def handle_start_puzzle(call: ServiceCall) -> dict[str, Any]:
         return await _get_coordinator(call).async_start_puzzle(
             call.data.get("source", "daily"), call.data.get("difficulty"), call.data.get("theme"),
         )
 
-    async def handle_start_drill(call: ServiceCall) -> dict:
+    async def handle_start_drill(call: ServiceCall) -> dict[str, Any]:
         return await _get_coordinator(call).async_start_drill(call.data["drill"])
 
     _async_register_service(
@@ -981,10 +988,10 @@ def _register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.OPTIONAL,
     )
 
-    async def handle_puzzle_hint(call: ServiceCall) -> dict:
+    async def handle_puzzle_hint(call: ServiceCall) -> dict[str, Any]:
         return await _get_coordinator(call).async_puzzle_hint()
 
-    async def handle_puzzle_show_solution(call: ServiceCall) -> dict:
+    async def handle_puzzle_show_solution(call: ServiceCall) -> dict[str, Any]:
         return await _get_coordinator(call).async_puzzle_show_solution()
 
     _async_register_service(
@@ -1014,7 +1021,7 @@ def _register_services(hass: HomeAssistant) -> None:
         supports_response=SupportsResponse.OPTIONAL,
     )
 
-    async def handle_game_library(call: ServiceCall) -> dict:
+    async def handle_game_library(call: ServiceCall) -> dict[str, Any]:
         data = {k: v for k, v in call.data.items() if k not in ("entry_id", "action")}
         return await _get_coordinator(call).async_game_library(call.data.get("action", "list"), **data)
 
@@ -1131,7 +1138,8 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_phantom_start_game(call: ServiceCall) -> None:
         coordinator = _get_coordinator(call)
         await coordinator.async_phantom_start_game(
-            fen=call.data.get("fen"),
+            # The schema supplies a default FEN, so this is always a str.
+            fen=cast(str, call.data.get("fen")),
             side=call.data.get("side", "W"),
             wait_for_running_timeout_s=call.data.get("timeout", 60),
         )

@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .coordinator import PhantomChessCoordinator  # noqa: F401
@@ -47,7 +47,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__.rsplit(".", 1)[0] + ".coordinator")
 
 
-def _load_sculpture_games_blocking(self) -> dict:
+def _load_sculpture_games_blocking(self: PhantomChessCoordinator) -> dict[str, Any]:
     """Read and parse the bundled sculpture move-data file (blocking IO).
 
     Returns the ``games`` mapping: label → {white, black, date, eco,
@@ -58,10 +58,11 @@ def _load_sculpture_games_blocking(self) -> dict:
 
     path = pathlib.Path(__file__).parent / "sculpture_games.json"
     with open(path, encoding="utf-8") as fh:
-        return json.load(fh).get("games", {})
+        games: dict[str, Any] = json.load(fh).get("games", {})
+        return games
 
 
-async def _async_get_sculpture_games(self) -> dict:
+async def _async_get_sculpture_games(self: PhantomChessCoordinator) -> dict[str, Any]:
     """Lazy-load + cache the bundled sculpture move catalog."""
     if self._sculpture_games_cache is None:
         try:
@@ -71,10 +72,14 @@ async def _async_get_sculpture_games(self) -> dict:
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Sculpture: failed to load move catalog: %s", err)
             self._sculpture_games_cache = {}
+    # Every path through the `if` above ends with a non-None assignment,
+    # and the `is None` guard means we already had one otherwise — but
+    # mypy can't trace that across the try/except, so narrow explicitly.
+    assert self._sculpture_games_cache is not None
     return self._sculpture_games_cache
 
 
-async def async_play_selected_sculpture(self) -> None:
+async def async_play_selected_sculpture(self: PhantomChessCoordinator) -> None:
     """Start this mode only when the board and existing session are idle."""
     async with self._local_start_lock:
         self._assert_no_active_game()
@@ -90,7 +95,7 @@ async def async_play_selected_sculpture(self) -> None:
             raise
 
 
-async def _async_play_selected_sculpture(self) -> None:
+async def _async_play_selected_sculpture(self: PhantomChessCoordinator) -> None:
     """Play the selected historic game on the physical board — exactly
     ONE game, driven by the integration, then stop.
 
@@ -217,7 +222,7 @@ async def _async_play_selected_sculpture(self) -> None:
     )
 
 
-async def _sculpture_loop(self, moves: list[str]) -> None:
+async def _sculpture_loop(self: PhantomChessCoordinator, moves: list[str]) -> None:
     """Drive the pre-loaded historic game move-by-move, then stop.
 
     Mirrors ``_ai_vs_ai_loop`` but the move source is the bundled UCI
@@ -325,7 +330,7 @@ async def _sculpture_loop(self, moves: list[str]) -> None:
         self.async_set_updated_data(dict(self._state))
 
 
-async def async_start_sculpture(self) -> None:
+async def async_start_sculpture(self: PhantomChessCoordinator) -> None:
     """Start this mode only when the board and existing session are idle."""
     async with self._local_start_lock:
         self._assert_no_active_game()
@@ -340,7 +345,7 @@ async def async_start_sculpture(self) -> None:
             raise
 
 
-async def _async_start_sculpture(self) -> None:
+async def _async_start_sculpture(self: PhantomChessCoordinator) -> None:
     """Enter sculpture mode (firmware mode 1).
 
     Writes "1" to UUID_SELECT_MODE — the firmware enters playlist-replay
@@ -369,7 +374,7 @@ async def _async_start_sculpture(self) -> None:
 
 
 async def async_start_ai_vs_ai_game(
-    self, white_ai_level: int | None = None, black_ai_level: int | None = None,
+    self: PhantomChessCoordinator, white_ai_level: int | None = None, black_ai_level: int | None = None,
     move_delay_seconds: float = 1.5,
 ) -> None:
     """Serialize spectator activation with every other mode."""
@@ -388,7 +393,7 @@ async def async_start_ai_vs_ai_game(
 
 
 async def _async_start_ai_vs_ai_game(
-    self,
+    self: PhantomChessCoordinator,
     white_ai_level: int | None = None,
     black_ai_level: int | None = None,
     move_delay_seconds: float = 1.5,
@@ -514,7 +519,7 @@ async def _async_start_ai_vs_ai_game(
     )
 
 
-async def _ai_vs_ai_await_reconnect(self, timeout: float = 30.0) -> bool:
+async def _ai_vs_ai_await_reconnect(self: PhantomChessCoordinator, timeout: float = 30.0) -> bool:
     """Block (bounded) until the BLE maintain loop restores the link.
 
     AI-vs-AI pushes a full GAME_START snapshot every ply, keeping the
@@ -547,7 +552,7 @@ async def _ai_vs_ai_await_reconnect(self, timeout: float = 30.0) -> bool:
     return False
 
 
-def _notify_wedge_circuit_breaker(self, loop_label: str) -> None:
+def _notify_wedge_circuit_breaker(self: PhantomChessCoordinator, loop_label: str) -> None:
     """M3: log + raise a persistent notification when a mode loop stops
     after ``PHANTOM_EXEC_FAILURE_LIMIT`` consecutive move-delivery failures.
 
@@ -581,7 +586,7 @@ def _notify_wedge_circuit_breaker(self, loop_label: str) -> None:
         )
 
 
-async def _ai_vs_ai_loop(self) -> None:
+async def _ai_vs_ai_loop(self: PhantomChessCoordinator) -> None:
     """Background loop that plays both sides via local Stockfish.
 
     Honors `self._ai_vs_ai_active` for graceful shutdown via

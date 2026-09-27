@@ -24,7 +24,7 @@ SCHEMA = vol.Schema({
 })
 
 
-async def async_speak(hass: HomeAssistant, data: dict) -> None:
+async def async_speak(hass: HomeAssistant, data: dict[str, Any]) -> None:
     """Reuse the paired Apple TV connection and stream a seekable audio buffer.
 
     pyatv's documented buffer API avoids the HTTP read deadlock in issue 2849.

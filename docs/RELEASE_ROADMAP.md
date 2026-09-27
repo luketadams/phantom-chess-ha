@@ -41,10 +41,10 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 - [x] CHANGELOG: consolidated 0.5.0 section above the beta entries
 - [x] `quality_scale.yaml` re-audited against 0.5 code (0.5.0b8). Findings fixed: repair issues rebuilt (engine, Bluetooth route), all service errors translated, coverage restored above 95 %, dead classic renderer removed, dashboard pause-switch reference fixed. Platinum strict-typing honestly marked todo
 
-### M3.5 — Scope and code quality (decided 2026-09-27) ✓ in progress
-- [x] Puzzles, endgame drills and the local-only analysis option join 0.5.0 (0.5.0b9); qualified in the board session
-- [ ] `coordinator.py` split into session modules, behaviour-free, before strict typing
-- [ ] Strict typing: `mypy --strict` against Home Assistant's types in CI; manifest claims Gold (all Gold rules met)
+### M3.5 — Scope and code quality (decided 2026-09-27) ✓
+- [x] Puzzles, endgame drills and the local-only analysis option join 0.5.0 (0.5.0b9); qualified in the board session (QUALIFICATION.md section F)
+- [x] `coordinator.py` split into session modules (protocol, online_session, local_game, two_player, autoplay, coaching, runtime), behaviour-free (25a8cfe)
+- [x] Strict typing: `mypy --strict` against Home Assistant 2026.9.3's types is the gating `typecheck` job; the manifest claims Platinum (every Bronze–Platinum rule done or exempt)
 
 ### M4 — Hardware qualification (supervised, scripted, ~60–90 min)
 Script: [QUALIFICATION.md](QUALIFICATION.md).

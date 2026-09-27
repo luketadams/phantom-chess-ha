@@ -58,7 +58,9 @@ _LOGGER = logging.getLogger(__name__.rsplit(".", 1)[0] + ".coordinator")
 
 
 async def async_start_game(
-    self, clock_limit_seconds: int = 900, clock_increment_seconds: int = 10,
+    self: PhantomChessCoordinator,
+    clock_limit_seconds: int = 900,
+    clock_increment_seconds: int = 10,
 ) -> None:
     """Serialize online activation with local and two-player starts."""
     if not self._lichess_token:
@@ -78,7 +80,7 @@ async def async_start_game(
 
 
 async def _async_start_online_game(
-    self,
+    self: PhantomChessCoordinator,
     clock_limit_seconds: int = 900,
     clock_increment_seconds: int = 10,
 ) -> None:
@@ -254,7 +256,9 @@ async def _async_start_online_game(
         )
 
 
-def _lichess_task_done_cb(self, task: asyncio.Task) -> None:
+def _lichess_task_done_cb(
+    self: PhantomChessCoordinator, task: "asyncio.Task[None]",
+) -> None:
     """Callback fired when _lichess_task finishes.
 
     Normal exit path: the task completed because the game ended cleanly
@@ -299,7 +303,7 @@ def _lichess_task_done_cb(self, task: asyncio.Task) -> None:
         _LOGGER.exception("Error in _lichess_task done callback: %s", cb_err)
 
 
-async def async_reconcile_lichess_state(self) -> None:
+async def async_reconcile_lichess_state(self: PhantomChessCoordinator) -> None:
     """Query Lichess for current game status and sync local state.
 
     When the stream task has missed a terminal event (BLE storm,
@@ -376,7 +380,7 @@ async def async_reconcile_lichess_state(self) -> None:
     await self._on_game_state(synthesized_event)
 
 
-async def async_resume_from_phone(self) -> None:
+async def async_resume_from_phone(self: PhantomChessCoordinator) -> None:
     """Push the integration's current board state to firmware via
     RESET_DETECTION (opcode 14) so the physical board re-syncs with
     what's actually been played.
@@ -421,7 +425,7 @@ async def async_resume_from_phone(self) -> None:
     _LOGGER.info("resume_from_phone: sync complete")
 
 
-async def async_start_lichess_configured(self) -> None:
+async def async_start_lichess_configured(self: PhantomChessCoordinator) -> None:
     """Start a Lichess game using the clock controls + ai_level +
     player_color that the integration's select/number entities
     currently hold. Replaces the v0.3 script
@@ -433,7 +437,9 @@ async def async_start_lichess_configured(self) -> None:
     )
 
 
-async def _post_resign_once(self, game_id: str) -> tuple[bool, int, str]:
+async def _post_resign_once(
+    self: PhantomChessCoordinator, game_id: str,
+) -> tuple[bool, int, str]:
     """Single best-effort resign POST to Lichess.
 
     Returns ``(ok, status, body)`` — ``status`` is 0 and ``body`` the
@@ -456,7 +462,7 @@ async def _post_resign_once(self, game_id: str) -> tuple[bool, int, str]:
         return False, 0, str(err)
 
 
-def _clear_lichess_game_session(self) -> None:
+def _clear_lichess_game_session(self: PhantomChessCoordinator) -> None:
     """Tear down local Lichess game-session state without awaiting the
     stream's terminal echo.
 
@@ -479,7 +485,7 @@ def _clear_lichess_game_session(self) -> None:
     self._state["lichess_black_clock"] = None
 
 
-async def async_resign(self) -> None:
+async def async_resign(self: PhantomChessCoordinator) -> None:
     """Resign the current game.
 
     Fix B (live 2026-07-08): the old non-200 branch only debug/WARNING
@@ -531,7 +537,9 @@ async def async_resign(self) -> None:
     self.async_set_updated_data(dict(self._state))
 
 
-async def _lichess_stream_loop(self, game_id: str) -> None:
+async def _lichess_stream_loop(
+    self: PhantomChessCoordinator, game_id: str,
+) -> None:
     """Stream Lichess game events and bridge AI moves to the board."""
     url = LICHESS_GAME_STREAM_URL.format(game_id=game_id)
     headers = {"Authorization": f"Bearer {self._lichess_token}"}
@@ -586,7 +594,9 @@ async def _lichess_stream_loop(self, game_id: str) -> None:
             retry_delay = min(retry_delay * 2, 60)
 
 
-async def _handle_lichess_event(self, event: dict[str, Any]) -> None:
+async def _handle_lichess_event(
+    self: PhantomChessCoordinator, event: dict[str, Any],
+) -> None:
     """Dispatch a Lichess ndjson event."""
     etype = event.get("type")
 
@@ -598,7 +608,9 @@ async def _handle_lichess_event(self, event: dict[str, Any]) -> None:
         self._on_game_finish(event)
 
 
-async def _on_game_full(self, event: dict[str, Any]) -> None:
+async def _on_game_full(
+    self: PhantomChessCoordinator, event: dict[str, Any],
+) -> None:
     """First event — tells us which color we're playing.
 
     (Historical aside: earlier iterations parsed `event["white"]["id"]`
@@ -676,7 +688,9 @@ async def _on_game_full(self, event: dict[str, Any]) -> None:
         await self._process_move_list(state["moves"])
 
 
-async def _on_game_state(self, event: dict[str, Any]) -> None:
+async def _on_game_state(
+    self: PhantomChessCoordinator, event: dict[str, Any],
+) -> None:
     """Incremental game state — contains full move list."""
     status = event.get("status", "started")
     moves_str = event.get("moves", "")
@@ -733,7 +747,9 @@ async def _on_game_state(self, event: dict[str, Any]) -> None:
     self.async_set_updated_data(dict(self._state))
 
 
-def _on_game_finish(self, event: dict[str, Any]) -> None:
+def _on_game_finish(
+    self: PhantomChessCoordinator, event: dict[str, Any],
+) -> None:
     status = event.get("status", {})
     name = status.get("name", "") if isinstance(status, dict) else str(status)
     _LOGGER.info("Game finished: %s", name)
@@ -744,7 +760,9 @@ def _on_game_finish(self, event: dict[str, Any]) -> None:
     self.async_set_updated_data(dict(self._state))
 
 
-def _update_clocks_from_event(self, event: dict[str, Any]) -> None:
+def _update_clocks_from_event(
+    self: PhantomChessCoordinator, event: dict[str, Any],
+) -> None:
     """Pull wtime/btime (ms) from a Lichess event into the clock sensors.
 
     Both gameFull and gameState events carry wtime/btime. Initial values
@@ -761,7 +779,9 @@ def _update_clocks_from_event(self, event: dict[str, Any]) -> None:
         self._state["lichess_black_clock"] = int(btime / 1000)
 
 
-async def _process_move_list(self, moves_str: str) -> None:
+async def _process_move_list(
+    self: PhantomChessCoordinator, moves_str: str,
+) -> None:
     """Parse the full move list from Lichess and process any new moves."""
     if not moves_str:
         return
@@ -865,7 +885,7 @@ async def _process_move_list(self, moves_str: str) -> None:
     self.async_set_updated_data(dict(self._state))
 
 
-async def _drain_physical_move_queue(self) -> None:
+async def _drain_physical_move_queue(self: PhantomChessCoordinator) -> None:
     """Send any queued physical moves to the active game backend.
 
     Post-2026-05-14 audit fix: the queue now holds already-resolved UCI
@@ -884,7 +904,9 @@ async def _drain_physical_move_queue(self) -> None:
             await self._push_move_to_lichess(uci)
 
 
-async def _push_move_to_lichess(self, uci: str) -> None:
+async def _push_move_to_lichess(
+    self: PhantomChessCoordinator, uci: str,
+) -> None:
     """POST a move to the Lichess Board API."""
     if not self._game_id:
         _LOGGER.debug("No active game; discarding move %s", uci)

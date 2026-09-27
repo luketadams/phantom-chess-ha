@@ -45,7 +45,7 @@ _LOGGER = logging.getLogger(__name__.rsplit(".", 1)[0] + ".coordinator")
 
 
 async def _ble_write(
-    self, uuid: str, data: str | bytes, response: bool = True
+    self: PhantomChessCoordinator, uuid: str, data: str | bytes, response: bool = True
 ) -> None:
     """Write to a characteristic.
 
@@ -75,7 +75,7 @@ async def _ble_write(
         raise  # always propagate; caller decides retry policy
 
 
-async def async_debug_ble_write(self, uuid: str, data: str) -> None:
+async def async_debug_ble_write(self: PhantomChessCoordinator, uuid: str, data: str) -> None:
     """Diagnostic — write arbitrary payload to an arbitrary BLE characteristic.
 
     Data is UTF-8 by default. Prefix with "hex:" for raw bytes
@@ -97,7 +97,7 @@ async def async_debug_ble_write(self, uuid: str, data: str) -> None:
         raise
 
 
-def _game_channel_write_diag(self, payload_len: int) -> str:
+def _game_channel_write_diag(self: PhantomChessCoordinator, payload_len: int) -> str:
     """One-line '0.3.2 diag' describing UUID_GAME's write limits.
 
     Best-effort and never raises. Logs the negotiated MTU, the implied
@@ -151,7 +151,7 @@ def _game_channel_write_diag(self, payload_len: int) -> str:
 
 
 def _game_start_length_error(
-    self, err: BaseException, payload_len: int, diag: str
+    self: PhantomChessCoordinator, err: BaseException, payload_len: int, diag: str
 ) -> RuntimeError:
     """Build an actionable RuntimeError from a GAME_START 0x0D rejection.
 
@@ -180,7 +180,7 @@ def _game_start_length_error(
     return RuntimeError(msg)
 
 
-async def async_diagnose_game_start(self, experimental: bool = False) -> str:
+async def async_diagnose_game_start(self: PhantomChessCoordinator, experimental: bool = False) -> str:
     """Operator-invoked fw0.3.2 GAME_START diagnostic.
 
     Step 1 (always, non-destructive): log the MTU/char diag, then probe
@@ -235,7 +235,7 @@ async def async_diagnose_game_start(self, experimental: bool = False) -> str:
     return summary
 
 
-async def _diagnose_game_start_variants(self) -> list[str]:
+async def _diagnose_game_start_variants(self: PhantomChessCoordinator) -> list[str]:
     """EXPERIMENTAL: A/B GAME_START write variants on the live board.
 
     Ordered; stops at the first variant the firmware accepts. A successful
@@ -282,7 +282,7 @@ async def _diagnose_game_start_variants(self) -> list[str]:
     return out
 
 
-async def _phantom_send_game_start(self, fen: str = chess.STARTING_FEN, side: str = "W") -> None:
+async def _phantom_send_game_start(self: PhantomChessCoordinator, fen: str = chess.STARTING_FEN, side: str = "W") -> None:
     """Send GameOPCode 0 (gameStart) with column-major matrix to UUID_GAME.
 
     Payload is opcode 0 + the 100-char column-major matrix + ",<side>",
@@ -314,7 +314,7 @@ async def _phantom_send_game_start(self, fen: str = chess.STARTING_FEN, side: st
     self._set_route_issue(rejected=False)
 
 
-def _set_route_issue(self, *, rejected: bool) -> None:
+def _set_route_issue(self: PhantomChessCoordinator, *, rejected: bool) -> None:
     """Raise or clear the Bluetooth-route repair issue; never breaks play."""
     try:
         if rejected:
@@ -327,7 +327,7 @@ def _set_route_issue(self, *, rejected: bool) -> None:
         _LOGGER.debug("Could not update the Bluetooth route repair issue", exc_info=True)
 
 
-async def _phantom_send_side(self, side_value: str) -> None:
+async def _phantom_send_side(self: PhantomChessCoordinator, side_value: str) -> None:
     """Send GameOPCode 10 (side) with payload '0', '1', or '2'.
 
     Per EFRAIN_GAMEPLAY_DOC and XOUXOU_PROTOCOL, SIDE encodes *who moves
@@ -343,14 +343,14 @@ async def _phantom_send_side(self, side_value: str) -> None:
     await self._ble_write(GAME_CHANNEL, payload)
 
 
-async def _phantom_send_movement_verify(self, value: str = "1") -> None:
+async def _phantom_send_movement_verify(self: PhantomChessCoordinator, value: str = "1") -> None:
     """Send GameOPCode 3 (movementVerify) — confirms a human move was detected."""
     GAME_CHANNEL = UUID_GAME
     payload = bytes([0x03]) + value.encode("utf-8")
     await self._ble_write(GAME_CHANNEL, payload)
 
 
-async def _phantom_send_game_end(self) -> None:
+async def _phantom_send_game_end(self: PhantomChessCoordinator) -> None:
     """Send GameOPCode 1 (gameEnd) — drops firmware to HOME state.
 
     No payload. Used as a precondition before the first GAME_START in a
@@ -363,7 +363,7 @@ async def _phantom_send_game_end(self) -> None:
 
 
 async def _phantom_send_game_assistance(
-    self,
+    self: PhantomChessCoordinator,
     auto_castling: bool = True,
     auto_en_passant: bool = True,
     auto_snap_to_center: bool = True,
@@ -424,7 +424,7 @@ async def _phantom_send_game_assistance(
     await self._ble_write(GAME_CHANNEL, payload)
 
 
-async def _phantom_send_check_sound(self, sound_type: str = "1") -> None:
+async def _phantom_send_check_sound(self: PhantomChessCoordinator, sound_type: str = "1") -> None:
     """Send GameOPCode 9 (CHECK_SOUND) — fires the firmware's native sound effect.
 
     Data: "1" for check, "2" for checkmate.
@@ -439,7 +439,7 @@ async def _phantom_send_check_sound(self, sound_type: str = "1") -> None:
     await self._ble_write(GAME_CHANNEL, payload)
 
 
-async def _phantom_send_reset_detection(self, fen: str) -> None:
+async def _phantom_send_reset_detection(self: PhantomChessCoordinator, fen: str) -> None:
     """Send GameOPCode 14 (RESET_DETECTION) — resync firmware's expected matrix to a FEN.
 
     Unlike GAME_END + GAME_START, this updates the firmware's *expected* position
@@ -456,7 +456,7 @@ async def _phantom_send_reset_detection(self, fen: str) -> None:
     await self._ble_write(GAME_CHANNEL, payload)
 
 
-async def _phantom_drop_to_home(self, timeout: float = 30.0) -> None:
+async def _phantom_drop_to_home(self: PhantomChessCoordinator, timeout: float = 30.0) -> None:
     """Send GAME_END and block until firmware reports HOME mode.
 
     Required as a precondition before the first GAME_START in a BLE
@@ -484,7 +484,7 @@ async def _phantom_drop_to_home(self, timeout: float = 30.0) -> None:
 
 
 async def _phantom_execute_position(
-    self, fen: str, side: str = "B", timeout_s: float = 30.0,
+    self: PhantomChessCoordinator, fen: str, side: str = "B", timeout_s: float = 30.0,
     side_opcode: str = "2", select_chess_mode: bool = False,
 ) -> bool:
     """Own the completion channel for one physical operation at a time."""
@@ -509,7 +509,7 @@ async def _phantom_execute_position(
 
 
 async def _execute_position_unlocked(
-    self,
+    self: PhantomChessCoordinator,
     fen: str,
     side: str = "B",
     timeout_s: float = 30.0,
@@ -630,7 +630,7 @@ async def _execute_position_unlocked(
 
 
 async def async_move_piece(
-    self,
+    self: PhantomChessCoordinator,
     from_square: str,
     to_square: str,
     capture: bool = False,
@@ -718,7 +718,7 @@ async def async_move_piece(
         )
 
 
-async def _phantom_send_ai_move(self, uci: str, piece: str = "E") -> None:
+async def _phantom_send_ai_move(self: PhantomChessCoordinator, uci: str, piece: str = "E") -> None:
     """Send GameOPCode 2 (MOVEMENT) with M-format payload — the explicit
     AI-move-during-active-game path.
 
@@ -760,7 +760,7 @@ async def _phantom_send_ai_move(self, uci: str, piece: str = "E") -> None:
     await self._ble_write(GAME_CHANNEL, payload)
 
 
-def _fw_at_least(self, target: tuple[int, ...]) -> bool:
+def _fw_at_least(self: PhantomChessCoordinator, target: tuple[int, ...]) -> bool:
     """True when the board's reported firmware_version >= ``target``.
 
     Parses the leading dotted-int run of ``firmware_version`` (e.g.
@@ -784,13 +784,13 @@ def _fw_at_least(self, target: tuple[int, ...]) -> bool:
     return tuple(nums) >= target
 
 
-async def _phantom_select_chess_play_mode(self) -> None:
+async def _phantom_select_chess_play_mode(self: PhantomChessCoordinator) -> None:
     """Set the firmware to chess-play mode (mode 2) via UUID_SELECT_MODE."""
     await self._ble_write(UUID_SELECT_MODE, b"2")
 
 
 async def async_phantom_start_game(
-    self,
+    self: PhantomChessCoordinator,
     fen: str = chess.STARTING_FEN,
     side: str = "W",
     wait_for_running_timeout_s: float = 30.0,
@@ -852,7 +852,7 @@ async def async_phantom_start_game(
     )
 
 
-async def async_phantom_apply_ai_move(self, uci: str) -> bool:
+async def async_phantom_apply_ai_move(self: PhantomChessCoordinator, uci: str) -> bool:
     """Execute one target position; commit local moves only after confirmation.
 
     A transport error can arrive after the board accepted a command. Never

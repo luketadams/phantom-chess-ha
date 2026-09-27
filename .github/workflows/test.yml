@@ -109,40 +109,11 @@ jobs:
           coverage report
 
   typecheck:
-    # Platinum quality scale prep — mypy must be clean.
-    # Gating as of alpha25; prior alphas ran this as continue-on-error
-    # while we drove the baseline from 17 errors down to 0.
+    # Platinum strict-typing: mypy --strict against Home Assistant's real
+    # installed types (no --ignore-missing-imports). Gating. Kept under the
+    # job id `typecheck` so main's required status check is unchanged; it
+    # replaced the earlier non-strict pass (HA treated as Any) on 2026-09-27.
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Install mypy + deps
-        # mypy pinned (Fable5 deep dive A1, 2026-07-06) — latest verified
-        # release as of that date, no HA scaffolding involved so no
-        # transitive-pin conflict to worry about here.
-        run: |
-          python -m pip install --upgrade pip
-          pip install mypy==2.1.0 'chess>=1.10.0,<2.0' pyyaml aiohttp
-      - name: Run mypy
-        # --ignore-missing-imports because we don't install HA core
-        # here (way too heavy for a type check pass); HA's own types
-        # show up via stubs in pytest-homeassistant-custom-component
-        # if needed later. With those stubs unavailable, mypy treats
-        # `homeassistant.*` as Any — still catches our own type bugs.
-        run: |
-          PYTHONPATH=. python -m mypy --ignore-missing-imports \
-            --no-incremental \
-            custom_components/phantom_chess/
-
-  typecheck-strict:
-    # Strict mypy against HA's real installed types (no
-    # --ignore-missing-imports). continue-on-error: true for now —
-    # becomes blocking once strict typing lands (Phase 2).
-    runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.14
@@ -150,17 +121,16 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install HA test scaffolding + mypy
-        # Same pins as the ha-tests matrix row for HA 2026.9.3, plus
-        # mypy==2.1.0 (same pin as the typecheck job) — installing the
-        # real homeassistant package gives mypy actual types to check
-        # against instead of treating homeassistant.* as Any.
+        # Same pins as the ha-tests matrix row for HA 2026.9.3, plus mypy
+        # (pinned since the Fable5 deep dive A1, 2026-07-06) and the PyYAML
+        # stubs dashboard_provision.py needs.
         run: |
           python -m pip install --upgrade pip
           pip install homeassistant==2026.9.3 \
                       pytest==9.0.3 \
                       pytest-homeassistant-custom-component==0.13.366 \
                       aiousbwatcher==1.1.2 serialx==1.8.2 'chess>=1.10.0,<2.0' \
-                      mypy==2.1.0
+                      mypy==2.1.0 types-PyYAML==6.0.12.20260906
       - name: Run mypy --strict
         run: |
           PYTHONPATH=. python -m mypy --strict --no-incremental \

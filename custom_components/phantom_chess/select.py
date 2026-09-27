@@ -1,13 +1,14 @@
 """Select entities for Phantom Chess Board."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import json
 from pathlib import Path
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -26,6 +27,9 @@ from .const import (
     SETUP_MODE_OPTIONS,
 )
 from .coordinator import PhantomChessCoordinator
+
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
 
 # No BLE writes on any select-platform entity — every option stored
 # here is pure-local UI / game-start config (AI level, player color,
@@ -70,7 +74,7 @@ def _load_sculpture_metadata() -> dict[str, dict[str, str]]:
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: PhantomChessCoordinator = entry.runtime_data
@@ -104,7 +108,7 @@ class PhantomBaseSelect(CoordinatorEntity[PhantomChessCoordinator], SelectEntity
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
         unique_suffix: str,
@@ -152,7 +156,13 @@ class PhantomAiLevelSelect(_PhantomRestorableSelect):
     _attr_icon = "mdi:robot"
     _attr_options = ["1", "2", "3", "4", "5", "6", "7", "8"]
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_AI_LEVEL)
 
     @property
@@ -170,7 +180,13 @@ class PhantomPlayerColorSelect(_PhantomRestorableSelect):
     _attr_icon = "mdi:chess-pawn"
     _attr_options = ["white", "black", "random"]
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_PLAYER_COLOR)
 
     @property
@@ -198,7 +214,13 @@ class PhantomSetupModeSelect(_PhantomRestorableSelect):
     _attr_options = SETUP_MODE_OPTIONS
     _coord_attr = "setup_mode"
 
-    def __init__(self, coord, entry, address, name):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_SETUP_MODE)
 
     @property
@@ -219,7 +241,14 @@ class PhantomSculptureGameSelect(_PhantomRestorableSelect):
     # picks a different game — keep it out of the recorder DB.
     _unrecorded_attributes = frozenset({"significance"})
 
-    def __init__(self, coord, entry, address, name, metadata=None):
+    def __init__(
+        self,
+        coord: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        name: str,
+        metadata: dict[str, dict[str, str]] | None = None,
+    ) -> None:
         super().__init__(coord, entry, address, name, ENTITY_SCULPTURE_GAME)
         # label → {white, black, date, eco, result, site, significance}
         self._metadata: dict[str, dict[str, str]] = metadata or {}

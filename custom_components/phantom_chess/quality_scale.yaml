@@ -4,8 +4,9 @@
 # Checklist: https://developers.home-assistant.io/docs/core/integration-quality-scale/checklist
 #
 # Re-audited against the 0.5.0 code (2026-09-27). manifest.json claims
-# "silver". Every Bronze, Silver and Gold rule below is done or exempt;
-# Platinum strict-typing is not claimed (see its comment).
+# "platinum": every Bronze, Silver, Gold and Platinum rule below is done or
+# exempt. Platinum rules re-checked against the current rule pages
+# (async-dependency, inject-websession, strict-typing) on 2026-09-27.
 
 rules:
   # ── Bronze ─────────────────────────────────────────────────────────────
@@ -309,8 +310,11 @@ rules:
       (async_get_clientsession); the integration never creates its own.
 
   strict-typing:
-    status: todo
+    status: done
     comment: |
-      mypy passes in CI in default mode with --ignore-missing-imports (HA
-      core is not installed in that job). The rule requires a strict mypy
-      pass against HA's types, which has not been done.
+      The gating CI `typecheck` job runs mypy --strict against Home
+      Assistant 2026.9.3's installed types, with no --ignore-missing-imports.
+      The dependencies ship py.typed (python-chess; bleak via HA). The typed
+      PhantomChessConfigEntry alias (runtime-data) is used for every entry
+      the integration handles. The few remaining type: ignore comments each
+      carry a specific error code and a stated reason.

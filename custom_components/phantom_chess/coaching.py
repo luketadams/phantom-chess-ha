@@ -40,7 +40,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__.rsplit(".", 1)[0] + ".coordinator")
 
 
-def _build_move_speech(self, mv: chess.Move) -> str:
+def _build_move_speech(self: PhantomChessCoordinator, mv: chess.Move) -> str:
     """Describe a move in natural English. Call BEFORE pushing the move
     (uses self._board's pre-move state to detect capture / castle / piece type).
     Returns '' if move is malformed.
@@ -58,7 +58,7 @@ def _build_move_speech(self, mv: chess.Move) -> str:
     return f"{side} {piece_name} {verb} {to_sq}"
 
 
-def _post_move_event_speech(self) -> str:
+def _post_move_event_speech(self: PhantomChessCoordinator) -> str:
     """Describe post-move events (check/mate/stalemate). Call AFTER push.
     Returns '' if none apply. self._board.turn is the side NOW to move
     (i.e. the side whose king might be in check)."""
@@ -73,7 +73,7 @@ def _post_move_event_speech(self) -> str:
     return ""
 
 
-async def _announce_via_tts(self, message: str) -> None:
+async def _announce_via_tts(self: PhantomChessCoordinator, message: str) -> None:
     """Emit the announcement event and deliver configured speech.
 
     Events include voice-enabled and managed-delivery flags so forwarding
@@ -180,7 +180,7 @@ async def _announce_via_tts(self, message: str) -> None:
             self.async_set_updated_data(dict(self._state))
 
 
-def _should_announce_active_game(self) -> bool:
+def _should_announce_active_game(self: PhantomChessCoordinator) -> bool:
     """True if we're in an active Lichess or local Stockfish game.
     Sculpture playback has its own TTS path and shouldn't double-announce."""
     # Sculpture playback drives the board through STATUS_PLAYING too (so
@@ -194,7 +194,7 @@ def _should_announce_active_game(self) -> bool:
     return self._state.get("game_status") in (STATUS_PLAYING, STATUS_CHECK)
 
 
-def _record_history_stub(self, move: chess.Move, mover_color: chess.Color) -> int:
+def _record_history_stub(self: PhantomChessCoordinator, move: chess.Move, mover_color: chess.Color) -> int:
     """Append a placeholder entry to move_history_moves; return its index.
 
     The placeholder shows "unknown" classification until the async
@@ -229,7 +229,7 @@ def _record_history_stub(self, move: chess.Move, mover_color: chess.Color) -> in
     return len(new_history) - 1
 
 
-async def _analyze_starting_position(self) -> None:
+async def _analyze_starting_position(self: PhantomChessCoordinator) -> None:
     """Fetch initial eval + opening name for a brand-new game."""
     if self._analysis_client is None:
         return
@@ -264,7 +264,7 @@ async def _analyze_starting_position(self) -> None:
 
 
 async def _analyze_move(
-    self,
+    self: PhantomChessCoordinator,
     ply_index: int,
     board_before: chess.Board,
     board_after: chess.Board,
@@ -420,7 +420,7 @@ async def _analyze_move(
 
 
 async def _maybe_announce_classification(
-    self, classification: str, cpl: int, motif: str,
+    self: PhantomChessCoordinator, classification: str, cpl: int, motif: str,
     mover_is_white: bool = True, you_case: bool = True,
 ) -> None:
     """TTS for move quality.
@@ -437,7 +437,7 @@ async def _maybe_announce_classification(
     """
     if (puzzle := getattr(self, "_puzzle", None)) is not None and puzzle.status == "active":
         return  # puzzle mode gives its own right/wrong feedback
-    from .lichess_analysis import (
+    from .const import (
         CLASSIFICATION_BEST, CLASSIFICATION_GOOD, CLASSIFICATION_EXCELLENT,
         CLASSIFICATION_BLUNDER, CLASSIFICATION_MISTAKE,
         CLASSIFICATION_INACCURACY,
@@ -485,7 +485,7 @@ async def _maybe_announce_classification(
         await self._announce_via_tts(msg)
 
 
-async def _build_post_game_review(self) -> None:
+async def _build_post_game_review(self: PhantomChessCoordinator) -> None:
     """Post-game review payload: top 3 mistakes by the user's color,
     plus accuracy for both sides. Called when the game ends."""
     try:
@@ -544,7 +544,7 @@ async def _build_post_game_review(self) -> None:
         _LOGGER.debug("Post-game review build failed: %s", err)
 
 
-async def async_dismiss_review(self) -> None:
+async def async_dismiss_review(self: PhantomChessCoordinator) -> None:
     """Return-to-menu service.
 
     Clears the lichess_active and lichess_review_ready flags, cancels
@@ -571,7 +571,7 @@ async def async_dismiss_review(self) -> None:
     self.async_set_updated_data(dict(self._state))
 
 
-async def async_request_hint(self) -> None:
+async def async_request_hint(self: PhantomChessCoordinator) -> None:
     """Refresh the engine recommendation for the current position.
 
     Service handler for phantom_chess.request_hint. The dashboard's Hint

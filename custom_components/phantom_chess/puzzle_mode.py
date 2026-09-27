@@ -18,11 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import chess
 
 from .puzzles import DIFFICULTIES, Puzzle, PuzzleError, PuzzleSession
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +39,7 @@ _COLOR_NAME = {chess.WHITE: "White", chess.BLACK: "Black"}
 class PuzzleModeMixin:
     """Mixed into PhantomChessCoordinator; relies on its local-game machinery."""
 
+    hass: HomeAssistant
     _puzzle: PuzzleSession | None
     _state: dict[str, Any]
     _board: chess.Board
@@ -53,7 +57,7 @@ class PuzzleModeMixin:
 
     # ── fetching ────────────────────────────────────────────────────────
 
-    async def _fetch_puzzle(self, source: str, difficulty: str | None, theme: str | None) -> dict:
+    async def _fetch_puzzle(self, source: str, difficulty: str | None, theme: str | None) -> dict[str, Any]:
         import aiohttp
         from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -70,7 +74,7 @@ class PuzzleModeMixin:
             url = NEXT_URL
         else:
             raise ValueError(f"Unknown puzzle source {source!r}")
-        session = async_get_clientsession(self.hass)  # type: ignore[attr-defined]
+        session = async_get_clientsession(self.hass)
         try:
             async with session.get(
                 url, params=params, headers={"Accept": "application/json"},
@@ -82,7 +86,7 @@ class PuzzleModeMixin:
                     raise ValueError(f"Lichess has no puzzles for the theme {theme!r}")
                 if resp.status != 200:
                     raise RuntimeError(f"Lichess did not return a puzzle (HTTP {resp.status}).")
-                return await resp.json()
+                return cast(dict[str, Any], await resp.json())
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise RuntimeError(f"Could not reach Lichess for a puzzle: {err}") from err
 
@@ -255,6 +259,6 @@ class PuzzleModeMixin:
         self.async_set_updated_data(dict(self._state))  # type: ignore[attr-defined]
 
     def _speak(self, message: str) -> None:
-        self.hass.async_create_task(  # type: ignore[attr-defined]
+        self.hass.async_create_task(
             self._announce_via_tts(message), name="phantom_chess_puzzle_speech",  # type: ignore[attr-defined]
         )

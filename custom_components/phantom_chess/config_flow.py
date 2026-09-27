@@ -1,9 +1,12 @@
 """Config flow for the Phantom Chess Board integration."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import asyncio
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any
 
 import aiohttp
@@ -32,6 +35,9 @@ from .const import (
     LICHESS_ACCOUNT_URL,
 )
 
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
+
 _LOGGER = logging.getLogger(__name__)
 
 LICHESS_TOKEN_URL = "https://lichess.org/account/oauth/token"
@@ -59,12 +65,12 @@ def _normalize_ble_address(raw: str | None) -> str | None:
     return cleaned.upper()
 
 
-class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
+class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the config flow for Phantom Chess Board.
 
-    `domain=DOMAIN` is HA's metaclass-registration pattern; mypy can't
-    see through `ConfigFlow.__init_subclass__` so it flags the kwarg.
-    Suppressed via type: ignore — pattern is documented in HA core.
+    `domain=DOMAIN` is HA's metaclass-registration pattern. HA 2026.9.3's
+    `ConfigFlow.__init_subclass__` is now typed to accept it, so no
+    `type: ignore` is needed here any more.
     """
 
     # VERSION 4 (2026-05-24): v3 had a priority bug in the "both lowercase
@@ -118,6 +124,10 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
             # 2026-05-25 after the clean-install validation exposed it.
             return await self.async_step_lichess_token()
 
+        # Only reachable via async_step_bluetooth, which sets both fields
+        # before calling this step.
+        assert self._discovered_name is not None
+        assert self._discovered_address is not None
         return self.async_show_form(
             step_id="bluetooth_confirm",
             description_placeholders={
@@ -290,7 +300,8 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data.get("username")
+                    username: str | None = data.get("username")
+                    return username
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             # C7: a slow/unreachable Lichess (or a total-timeout hit on the
             # ClientTimeout above) raises asyncio.TimeoutError, not a
@@ -352,7 +363,7 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
             },
         )
 
-    def _get_reauth_entry(self) -> ConfigEntry | None:
+    def _get_reauth_entry(self) -> ConfigEntry | None:  # type: ignore[override]  # HA's own ConfigFlow now defines this name too, but ours intentionally returns None instead of raising (see the "Fall through" handling below)
         """Look up the ConfigEntry the reauth flow is targeting."""
         # HA stores the source entry_id in context['entry_id'] during reauth.
         entry_id = self.context.get("entry_id")
@@ -432,7 +443,7 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
             },
         )
 
-    def _get_reconfigure_entry(self) -> ConfigEntry | None:
+    def _get_reconfigure_entry(self) -> ConfigEntry | None:  # type: ignore[override]  # see _get_reauth_entry above — same intentional None-returning shadow of HA's ConfigFlow method
         """Look up the ConfigEntry the reconfigure flow is targeting.
 
         HA's framework stores the source entry_id in context['entry_id']
@@ -449,7 +460,7 @@ class PhantomChessConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-ar
     @staticmethod
     @callback
     def async_get_options_flow(
-        config_entry: ConfigEntry,
+        config_entry: PhantomChessConfigEntry,
     ) -> PhantomChessOptionsFlow:
         # config_entry is wired automatically onto the returned instance
         # by the HA framework via the OptionsFlow.config_entry property.
@@ -480,7 +491,7 @@ class PhantomChessOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current = self.config_entry.options or {}
+        current: Mapping[str, Any] = self.config_entry.options or {}
         schema = vol.Schema(
             {
                 vol.Optional("homepod_speech", default=bool(current.get("homepod_speech", False))): bool,

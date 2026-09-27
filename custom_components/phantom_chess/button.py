@@ -10,18 +10,21 @@ and `phantom_chess.start_game` services, surfaced as dashboard tiles in
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import chess
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_BLE_ADDRESS, CONF_DEVICE_NAME, DOMAIN
 from .coordinator import PhantomChessCoordinator
+
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +36,7 @@ PARALLEL_UPDATES = 1
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: PhantomChessConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: PhantomChessCoordinator = entry.runtime_data
@@ -54,7 +57,7 @@ class _PhantomBaseButton(CoordinatorEntity[PhantomChessCoordinator], ButtonEntit
     def __init__(
         self,
         coordinator: PhantomChessCoordinator,
-        entry: ConfigEntry,
+        entry: PhantomChessConfigEntry,
         address: str,
         device_name: str,
         unique_suffix: str,
@@ -103,7 +106,13 @@ class PhantomStartGameButton(_PhantomBaseButton):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator, entry, address, device_name) -> None:
+    def __init__(
+        self,
+        coordinator: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        device_name: str,
+    ) -> None:
         super().__init__(coordinator, entry, address, device_name, "start_game_button")
 
     async def async_press(self) -> None:
@@ -147,7 +156,13 @@ class PhantomMovementVerifyButton(_PhantomBaseButton):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False  # diagnostic; off by default
 
-    def __init__(self, coordinator, entry, address, device_name) -> None:
+    def __init__(
+        self,
+        coordinator: PhantomChessCoordinator,
+        entry: PhantomChessConfigEntry,
+        address: str,
+        device_name: str,
+    ) -> None:
         super().__init__(coordinator, entry, address, device_name, "movement_verify_button")
 
     async def async_press(self) -> None:

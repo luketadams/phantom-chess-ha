@@ -9,6 +9,8 @@ sidebar registration are idempotent across entry reloads.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import asyncio
 import json
 import logging
@@ -21,7 +23,6 @@ import yaml
 from homeassistant.components import frontend
 from homeassistant.components.lovelace import dashboard as ll_dashboard
 from homeassistant.components.lovelace.const import (
-    CONF_ICON,
     CONF_REQUIRE_ADMIN,
     CONF_SHOW_IN_SIDEBAR,
     CONF_TITLE,
@@ -29,12 +30,15 @@ from homeassistant.components.lovelace.const import (
     LOVELACE_DATA,
     MODE_STORAGE,
 )
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_ICON
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
 from .const import CONF_BLE_ADDRESS, DOMAIN
+
+if TYPE_CHECKING:
+    from . import PhantomChessConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -193,14 +197,18 @@ async def _try_register_via_collection(
         return False
 
 
-async def _async_load_dashboards_store(hass: HomeAssistant) -> tuple[Store, list[dict]]:
+async def _async_load_dashboards_store(
+    hass: HomeAssistant,
+) -> tuple[Store[dict[str, Any]], list[dict[str, Any]]]:
     """Load the persistent lovelace_dashboards Store contents.
 
     Returns the Store handle plus the current items list. The items list is
     a list of dashboard-row dicts matching what
     ``DashboardsCollection.async_create_item`` would persist.
     """
-    store: Store = Store(hass, DASHBOARDS_STORAGE_VERSION, DASHBOARDS_STORAGE_KEY)
+    store: Store[dict[str, Any]] = Store(
+        hass, DASHBOARDS_STORAGE_VERSION, DASHBOARDS_STORAGE_KEY
+    )
     data = await store.async_load() or {}
     # DictStorageCollection stores rows under "items" as a list of dicts.
     items = list(data.get("items", []))
@@ -208,7 +216,7 @@ async def _async_load_dashboards_store(hass: HomeAssistant) -> tuple[Store, list
 
 
 async def async_provision_dashboard(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: PhantomChessConfigEntry
 ) -> None:
     """Create / refresh the Phantom Chess dashboard for this config entry.
 

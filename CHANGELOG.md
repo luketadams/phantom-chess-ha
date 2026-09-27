@@ -44,7 +44,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Verified
 
-- Full suite on Home Assistant 2026.2.3 and 2026.9.3; line coverage above 95 %, enforced in CI (Silver quality scale).
+- Full suite on Home Assistant 2026.2.3 and 2026.9.3; line coverage above 95 %, enforced in CI.
+- `mypy --strict` against Home Assistant's own types, gating in CI. The manifest now claims the Platinum quality scale; every Bronze, Silver, Gold and Platinum rule is done or exempt (`quality_scale.yaml`).
+- The coordinator is split into session modules (protocol, online play, local game, two-player, autoplay, coaching) with no behaviour change.
 - Fresh install, engine install on 64-bit ARM, removal, and upgrade from 0.4.0-beta4 in Home Assistant 2026.9.3 containers.
 
 ## [0.5.0b7] — 2026-09-05

@@ -31,7 +31,7 @@ def positions(game: SavedGame, limit: int | None = None) -> list[chess.Board]:
     return result
 
 
-def terminal_evaluation(board: chess.Board) -> dict | None:
+def terminal_evaluation(board: chess.Board) -> dict[str, Any] | None:
     # claimable draws are not automatically final. Repetition is handled by
     # the full saved move history when appropriate, not a FEN-only inference.
     outcome = board.outcome(claim_draw=False)
@@ -42,7 +42,7 @@ def terminal_evaluation(board: chess.Board) -> dict | None:
             "mate": None, "depth": None, "pv": [], "source": "rules", "terminal": winner}
 
 
-def evaluation(board: chess.Board, ev: Any) -> dict:
+def evaluation(board: chess.Board, ev: Any) -> dict[str, Any]:
     """Accept real scores and legal PVs only; never turn failure into equality."""
     if ev is None or (type(ev.cp) is not int and type(ev.mate) is not int):
         raise ValueError("Local analysis is unavailable. Check the engine and retry.")
@@ -62,14 +62,14 @@ def evaluation(board: chess.Board, ev: Any) -> dict:
             "source": "stockfish-local", "terminal": None}
 
 
-def win_percent(ev: dict) -> float:
+def win_percent(ev: dict[str, Any]) -> float:
     value = winning_chances(ev["cp"], ev["mate"])
     if value is None:
         raise ValueError("Analysis score is unavailable")
     return value
 
 
-def score_label(ev: dict) -> str:
+def score_label(ev: dict[str, Any]) -> str:
     if ev.get("terminal"):
         return "Draw" if ev["terminal"] == "draw" else f"Checkmate: {ev['terminal'].title()} wins"
     if ev["mate"] is not None:
@@ -77,7 +77,7 @@ def score_label(ev: dict) -> str:
     return f"{ev['cp'] / 100:+.1f}"
 
 
-def move_feedback(board: chess.Board, uci: str, before: dict, after: dict, ply: int) -> dict:
+def move_feedback(board: chess.Board, uci: str, before: dict[str, Any], after: dict[str, Any], ply: int) -> dict[str, Any]:
     move = chess.Move.from_uci(uci)
     white = board.turn == chess.WHITE
     loss = chance_loss(win_percent(before), win_percent(after), white)
@@ -104,12 +104,12 @@ def move_feedback(board: chess.Board, uci: str, before: dict, after: dict, ply: 
 class ReviewManager:
     """One resumable job per board; Store commits precede durable completion."""
 
-    def __init__(self, store: Any, library: GameLibrary, evaluate: Callable,
-                 busy: Callable[[], bool], publish: Callable[[dict], None]) -> None:
+    def __init__(self, store: Any, library: GameLibrary, evaluate: Callable[..., Any],
+                 busy: Callable[[], bool], publish: Callable[[dict[str, Any]], None]) -> None:
         self.store, self.library, self.evaluate = store, library, evaluate
         self.busy, self.publish = busy, publish
-        self.records: dict[str, dict] = {}
-        self.task: asyncio.Task | None = None
+        self.records: dict[str, dict[str, Any]] = {}
+        self.task: asyncio.Task[None] | None = None
         self.current_id: str | None = None
         self.error: str | None = None
 
@@ -167,13 +167,13 @@ class ReviewManager:
             self.error = "Cached analysis could not be read. Reanalyze games; saved moves are intact."
         self._publish()
 
-    def _record(self, game: SavedGame) -> dict:
+    def _record(self, game: SavedGame) -> dict[str, Any]:
         record = self.records.get(game.game_id)
         if record is None or record["fingerprint"] != fingerprint(game):
             return {"fingerprint": fingerprint(game), "evaluations": [], "status": "not_started", "error": None}
         return record
 
-    def summary(self, game_id: str) -> dict:
+    def summary(self, game_id: str) -> dict[str, Any]:
         game = self.library.get(game_id)
         record = self._record(game)
         return {"game_id": game_id, "status": record["status"], "analyzed": max(0, len(record["evaluations"]) - 1),
@@ -183,7 +183,7 @@ class ReviewManager:
         summaries = [self.summary(g["game_id"]) for g in self.library.list() if g["game_id"] in self.records]
         self.publish({"games": summaries, "error": self.error})
 
-    def report(self, game_id: str) -> dict:
+    def report(self, game_id: str) -> dict[str, Any]:
         game = self.library.get(game_id)
         record = self._record(game)
         rows = record["evaluations"]
@@ -200,7 +200,7 @@ class ReviewManager:
         await self.store.async_save({"version": REVIEW_VERSION, "reviews": deepcopy(self.records)})
         self.error = None  # The replacement cache is now readable and durable.
 
-    def start(self, game_id: str, *, force: bool = False) -> dict:
+    def start(self, game_id: str, *, force: bool = False) -> dict[str, Any]:
         game = self.library.get(game_id)
         if len(game.moves) > MAX_REVIEW_PLIES:
             raise ValueError(f"Review currently supports games up to {MAX_REVIEW_PLIES} half-moves")
@@ -220,7 +220,7 @@ class ReviewManager:
         self._publish()
         return self.summary(game_id)
 
-    async def _run(self, game: SavedGame, record: dict) -> None:
+    async def _run(self, game: SavedGame, record: dict[str, Any]) -> None:
         try:
             async with asyncio.timeout(1800):
                 for board in positions(game)[len(record["evaluations"]):]:

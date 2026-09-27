@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import chess
 
 from .game_library import GameLibrary, SavedGame
+from .game_review import ReviewManager
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,12 +21,12 @@ class LocalSessionMixin:
     """Coordinator-facing journal adapter. Recovery never runs on startup."""
 
     # The coordinator supplies runtime state and physical/analysis operations.
-    hass: Any
+    hass: HomeAssistant
     _state: dict[str, Any]
     _library: GameLibrary | None
     _saved_game_id: str | None
     _saved_revision: int
-    _journal_tasks: set[asyncio.Task]
+    _journal_tasks: set[asyncio.Task[None]]
     _board: chess.Board
     _our_color: chess.Color | None
     ai_level: int
@@ -37,16 +41,30 @@ class LocalSessionMixin:
     _last_target_fen: str | None
     player_color: str
 
-    def _publish_engine_state(self, value: dict) -> None:
+    if TYPE_CHECKING:
+        # Declared on PhantomChessCoordinator (coordinator.py / protocol.py).
+        # Stubs only, so the calls below type-check without ignores and
+        # without shadowing the real bound methods at runtime.
+        def async_set_updated_data(self, data: dict[str, Any]) -> None: ...
+        async def async_set_pause(self, paused: bool) -> None: ...
+        def _assert_no_active_game(self) -> None: ...
+        async def _phantom_execute_position(
+            self, fen: str, side: str = "B", timeout_s: float = 30.0,
+            side_opcode: str = "2", select_chess_mode: bool = False,
+        ) -> bool: ...
+        def _build_phantom_matrix_from_fen(self, fen: str) -> str: ...
+        async def _replace_local_game_task(self, *, name: str) -> None: ...
+
+    def _publish_engine_state(self, value: dict[str, Any]) -> None:
         self._state["engine_health"] = value
         # Imported here: this module stays free of Home Assistant imports so
         # the minimal (no-HA) test environment can load it.
         from .issues import sync_engine_issue
 
-        sync_engine_issue(self.hass, value)  # type: ignore[attr-defined]
-        self.async_set_updated_data(dict(self._state))  # type: ignore[attr-defined]
+        sync_engine_issue(self.hass, value)
+        self.async_set_updated_data(dict(self._state))
 
-    async def async_check_engine(self) -> dict:
+    async def async_check_engine(self) -> dict[str, Any]:
         if (self._local_game_active or self._game_id or getattr(self, "_two_player_active", False)
                 or getattr(self, "_ai_vs_ai_active", False) or getattr(self, "_sculpture_active", False)):
             raise RuntimeError("End the current game before checking the engine")
@@ -78,9 +96,9 @@ class LocalSessionMixin:
         self._publish_engine_state(value)
         return value
 
-    def _publish_review_state(self, value: dict) -> None:
+    def _publish_review_state(self, value: dict[str, Any]) -> None:
         self._state["game_reviews"] = value
-        self.async_set_updated_data(dict(self._state))  # type: ignore[attr-defined]
+        self.async_set_updated_data(dict(self._state))
 
     def _refresh_library_state(self) -> None:
         library = getattr(self, "_library", None)
@@ -93,7 +111,7 @@ class LocalSessionMixin:
             "Some saved games could not be read. The library is protected against overwriting them."
             if library.invalid_records else None
         )
-        self.async_set_updated_data(dict(self._state))  # type: ignore[attr-defined]
+        self.async_set_updated_data(dict(self._state))
 
     def _capture_checkpoint(self, status: str | None = None) -> SavedGame | None:
         if getattr(self, "_library", None) is None or not getattr(self, "_saved_game_id", None):
@@ -138,7 +156,7 @@ class LocalSessionMixin:
         task = self.hass.async_create_task(self._write_checkpoint(snapshot))
         self._journal_tasks.add(task)
 
-        def done(completed: asyncio.Task) -> None:
+        def done(completed: asyncio.Task[None]) -> None:
             self._journal_tasks.discard(completed)
             if not completed.cancelled():
                 completed.exception()  # Error is already surfaced in state/logs.
@@ -165,7 +183,7 @@ class LocalSessionMixin:
             raise ValueError("There is no active local game to save")
         if self._physical_operation_lock.locked():
             raise RuntimeError("Wait for the board to finish moving before saving")
-        await self.async_set_pause(True)  # type: ignore[attr-defined]
+        await self.async_set_pause(True)
         await self.async_checkpoint("paused")
         return {"game_id": self._saved_game_id, "saved": True}
 
@@ -182,7 +200,7 @@ class LocalSessionMixin:
             if uncertain:
                 self._state["physical_operation"] = "idle"
             try:
-                self._assert_no_active_game()  # type: ignore[attr-defined]
+                self._assert_no_active_game()
             finally:
                 if uncertain:
                     self._state["physical_operation"] = "uncertain"
@@ -195,7 +213,7 @@ class LocalSessionMixin:
                 raise ValueError("This game is finished; open it in Review instead")
             color = chess.WHITE if saved.player_color == "white" else chess.BLACK
             self._phantom_session_initialized = False
-            confirmed = await self._phantom_execute_position(  # type: ignore[attr-defined]
+            confirmed = await self._phantom_execute_position(
                 fen=board.fen(), side="W" if color else "B", timeout_s=60.0,
                 side_opcode="1" if board.turn == color else "2", select_chess_mode=True,
             )
@@ -229,12 +247,12 @@ class LocalSessionMixin:
                 "lichess_black_name": saved.headers.get("Black", "Black"),
             })
             self._last_target_fen = board.board_fen()
-            grid = self._build_phantom_matrix_from_fen(board.fen())  # type: ignore[attr-defined]
+            grid = self._build_phantom_matrix_from_fen(board.fen())
             self._state["piece_grid"] = grid
             self._state["piece_count"] = sum(c != "." for c in grid)
             await self.async_checkpoint("playing")
             if board.turn != color:
-                await self._replace_local_game_task(name="phantom_resumed_ai")  # type: ignore[attr-defined]
+                await self._replace_local_game_task(name="phantom_resumed_ai")
 
     async def async_game_library(self, action: str, **data: Any) -> dict[str, Any]:
         library = getattr(self, "_library", None)
@@ -252,7 +270,7 @@ class LocalSessionMixin:
             raise ValueError("Choose a saved game")
         game = library.get(game_id)
         if action in ("analyze", "reanalyze", "review", "cancel_review"):
-            reviews = getattr(self, "_reviews", None)
+            reviews: ReviewManager | None = getattr(self, "_reviews", None)
             if reviews is None:
                 raise RuntimeError("Game analysis is unavailable")
             if action in ("analyze", "reanalyze"):
