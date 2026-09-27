@@ -1,6 +1,6 @@
 # Phantom Chess — engineering reference
 
-Canonical working knowledge for build **0.5.0b8**, September 2026. Correct or remove stale claims in place. Keep dated observations as evidence; do not retain superseded conclusions as alternate guidance.
+Canonical working knowledge for build **0.5.0b9**, September 2026. Correct or remove stale claims in place. Keep dated observations as evidence; do not retain superseded conclusions as alternate guidance.
 
 **Product goal:** say “I want to play chess,” start reliably, play a physical game, hear spoken commentary on a chosen speaker, and return later without losing the game.
 

@@ -41,6 +41,11 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 - [x] CHANGELOG: consolidated 0.5.0 section above the beta entries
 - [x] `quality_scale.yaml` re-audited against 0.5 code (0.5.0b8). Findings fixed: repair issues rebuilt (engine, Bluetooth route), all service errors translated, coverage restored above 95 %, dead classic renderer removed, dashboard pause-switch reference fixed. Platinum strict-typing honestly marked todo
 
+### M3.5 — Scope and code quality (decided 2026-09-27) ✓ in progress
+- [x] Puzzles, endgame drills and the local-only analysis option join 0.5.0 (0.5.0b9); qualified in the board session
+- [ ] `coordinator.py` split into session modules, behaviour-free, before strict typing
+- [ ] Strict typing: `mypy --strict` against Home Assistant's types in CI; manifest claims Gold (all Gold rules met)
+
 ### M4 — Hardware qualification (supervised, scripted, ~60–90 min)
 Script: [QUALIFICATION.md](QUALIFICATION.md).
 - [ ] Local game with capture, castling, en passant and promotion
@@ -49,6 +54,7 @@ Script: [QUALIFICATION.md](QUALIFICATION.md).
 - [ ] Bluetooth loss mid-game (proxy power pulled); HA restart mid-game → resume
 - [ ] Voice start; speech for moves, check and mate, on the HomePod and on one generic TTS speaker
 - [ ] Lichess online game incl. takeback; two-player recording; one sculpture game
+- [ ] One puzzle including a wrong try (takeback) and a hint; one endgame drill; local-only analysis option on and off
 
 ### M5 — Release
 - [ ] 0.5.0rc1 tag + GitHub prerelease, installed through HACS on the reference box
@@ -59,4 +65,8 @@ Script: [QUALIFICATION.md](QUALIFICATION.md).
 Also done: the engine mirror carries the full GPLv3 Corresponding Source (September 27).
 
 ## Deferred past 0.5.0
-Session-controller extraction from `coordinator.py`; glibc ARM64 engine; explicit local-only analysis policy; puzzles, drills and variations; multi-board dashboard; HACS default-repository submission; open firmware questions for the manufacturer (matrix-mismatch text during valid play, BlueZ incompatibility root cause).
+Variations, annotations and further drill sets; open firmware questions for the manufacturer (draft message prepared; matrix-mismatch text during valid play, reset after game end, BlueZ incompatibility).
+
+## Dropped (2026-09-27)
+- glibc ARM64 engine: no official Stockfish build, and Home Assistant retired the install methods that ran HA on that platform. Such hosts get the "engine not available" repair entry; online play still works.
+- Multi-board dashboard: one board per household in practice; listed under Known limits.
