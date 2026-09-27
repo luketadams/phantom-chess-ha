@@ -6172,12 +6172,11 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
         if (puzzle := getattr(self, "_puzzle", None)) is not None and puzzle.status == "active":
             # The puzzle turn judges the move: a mate solves it, a stalemate
             # or other ending from a wrong move is taken back.
-            # May run on the Bluetooth callback's thread; schedule on the loop.
-            self.hass.loop.call_soon_threadsafe(
-                lambda: self.hass.loop.create_task(
-                    self._replace_local_game_task(name=f"{DOMAIN}_puzzle_judge"),
-                    name=f"{DOMAIN}_puzzle_judge_schedule",
-                )
+            # Runs on the event loop (move frames are marshalled there); this
+            # method is synchronous, so the async judge turn is scheduled.
+            self.hass.loop.create_task(
+                self._replace_local_game_task(name=f"{DOMAIN}_puzzle_judge"),
+                name=f"{DOMAIN}_puzzle_judge_schedule",
             )
             return
         if self._drill_active():
@@ -6216,10 +6215,7 @@ class PhantomChessCoordinator(DrillModeMixin, PuzzleModeMixin, LocalSessionMixin
                 level = DRILL_ENGINE_LEVEL if self._drill_active() else self.ai_level
                 uci = await self._analysis_client.best_move_for_ai_level(board, level)
                 if uci:
-                    _LOGGER.debug(
-                        "AI move via local Stockfish (level %d): %s",
-                        self.ai_level, uci,
-                    )
+                    _LOGGER.debug("AI move via local Stockfish (level %d): %s", level, uci)
                     return uci
             except Exception as sf_err:
                 _LOGGER.warning("Local Stockfish move failed: %s — falling back", sf_err)
