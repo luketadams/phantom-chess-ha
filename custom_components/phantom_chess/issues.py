@@ -37,14 +37,14 @@ def _create(
     placeholders: dict[str, str],
     *,
     translation_key: str | None = None,
-    severity: ir.IssueSeverity = ir.IssueSeverity.WARNING,
+    severity: ir.IssueSeverity | None = None,
 ) -> None:
     ir.async_create_issue(
         hass,
         DOMAIN,
         issue_id,
         is_fixable=False,
-        severity=severity,
+        severity=severity or ir.IssueSeverity.WARNING,
         translation_key=translation_key or issue_id,
         translation_placeholders=placeholders,
         learn_more_url=DOCS_URL,

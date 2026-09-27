@@ -168,7 +168,7 @@ async def test_route_issue_failure_never_breaks_game_start() -> None:
 
 async def test_engine_state_publisher_syncs_issue() -> None:
     coordinator = make_coordinator()
-    with patch("custom_components.phantom_chess.sessions.sync_engine_issue") as synced:
+    with patch("custom_components.phantom_chess.issues.sync_engine_issue") as synced:
         coordinator._publish_engine_state({"status": "ready", "error": None})
     synced.assert_called_once_with(coordinator.hass, {"status": "ready", "error": None})
     assert coordinator._state["engine_health"] == {"status": "ready", "error": None}

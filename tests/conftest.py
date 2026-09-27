@@ -129,8 +129,19 @@ except ImportError:
     _ll_const.MODE_STORAGE = "storage"
     sys.modules["homeassistant.config_entries"].ConfigEntry = type("ConfigEntry", (), {})
     sys.modules["homeassistant.core"].HomeAssistant = type("HomeAssistant", (), {})
-    sys.modules["homeassistant.exceptions"].HomeAssistantError = type(
-        "HomeAssistantError", (Exception,), {}
+    class _StubHomeAssistantError(Exception):
+        """Mirror HA's signature: translation keywords are accepted."""
+
+        def __init__(self, *args, translation_domain=None, translation_key=None,
+                     translation_placeholders=None):
+            super().__init__(*args or (translation_key or "",))
+            self.translation_domain = translation_domain
+            self.translation_key = translation_key
+            self.translation_placeholders = translation_placeholders
+
+    sys.modules["homeassistant.exceptions"].HomeAssistantError = _StubHomeAssistantError
+    sys.modules["homeassistant.exceptions"].ServiceValidationError = type(
+        "ServiceValidationError", (_StubHomeAssistantError,), {}
     )
     sys.modules["homeassistant.helpers.entity_registry"].async_get = lambda *a, **k: None
     sys.modules["homeassistant.helpers.storage"].Store = type("Store", (), {})
@@ -175,9 +186,11 @@ except ImportError:
     sys.modules["homeassistant.helpers.aiohttp_client"].async_get_clientsession = (
         lambda *a, **k: None
     )
-    sys.modules["homeassistant.helpers.issue_registry"].async_delete_issue = (
-        lambda *a, **k: None
-    )
+    _ir = sys.modules["homeassistant.helpers.issue_registry"]
+    _ir.async_delete_issue = lambda *a, **k: None
+    _ir.async_create_issue = lambda *a, **k: None
+    _ir.IssueSeverity = types.SimpleNamespace(WARNING="warning", ERROR="error")
+    sys.modules["homeassistant.helpers"].issue_registry = _ir
     # DataUpdateCoordinator is subscripted as `DataUpdateCoordinator[dict[str, Any]]`
     # at class-definition time in coordinator.py — the stub needs to support
     # generic subscription. Easiest is to give it a __class_getitem__ that

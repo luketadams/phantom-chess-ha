@@ -8,7 +8,6 @@ from uuid import uuid4
 
 import chess
 
-from .issues import sync_engine_issue
 from .game_library import GameLibrary, SavedGame
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,6 +39,10 @@ class LocalSessionMixin:
 
     def _publish_engine_state(self, value: dict) -> None:
         self._state["engine_health"] = value
+        # Imported here: this module stays free of Home Assistant imports so
+        # the minimal (no-HA) test environment can load it.
+        from .issues import sync_engine_issue
+
         sync_engine_issue(self.hass, value)  # type: ignore[attr-defined]
         self.async_set_updated_data(dict(self._state))  # type: ignore[attr-defined]
 
