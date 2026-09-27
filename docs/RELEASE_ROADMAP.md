@@ -42,6 +42,7 @@ A stranger with a Phantom board and Home Assistant can install from HACS, finish
 - [x] `quality_scale.yaml` re-audited against 0.5 code (0.5.0b8). Findings fixed: repair issues rebuilt (engine, Bluetooth route), all service errors translated, coverage restored above 95 %, dead classic renderer removed, dashboard pause-switch reference fixed. Platinum strict-typing honestly marked todo
 
 ### M4 — Hardware qualification (supervised, scripted, ~60–90 min)
+Script: [QUALIFICATION.md](QUALIFICATION.md).
 - [ ] Local game with capture, castling, en passant and promotion
 - [ ] Pause during motion; undo; reset; resign; back to modes
 - [ ] Reset capture: with `debug_dump` on, reset from a finished game and from a mid-game position; record `firmware_mode` transitions after GAME_END

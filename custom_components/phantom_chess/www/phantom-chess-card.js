@@ -188,6 +188,12 @@ class PhantomChessCard extends HTMLElement {
       else if(action==='analyze'||action==='cancel-analysis') {await this.service('game_library',{action:action==='analyze'?(this.reviewReport?.status==='complete'?'reanalyze':'analyze'):'cancel_review',game_id:this.reviewGame.game_id},true);await this.fetchReview();}
       else if(action==='refresh-analysis') {this.reviewFailures=0;await this.fetchReview();}
       else if(action==='check_engine') {const result=await this.service('check_engine',{},true);this.notice=result.status==='ready'?'The chess engine is ready.':result.error||'Engine check finished.';}
+      else if(action==='takeback') {
+        // On your turn in a local game the last ply is the computer's reply;
+        // undo the pair so your own move comes back, not just the reply.
+        const pair=this.a.local_game_active&&this.a.side_to_move===this.a.our_color&&(this.a.move_history_moves||[]).length>=2;
+        await this.service('takeback',pair?{count:2}:{});
+      }
       else if(action==='pause') await this.service(this.a.paused?'turn_off':'turn_on',{entity_id:this.config.paused},false,'switch');
       else if(action==='end') await this.service('back_to_modes');
       else if(action==='reset') await this.service('reset_position');

@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Checkmate after a preceding check is announced, and finished games show their result instead of looking frozen.
 - Declared `assist_pipeline` and `tts` as after-dependencies (hassfest).
+- **Take back** on your turn in a local game undoes your move together with the computer's reply. It previously undid only the reply, which the computer then replayed.
 - The dashboard's pause control resolves to the real pause switch on installs whose entity IDs don't use the board's MAC address.
 
 ### Verified
