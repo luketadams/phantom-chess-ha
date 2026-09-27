@@ -62,6 +62,24 @@ Play as White against level 1 so you control the game's shape.
 |---|---|---|
 | E1 | In **Settings → Devices & services → Bluetooth**, enable the host's own adapter, restart, and start a game. | If the board connects through the host adapter and rejects the start, **Repairs** shows "Chess board rejects game commands on this Bluetooth connection". Disable the adapter again afterwards; the entry clears on the next successful start. |
 
+## F. Puzzles, drills and local-only analysis (about 20 minutes)
+
+Qualifies the three features added for 0.5.0b9. Neither puzzles nor drills need a Lichess token. Fetching a puzzle always reaches `lichess.org/api/puzzle/…` regardless of the analysis option tested in F7–F9 — that option only gates evaluation and the opening explorer, not the puzzle fetch itself.
+
+| # | Do | Expect | Record |
+|---|---|---|---|
+| F1 | Open **Choose a game → Puzzles → Daily puzzle**. | The board is driven to the puzzle's position; "Puzzle rated \<rating\>. \<White/Black\> to move" is spoken; the panel shows "Lichess puzzle · rated \<rating\>" and "Move 1 of N". | The rating and puzzle URL shown. |
+| F2 | Play a legal move you know is not the solution. | Verdict is wrong: the piece is taken back physically without you doing anything else, "Not the move. Try again." is spoken, and it's your move again — the panel still reads "Move 1 of N" but now adds "· 1 wrong try". | Whether the piece returned to its square on its own. |
+| F3 | Tap **Hint**. | A notice reading "Hint: move the piece on \<square\>" appears in the panel and is spoken as "Look at the piece on \<square\>." Only the origin square is named — the destination and piece are not. | The square named. |
+| F4 | Tap **Show solution**. | "Here is the solution." is spoken, then the rest of the line plays on the board by itself, about 1.5 s between moves. The puzzle ends with the panel reading "The solution was shown." and an **Another puzzle** button — there is no further "solved" announcement, because showing the solution doesn't count as solving it. | Whether every remaining move played correctly on the board. |
+| F5 | Open **Choose a game → Endgame drills → Queen and king mate · beginner**. | The board is driven to king + queen vs. lone king; "Queen and king mate. Checkmate with queen and king. Box the king in, then bring your king up. Avoid stalemate." is spoken; the panel shows "Move 0 of 15". | — |
+| F6 | Play it out — checkmate the lone king, or let the 15-move limit pass without mating. | On mate: "Drill complete. Checkmate." is spoken and the panel shows it as complete. If the limit passes first: "Drill failed. The 15-move limit was reached." is spoken and the panel shows it as not this time. Either way a **Try again** button appears; the engine defends at full strength throughout (level 8, regardless of your usual AI level). | Which outcome, and how many moves it took. |
+| F7 | With **Configure → Use Lichess cloud analysis** still on (the default), start **Play my usual game** and play a well-known opening, e.g. 1. e4 e5 2. Nf3. | Within a couple of moves, **Learn → Opening** names something other than "No opening identified". | The name shown, if any. |
+| F8 | Open **Configure** and turn **Use Lichess cloud analysis** off, then submit. | Applies immediately — no restart, no error, whether or not a game is in progress. | — |
+| F9 | **End game**, start a fresh **Play my usual game**, and play the same opening moves as F7. | **Learn → Opening** stays "No opening identified" for the whole game. The diagnostic **Eval Source** sensor (Settings → Devices & services → Phantom Chess board → entity list, or the board device's Download diagnostics) reads `stockfish-local` after each move — never `lichess-cloud`. For a stronger check, set the `custom_components.phantom_chess.lichess_analysis` logger to debug beforehand: with the option off there must be no `cloud-eval cache miss for …` or `cloud-eval HTTP … for …` line for any of these new positions. | Whether Opening or Eval Source ever showed cloud data; whether any cloud-eval log line appeared. |
+
+Turn **Use Lichess cloud analysis** back on afterward if that's how you found it.
+
 ## After the session
 
 - Turn **Developer debug artifacts** off.
