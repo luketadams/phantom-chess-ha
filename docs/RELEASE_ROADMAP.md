@@ -54,6 +54,7 @@ Script: [QUALIFICATION.md](QUALIFICATION.md).
 - [ ] 0.5.0rc1 tag + GitHub prerelease, installed through HACS on the reference box
 - [ ] About one week of normal use
 - [ ] 0.5.0 final release and announcement draft
+- [ ] HACS default list (after the full release): the repository already meets the other requirements checked 2026-09-27 — public, description, issues, topics, local `brand/icon.png`, HACS action and hassfest green. The remaining one is a full (non-pre) release. Submission is a PR to `hacs/default` adding the repository alphabetically to `integration`, made by the owner
 
 Also done: the engine mirror carries the full GPLv3 Corresponding Source (September 27).
 
