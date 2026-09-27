@@ -514,6 +514,12 @@ class PhantomChessOptionsFlow(OptionsFlow):
                     "tts_voice",
                     description={"suggested_value": current.get("tts_voice", "")},
                 ): selector.TextSelector(),
+                # Off keeps every position on this host: local Stockfish only,
+                # no Lichess cloud evaluation or opening explorer lookups.
+                vol.Optional(
+                    "cloud_analysis",
+                    default=bool(current.get("cloud_analysis", True)),
+                ): bool,
                 vol.Optional(
                     "debug_dump",
                     default=bool(current.get("debug_dump", False)),

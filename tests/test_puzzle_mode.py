@@ -274,3 +274,12 @@ async def test_unplayable_puzzle_is_reported() -> None:
     with pytest.raises(RuntimeError, match="can't be played"):
         await c.async_start_puzzle("daily")
     c._phantom_execute_position.assert_not_awaited()
+
+
+async def test_engine_move_has_no_cloud_fallback_when_analysis_is_local() -> None:
+    c = make_coordinator()
+    c._analysis_client = MagicMock(allow_cloud=False,
+                                   best_move_for_ai_level=AsyncMock(return_value=None))
+    with patch("custom_components.phantom_chess.coordinator.async_get_clientsession") as session:
+        assert await c._get_ai_move(chess.Board()) is None
+    session.assert_not_called()

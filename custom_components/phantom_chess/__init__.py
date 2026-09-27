@@ -683,15 +683,18 @@ async def async_setup_entry(
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Apply speech preferences without interrupting a game."""
+    """Apply speech and cloud-analysis preferences without interrupting a game."""
     coordinator = getattr(entry, "runtime_data", None)
     previous = getattr(coordinator, "_options_snapshot", None)
     current = dict(entry.options)
     speech_keys = {"homepod_speech", "speech_volume", "tts_service", "tts_media_player_entity_id", "tts_language", "tts_voice"}
     if coordinator is not None and isinstance(previous, dict):
         changed = {key for key in previous.keys() | current.keys() if previous.get(key) != current.get(key)}
-        if changed <= speech_keys:
+        if changed <= speech_keys | {"cloud_analysis"}:
             coordinator._options_snapshot = current
+            client = getattr(coordinator, "_analysis_client", None)
+            if client is not None:
+                client.allow_cloud = bool(current.get("cloud_analysis", True))
             return
     await hass.config_entries.async_reload(entry.entry_id)
 

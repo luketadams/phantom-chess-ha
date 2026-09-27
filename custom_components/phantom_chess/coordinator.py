@@ -858,6 +858,10 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
         self._analysis_client = LichessAnalysisClient(
             self.hass, stockfish_bin_dir=sf_bin_dir
         )
+        entry = getattr(self, "_entry", None)
+        self._analysis_client.allow_cloud = bool(
+            ((entry.options if entry is not None else {}) or {}).get("cloud_analysis", True)
+        )
         from .game_review import ReviewManager
         assert self._analysis_client._stockfish is not None
         self._analysis_client._stockfish.status_callback = self._publish_engine_state
@@ -6208,7 +6212,11 @@ class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoor
             except Exception as sf_err:
                 _LOGGER.warning("Local Stockfish move failed: %s — falling back", sf_err)
 
-        # 2. Try Lichess cloud eval (no auth required for cloud-eval endpoint).
+        # 2. Try Lichess cloud eval (no auth required for cloud-eval endpoint),
+        #    unless the user keeps analysis local.
+        client = self._analysis_client
+        if client is not None and not getattr(client, "allow_cloud", True):
+            return None
         try:
             session = async_get_clientsession(self.hass)
             url = f"https://lichess.org/api/cloud-eval?fen={fen}&multiPv=1"

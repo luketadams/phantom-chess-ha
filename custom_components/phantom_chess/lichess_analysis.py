@@ -144,6 +144,10 @@ class LichessAnalysisClient:
         self._stockfish: StockfishFallback | None = None
         if stockfish_bin_dir is not None:
             self._stockfish = StockfishFallback(hass, stockfish_bin_dir)
+        # Option "cloud_analysis". When False no position ever leaves the
+        # host: evaluations come from local Stockfish only and openings are
+        # not named. Results already cached stay usable (no network needed).
+        self.allow_cloud: bool = True
 
     # ─── Local-game AI moves (Task #16/#17 release-readiness) ─────────────
     #
@@ -209,8 +213,8 @@ class LichessAnalysisClient:
                 self._eval_cache.move_to_end(cache_key)
                 return self._eval_cache[cache_key]
 
-            result = await self._fetch_eval(safe_fen, multi_pv)
-            # Fall back to local Stockfish if cloud-eval missed.
+            result = await self._fetch_eval(safe_fen, multi_pv) if self.allow_cloud else None
+            # Fall back to local Stockfish if cloud-eval missed or is off.
             if result is None and self._stockfish is not None:
                 _LOGGER.debug(
                     "cloud-eval miss for %s — falling back to local Stockfish",
@@ -299,6 +303,8 @@ class LichessAnalysisClient:
         if fen in self._opening_cache:
             self._opening_cache.move_to_end(fen)
             return self._opening_cache[fen]
+        if not self.allow_cloud:
+            return (None, None)  # not cached: turning the option on names it later
 
         result = await self._fetch_opening(fen)
         self._opening_cache[fen] = result

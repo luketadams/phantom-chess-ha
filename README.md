@@ -65,6 +65,7 @@ Set under **Settings → Devices & services → Phantom Chess Board → Configur
 | Voice language, Voice | Override the engine's default language or voice. |
 | Speak through HomePod | Managed HomePod speech (see above) instead of the generic TTS path. |
 | Speech volume | 0–1 volume for managed HomePod speech. |
+| Use Lichess cloud analysis | On by default. Turn off to keep every position on this device (see Privacy). |
 | Auto-provision dashboard | On by default. Turn off to build your own dashboard; the bundled one is removed on the next reload. |
 | Developer debug artifacts | Writes protocol traces under `phantom_chess/debug/`. Leave off unless troubleshooting. |
 
@@ -120,7 +121,7 @@ Replace the entity IDs with your board's; they depend on the device name.
 
 - **Lichess games**: your token is used only to create, stream and play your own board games. It is stored in Home Assistant's configuration and redacted from diagnostics.
 - **Puzzles**: fetched from Lichess's public puzzle API without your token or account. Attempts are not sent back to Lichess and are not saved in your game library.
-- **Analysis**: to show evaluations and opening names quickly, the integration may send board positions (not your identity or token) to Lichess's public cloud-evaluation and opening-explorer services, including during local games. Game review runs entirely on the local engine.
+- **Analysis**: to show evaluations and opening names quickly, the integration may send board positions (not your identity or token) to Lichess's public cloud-evaluation and opening-explorer services, including during local games. Turn off **Use Lichess cloud analysis** under Configure to keep analysis on this device: evaluations then come from the local engine and openings are not named. Game review always runs on the local engine.
 - **Engine download**: Stockfish comes from the official Stockfish releases or, on Alpine-based installs, from [this project's mirror](https://github.com/luketadams/phantom-chess-engines) of Alpine's packages. Every download is checked against pinned SHA-256 digests before use.
 
 ## Troubleshooting
@@ -143,7 +144,6 @@ Deleting the integration removes its dashboard, the downloaded engine and cached
 
 - Hardware behaviour is qualified on the maintainer's board. Other firmware versions and Bluetooth setups may behave differently.
 - The dashboard shows one board at a time.
-- There is no setting yet that turns off the Lichess analysis lookups described above.
 
 ## Development
 

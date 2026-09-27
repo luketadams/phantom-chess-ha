@@ -1597,3 +1597,21 @@ async def test_build_dashboard_config_rejects_non_mapping() -> None:
          patch.object(dp, "_render_template", return_value="- just\n- a list\n"):
         with pytest.raises(ValueError):
             await dp.build_dashboard_config(MagicMock(), "AA:BB:CC:DD:EE:FF")
+
+
+async def test_cloud_analysis_option_applies_without_reload() -> None:
+    hass = MagicMock()
+    hass.config_entries.async_reload = AsyncMock()
+    client = MagicMock(allow_cloud=True)
+    coordinator = MagicMock(_options_snapshot={"cloud_analysis": True, "debug_dump": False},
+                            _analysis_client=client)
+    entry = MagicMock(entry_id="e1", runtime_data=coordinator,
+                      options={"cloud_analysis": False, "debug_dump": False})
+    await pc._async_options_updated(hass, entry)
+    hass.config_entries.async_reload.assert_not_awaited()
+    assert client.allow_cloud is False
+    assert coordinator._options_snapshot == {"cloud_analysis": False, "debug_dump": False}
+    # Any other option still reloads.
+    entry.options = {"cloud_analysis": False, "debug_dump": True}
+    await pc._async_options_updated(hass, entry)
+    hass.config_entries.async_reload.assert_awaited_once_with("e1")

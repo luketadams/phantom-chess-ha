@@ -229,6 +229,7 @@ async def test_options_flow_round_trip(hass: HomeAssistant) -> None:
         "auto_provision_dashboard": True,
         "homepod_speech": False,
         "speech_volume": 0.8,
+        "cloud_analysis": True,
     }
 
 

@@ -97,6 +97,7 @@
           "tts_media_player_entity_id": "Speaker for play-by-play",
           "tts_language": "Voice language",
           "tts_voice": "Voice",
+          "cloud_analysis": "Use Lichess cloud analysis",
           "debug_dump": "Write developer-debug artifacts to the config directory under phantom_chess/debug/",
           "auto_provision_dashboard": "Auto-provision Chess dashboard",
           "homepod_speech": "Speak through HomePod using my preferred voice assistant",
@@ -110,7 +111,8 @@
           "debug_dump": "Off by default. Only enable when troubleshooting an issue.",
           "auto_provision_dashboard": "On by default. When enabled the integration creates and maintains the /phantom-chess dashboard automatically. Disable if you prefer to author your own dashboard — the existing /phantom-chess dashboard will be removed on the next reload.",
           "homepod_speech": "Use the selected media player from the Apple TV integration. Follows the preferred Assist pipeline voice. Disable any separate announcement automation to avoid duplicates.",
-          "speech_volume": "Volume from 0 to 1 used for managed HomePod speech."
+          "speech_volume": "Volume from 0 to 1 used for managed HomePod speech.",
+          "cloud_analysis": "On by default. Sends board positions (never your account or token) to Lichess to show evaluations and opening names quickly. Turn off to keep analysis on this device: evaluations come from the local engine and openings are not named."
         }
       }
     }

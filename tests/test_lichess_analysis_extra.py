@@ -949,3 +949,25 @@ async def test_mate_zero_preserves_winning_side(tmp_path, score, expected):
     result = await sf.evaluate(chess.STARTING_FEN)
     assert result.cp == expected
     assert result.mate is None
+
+
+async def test_local_only_analysis_never_touches_the_network() -> None:
+    """cloud_analysis off: evaluations come from Stockfish, openings stay unnamed."""
+    from unittest.mock import AsyncMock, MagicMock
+    from custom_components.phantom_chess.lichess_analysis import EvalResult, LichessAnalysisClient
+
+    client = LichessAnalysisClient(MagicMock())
+    client.allow_cloud = False
+    client._fetch_eval = AsyncMock()
+    client._fetch_opening = AsyncMock()
+    local = EvalResult(cp=35, mate=None, depth=12, best_uci="e2e4", source="stockfish-local", raw={})
+    client._stockfish = MagicMock(evaluate=AsyncMock(return_value=local))
+    fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    assert await client.get_eval(fen) is local
+    assert await client.get_opening(fen) == (None, None)
+    client._fetch_eval.assert_not_awaited()
+    client._fetch_opening.assert_not_awaited()
+    # Turning the option back on names the opening (nothing was cached).
+    client.allow_cloud = True
+    client._fetch_opening = AsyncMock(return_value=("King's Pawn Game", "B00"))
+    assert await client.get_opening(fen) == ("King's Pawn Game", "B00")
