@@ -333,6 +333,7 @@ def make_coordinator(
     c._ai_vs_ai_black_level = 3
     c._ai_vs_ai_move_delay = 1.5
     c._sculpture_active = False
+    c._puzzle = None
     c._sculpture_move_delay = 2.0
     c._sculpture_games_cache = None
     c._local_game_task_lock = None

@@ -82,3 +82,35 @@ automation:
               - set_conversation_response: The local chess game has ended. Ask me to play chess when you want another game.
         default:
           - set_conversation_response: There is no local Stockfish game to stop. Use the chess dashboard to end a game in another mode.
+
+  - id: phantom_chess_voice_puzzle
+    alias: Phantom chess - voice puzzle
+    description: Set up the Lichess daily puzzle (or a random one) on the board.
+    mode: single
+    triggers:
+      - trigger: conversation
+        command:
+          - "[give me |show me |start ][the |a ]{kind} [chess ]puzzle"
+          - "[give me |show me |start ][a ]chess puzzle"
+    variables:
+      source: "{{ 'daily' if (trigger.slots.kind | default('')) in ['daily', \"today's\"] else 'random' }}"
+      boards: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_firmware_mode$') | list }}"
+      games: "{{ integration_entities('phantom_chess') | select('match', 'sensor.*_lichess_game_id$') | list }}"
+    actions:
+      - choose:
+          - conditions: "{{ boards | count != 1 or games | count != 1 }}"
+            sequence:
+              - set_conversation_response: Please configure one Phantom chessboard before using this command.
+          - conditions: "{{ states(boards[0]) in ['unavailable', 'unknown'] }}"
+            sequence:
+              - set_conversation_response: The chessboard is offline. Turn on the board and its Bluetooth proxy, then ask me again.
+          - conditions: "{{ states(games[0]) not in ['unknown', 'unavailable', '', 'None', 'none'] }}"
+            sequence:
+              - set_conversation_response: A chess session is already open. End it from the chess dashboard first.
+        default:
+          - action: phantom_chess.start_puzzle
+            continue_on_error: true
+            data:
+              source: "{{ source }}"
+          - set_conversation_response: >-
+              Setting up {{ "today's" if source == 'daily' else 'a' }} puzzle. When the pieces stop, find the best move.

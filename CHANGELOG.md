@@ -8,6 +8,14 @@ All notable changes to the Phantom Chess Board Home Assistant integration are do
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — next (after 0.5.0)
+
+Work on the `next` branch, kept out of the 0.5.0 release until it has been tried on the board.
+
+### Added
+
+- Puzzle mode: the Lichess daily puzzle or a random one (optionally by difficulty or theme) is set up on the board. Your moves are checked against the solution; the board plays the replies, takes back a wrong try and says so, and accepts any checkmate like Lichess does. Hint names the piece to move; Show solution plays the rest of the line. Available from the Play page, the `start_puzzle`, `puzzle_hint` and `puzzle_show_solution` services, and a "give me a chess puzzle" sentence in the Assist example. Fetched anonymously; attempts are not saved.
+
 ## [Unreleased] — 0.5.0
 
 0.5.0 rebuilds the integration around a bundled dashboard and local analysis. The detailed beta entries follow; this summary is what changes for someone upgrading from 0.4.0-beta4.

@@ -1,0 +1,43 @@
+{
+ "game": {
+  "id": "PPqRd6cP",
+  "pgn": "e4 e5 Bc4 Nc6 Nf3 Nf6 Ng5 d5 exd5 Na5 d3 Bd6 O-O O-O Bd2 Nxc4 dxc4 h6 Nf3 Re8 h3 e4 Nd4 Bc5 Nb3 e3 fxe3 Bxe3+ Bxe3 Rxe3 Rf3 Qe7 Nc3 Bd7 d6 cxd6 Rxf6 Qxf6 Nd5 Qxb2 Nxe3 Be6 Nd4 Qb6 Nxe6 Qxe3+ Kh1 Qxe6 Qf1 Re8 Rb1 Qe4 c3 Rc8 Re1 Qxc4",
+  "clock": "10+5",
+  "rated": true,
+  "perf": {
+   "key": "rapid",
+   "name": "Rapid"
+  },
+  "players": [
+   {
+    "color": "white",
+    "name": "player",
+    "id": "player",
+    "rating": 1797
+   },
+   {
+    "color": "black",
+    "name": "player",
+    "id": "player",
+    "rating": 1825
+   }
+  ]
+ },
+ "puzzle": {
+  "id": "iAz7p",
+  "rating": 1141,
+  "plays": 7683,
+  "solution": [
+   "e1e8",
+   "c8e8",
+   "f1c4"
+  ],
+  "themes": [
+   "deflection",
+   "endgame",
+   "short",
+   "advantage"
+  ],
+  "initialPly": 55
+ }
+}

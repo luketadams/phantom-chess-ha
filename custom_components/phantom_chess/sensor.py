@@ -282,6 +282,11 @@ class PhantomLivePositionSensor(PhantomBleBaseSensor):
             "lichess_active": bool(data.get("lichess_active")),
             "local_game_active": bool(data.get("local_game_active")),
             "game_status": data.get("game_status"),
+            # Puzzle mode (puzzle_mode.py): summary of the active or
+            # last-finished puzzle, the current hint square, and any error.
+            "puzzle": data.get("puzzle"),
+            "puzzle_hint": data.get("puzzle_hint"),
+            "puzzle_error": data.get("puzzle_error"),
         }
 
 

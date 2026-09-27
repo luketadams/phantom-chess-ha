@@ -21,6 +21,7 @@ from homeassistant.helpers import (
 )
 
 from .issues import clear_legacy_issues
+from .puzzles import DIFFICULTIES as PUZZLE_DIFFICULTIES
 from .config_flow import _normalize_ble_address
 from .const import CONF_BLE_ADDRESS, CONF_DEVICE_NAME, DOMAIN
 from .coordinator import PhantomChessCoordinator
@@ -958,6 +959,38 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_check_engine(call: ServiceCall) -> dict:
         return await _get_coordinator(call).async_check_engine()
+
+    async def handle_start_puzzle(call: ServiceCall) -> dict:
+        return await _get_coordinator(call).async_start_puzzle(
+            call.data.get("source", "daily"), call.data.get("difficulty"), call.data.get("theme"),
+        )
+
+    async def handle_puzzle_hint(call: ServiceCall) -> dict:
+        return await _get_coordinator(call).async_puzzle_hint()
+
+    async def handle_puzzle_show_solution(call: ServiceCall) -> dict:
+        return await _get_coordinator(call).async_puzzle_show_solution()
+
+    _async_register_service(
+        hass, DOMAIN, "start_puzzle", handle_start_puzzle,
+        schema=vol.Schema({
+            vol.Optional("entry_id"): cv.string,
+            vol.Optional("source", default="daily"): vol.In(["daily", "random"]),
+            vol.Optional("difficulty"): vol.In(list(PUZZLE_DIFFICULTIES)),
+            vol.Optional("theme"): vol.All(cv.string, vol.Match(r"^[A-Za-z0-9_]{1,40}$")),
+        }),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_service(
+        hass, DOMAIN, "puzzle_hint", handle_puzzle_hint,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_service(
+        hass, DOMAIN, "puzzle_show_solution", handle_puzzle_show_solution,
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
     _async_register_service(hass, 
         DOMAIN, "check_engine", handle_check_engine,

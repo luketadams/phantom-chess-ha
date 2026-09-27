@@ -8,6 +8,7 @@ Play chess on a Phantom robotic chessboard from Home Assistant. The board moves 
 - **Play online** on Lichess with your account, or record a two-player game between people at the board.
 - **Learn** with an optional advantage bar, move-quality badges and hints.
 - **Review** any saved or imported game with local Stockfish: mistakes, blunders, better moves, and practice positions.
+- **Solve puzzles**: the Lichess daily puzzle or a random one, set up on the board. You find the moves, the board plays the replies and takes back a wrong try.
 - **Watch** the computer play itself, or replay 18 historic games on the board.
 - **Hear** moves, checks and results on any Home Assistant speaker.
 
@@ -38,7 +39,7 @@ Needed only for online games. Create a [personal access token](https://lichess.o
 
 The **Phantom Chess** sidebar dashboard has four pages and needs no extra cards or plugins.
 
-- **Play**: start your usual game, or choose colour, level, opponent (Stockfish, Lichess, two players, computer against computer) and time control. During a game, move on the board or on screen, pause, take back, save or end.
+- **Play**: start your usual game, or choose colour, level, opponent (Stockfish, Lichess, two players, computer against computer) and time control. During a game, move on the board or on screen, pause, take back, save or end. **Puzzles** start from the same place; during a puzzle you can ask for a hint (the piece to move) or have the board play the solution. Themes and a link to the puzzle on Lichess appear when you finish.
 - **Learn**: the same game with coaching. Turn on the advantage bar and move badges. Hints come from full-strength analysis, not the opponent's level.
 - **Review**: search, replay, import and export PGN. **Analyze game** grades every move and lists key moments; **Practice before this move** saves a new position to play from.
 - **Board & settings**: board sound and speed, speech, **Check chess engine**, and **Reset board**, which returns every piece to its starting square.
@@ -69,7 +70,7 @@ Set under **Settings → Devices & services → Phantom Chess Board → Configur
 
 ## Services
 
-Every action is also a service under `phantom_chess.*`, for example `start_local_game`, `start_game` (Lichess), `start_two_player_game`, `start_ai_vs_ai_game`, `execute_move`, `takeback`, `save_game`, `resume_game`, `game_library`, `reset_position` and `check_engine`. See [services.yaml](custom_components/phantom_chess/services.yaml) for fields. With more than one board, pass `entry_id`.
+Every action is also a service under `phantom_chess.*`, for example `start_local_game`, `start_game` (Lichess), `start_two_player_game`, `start_ai_vs_ai_game`, `execute_move`, `takeback`, `save_game`, `resume_game`, `game_library`, `reset_position`, `check_engine`, and `start_puzzle` / `puzzle_hint` / `puzzle_show_solution`. See [services.yaml](custom_components/phantom_chess/services.yaml) for fields. With more than one board, pass `entry_id`.
 
 ## Entities
 
@@ -118,6 +119,7 @@ Replace the entity IDs with your board's; they depend on the device name.
 ## Privacy and network use
 
 - **Lichess games**: your token is used only to create, stream and play your own board games. It is stored in Home Assistant's configuration and redacted from diagnostics.
+- **Puzzles**: fetched from Lichess's public puzzle API without your token or account. Attempts are not sent back to Lichess and are not saved in your game library.
 - **Analysis**: to show evaluations and opening names quickly, the integration may send board positions (not your identity or token) to Lichess's public cloud-evaluation and opening-explorer services, including during local games. Game review runs entirely on the local engine.
 - **Engine download**: Stockfish comes from the official Stockfish releases or, on Alpine-based installs, from [this project's mirror](https://github.com/luketadams/phantom-chess-engines) of Alpine's packages. Every download is checked against pinned SHA-256 digests before use.
 

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .game_review import ReviewManager
+    from .puzzles import PuzzleSession
     from .lichess_analysis import LichessAnalysisClient
 
 import aiohttp
@@ -25,6 +26,7 @@ from homeassistant.helpers.issue_registry import async_delete_issue
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .issues import clear_ble_route_issue, raise_ble_route_issue
+from .puzzle_mode import PuzzleModeMixin
 from .sessions import LocalSessionMixin
 
 from .const import (
@@ -199,7 +201,7 @@ from .matrix import (  # noqa: E402 — intentional late import, kept beside the
 )
 
 
-class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str, Any]]):
+class PhantomChessCoordinator(PuzzleModeMixin, LocalSessionMixin, DataUpdateCoordinator[dict[str, Any]]):
     """Manages BLE connection to the Phantom board and the Lichess Board API game."""
 
     def __init__(
@@ -350,6 +352,8 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         # and lazy-loaded into `_sculpture_games_cache` on first use.
         self._sculpture_active: bool = False
         self._sculpture_move_delay: float = 2.0
+        # Puzzle mode (puzzle_mode.py): the active or last-finished puzzle.
+        self._puzzle: PuzzleSession | None = None
         self._sculpture_games_cache: dict | None = None
         # Serializes _local_game_task replacement so the four-or-more
         # sites that schedule an AI turn can't race and end up running
@@ -2884,6 +2888,9 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         if (self._game_id or self._local_game_active or self._two_player_active
                 or self._ai_vs_ai_active or self._sculpture_active):
             raise RuntimeError("A chess game is already running. End it before starting another.")
+        # A new start replaces the result card of a finished puzzle.
+        if getattr(self, "_puzzle", None) is not None:
+            self._clear_puzzle()
 
     async def async_start_game(
         self, clock_limit_seconds: int = 900, clock_increment_seconds: int = 10,
@@ -5144,6 +5151,8 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         the color for the attributed phrasing. Naming the color also serves
         as timing calibration when speech lags the physical move.
         """
+        if (puzzle := getattr(self, "_puzzle", None)) is not None and puzzle.status == "active":
+            return  # puzzle mode gives its own right/wrong feedback
         from .lichess_analysis import (
             CLASSIFICATION_BEST, CLASSIFICATION_GOOD, CLASSIFICATION_EXCELLENT,
             CLASSIFICATION_BLUNDER, CLASSIFICATION_MISTAKE,
@@ -6056,6 +6065,9 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         await _sleep(0.5)  # Brief pause so board can settle
         if not current():
             return
+        if (puzzle := getattr(self, "_puzzle", None)) is not None and puzzle.status == "active":
+            await self._puzzle_turn()
+            return
         ai_uci = await self._get_ai_move(board.copy())
         if not current():
             return
@@ -6143,6 +6155,17 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         outcome = self._board.outcome()
         if outcome is None:
             return
+        if (puzzle := getattr(self, "_puzzle", None)) is not None and puzzle.status == "active":
+            # The puzzle turn judges the move: a mate solves it, a stalemate
+            # or other ending from a wrong move is taken back.
+            # May run on the Bluetooth callback's thread; schedule on the loop.
+            self.hass.loop.call_soon_threadsafe(
+                lambda: self.hass.loop.create_task(
+                    self._replace_local_game_task(name=f"{DOMAIN}_puzzle_judge"),
+                    name=f"{DOMAIN}_puzzle_judge_schedule",
+                )
+            )
+            return
         self._local_game_active = False
         self._state["local_game_active"] = False
         self._state["game_status"] = STATUS_CHECKMATE if self._board.is_checkmate() else STATUS_DRAW
@@ -6225,6 +6248,7 @@ class PhantomChessCoordinator(LocalSessionMixin, DataUpdateCoordinator[dict[str,
         if was_active:
             await self.async_checkpoint("finished")
         self._saved_game_id = None
+        self._clear_puzzle()
         self._state["game_status"] = STATUS_IDLE
         self._state["lichess_game_id"] = None
         self._state["local_game_active"] = False  # Task #9
