@@ -24,7 +24,7 @@ The review report includes legal PVs capped at eight half-moves, pre/post score,
 
 [Primary Lichess research](https://lichess.org/page/accuracy) supports the winning-chance curve. Phantom's live/review thresholds are 5/10/20 percentage points lost for inaccuracy/mistake/blunder, with engine-best matching below 5 and excellent below 2. These are a disclosed heuristic, not a calibrated probability for this player or Chess.com's proprietary expected-points model. [Chess.com's classification documentation](https://support.chess.com/en/articles/8572705-how-are-moves-classified-what-is-a-blunder-or-brilliant-etc) distinguishes special Great/Brilliant rules; matching Stockfish's first choice alone does not justify those awards. No proprietary game-accuracy score or unsupported brilliance detector is claimed.
 
-Validation (0.5.0b8, September 27): 1,150 tests on HA 2026.9.3 at 95.6 % line coverage; CI runs the suite on 2026.2.3 and 2026.9.3 with a 95 % gate. The count fell from 1,562 at 0.5.0b7 because the unused classic-dashboard renderer and its parametrized tests were removed. Earlier (0.5.0b7): 1,562 tests passed on both supported HA versions, 94.23% coverage, 54 browser assertions. A separate Stockfish 18 process on the HA host analyzed Fool's Mate through the actual new review manager, identified the mating blunder, and restored an identical report from storage. This involved no board or audio commands.
+Validation (0.5.0b9 after the coordinator split and strict typing, September 27): 1,203 tests on HA 2026.9.3 at 95.8 % line coverage, 967 in the minimal environment; CI runs the suite on 2026.2.3 and 2026.9.3 with a 95 % gate, and `mypy --strict` against HA 2026.9.3's types gates the `typecheck` job. At 0.5.0b8: 1,150 tests, 95.6 %. The count fell at 0.5.0b8 from 1,562 at 0.5.0b7 because the unused classic-dashboard renderer and its parametrized tests were removed. Earlier (0.5.0b7): 1,562 tests passed on both supported HA versions, 94.23% coverage, 54 browser assertions. A separate Stockfish 18 process on the HA host analyzed Fool's Mate through the actual new review manager, identified the mating blunder, and restored an identical report from storage. This involved no board or audio commands.
 
 ## Engine and cache reliability
 
@@ -34,13 +34,28 @@ Build 0.5.0b7 adds [pinned engine artifacts and preflight](ENGINE_ARTIFACTS.md),
 
 | Component | Responsibility |
 |---|---|
-| `coordinator.py` | BLE lifecycle, rules/engine integration, physical completion, modes, analysis |
+| `coordinator.py` | `PhantomChessCoordinator` class, state and the BLE connection loop/notification dispatch; physical takeback, reset and dashboard-move control. Binds `protocol.py`, `online_session.py`, `local_game.py`, `two_player.py`, `autoplay.py` and `coaching.py` functions onto itself as methods |
+| `protocol.py` | Bluetooth game-channel commands, diagnostics and physical execution — BLE writes and the firmware GAME_START/snapshot protocol. Methods of `PhantomChessCoordinator`, moved verbatim from `coordinator.py` |
+| `online_session.py` | Online play through the Lichess Board API: game start, event stream, clock/move sync, resign. Methods of `PhantomChessCoordinator`, moved verbatim from `coordinator.py` |
+| `local_game.py` | Games against local Stockfish: start, moves, the computer's turn and stopping. Methods of `PhantomChessCoordinator`, moved verbatim from `coordinator.py` |
+| `two_player.py` | Two people at the board: recording, out-of-sync handling and PGN saving. Methods of `PhantomChessCoordinator`, moved verbatim from `coordinator.py` |
+| `autoplay.py` | Human-free modes: historic-game (sculpture) playback and AI-vs-AI. Methods of `PhantomChessCoordinator`, moved verbatim from `coordinator.py` |
+| `coaching.py` | Move analysis, grading, post-game review, hints and spoken announcements. Methods of `PhantomChessCoordinator`, moved verbatim from `coordinator.py` |
+| `runtime.py` | Shared helpers imported by `coordinator.py` and the six modules above: `_sleep`/`async_get_clientsession` indirection so tests patch one place, lazy `bleak` imports, `_phantom_to_uci`/`_rotate_uci_180` move-notation conversion, and underscore-aliased re-exports of `matrix.py`'s parsing functions |
+| `matrix.py` | Pure, stateless functions for the board's 10×10 column-major wire matrix: FEN↔matrix conversion, sensor-bitmap consistency checks and mismatch-diff formatting |
 | `game_library.py` | Validated immutable game snapshots, PGN parsing, atomic Store writes, revision protection |
 | `engine_artifacts.py` | Pinned publisher artifacts, bounded streaming, exact extraction and atomic installation |
+| `lichess_analysis.py` | Cloud-eval and opening-explorer HTTP clients, chance-loss move classifier, threat/fork detectors, the Lichess accuracy metric, and a local Stockfish fallback for cloud-eval cache misses |
 | `move_quality.py` | Shared winning-chance conversion and live/review quality thresholds |
 | `game_review.py` | Bounded local game-analysis jobs, restart-safe cache, position-relative grading and legal-line coaching |
 | `sessions.py` | Checkpoints, explicit physical recovery, library actions and practice forks |
+| `puzzle_mode.py` | Puzzle mode: fetches a Lichess puzzle, plays it as a local game with a scripted opponent, hints and solution reveal. `PuzzleModeMixin` on `PhantomChessCoordinator` |
+| `puzzles.py` | Pure logic, no Home Assistant imports: parses the Lichess puzzle API response and judges the solver's moves |
+| `drill_mode.py` | Endgame drill mode: runs a drill as a local game with the engine at full strength, judged after each move. `DrillModeMixin` on `PhantomChessCoordinator` |
+| `drills.py` | Pure logic, no Home Assistant imports: Stockfish-verified drill positions, goals and full-strength-resistance judging |
 | `dashboard_app.yaml` + `www/phantom-chess-card.js` | Default Play/Learn/Review/Board interface; HA authenticated WebSocket service calls |
+| `dashboard_provision.py` | Provisions the bundled dashboard: resolves templated entity references against the entity registry, registers it in Lovelace storage and the sidebar, idempotent across entry reloads |
+| `diagnostics.py` | One-click "Download diagnostics" button on the device page; redacts the Lichess token, partial MAC and username |
 | `issues.py` | Repair issues: engine unsupported/failed (from engine health), Bluetooth route rejected (ATT 0x0D on game start); each clears on recovery |
 | `homepod_speech.py` | Whole-message buffered native HomePod playback and current Assist voice resolution |
 | `config_flow.py` / `__init__.py` | Options and services; speech-only changes apply without reload. Every service is wrapped by `_user_facing` (refusals → translated ServiceValidationError, Bluetooth failures → HomeAssistantError) |
