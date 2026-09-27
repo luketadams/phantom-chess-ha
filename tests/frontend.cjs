@@ -32,6 +32,14 @@ const assert=require('node:assert/strict');
  await page.getByRole('button',{name:'e2, white pawn',exact:true}).click();
  await page.getByRole('button',{name:'e4, empty',exact:true}).click();
  assert.equal(await page.evaluate(()=>calls.at(-1).service_data.move),'e2e4');
+ // Take back on your turn undoes your move and the computer's reply together.
+ await page.evaluate(()=>{Object.assign(attrs,{move_history_moves:[{san:'e4',uci:'e2e4',side:'white',move_num:1},{san:'e5',uci:'e7e5',side:'black',move_num:1}]});card.hass=hass;});
+ await page.getByRole('button',{name:'Take back',exact:true}).click();
+ assert.deepEqual(await page.evaluate(()=>calls.at(-1).service_data),{entry_id:'board-one',count:2});
+ await page.evaluate(()=>{Object.assign(attrs,{side_to_move:'black'});card.hass=hass;});
+ await page.getByRole('button',{name:'Take back',exact:true}).click();
+ assert.deepEqual(await page.evaluate(()=>calls.at(-1).service_data),{entry_id:'board-one'});
+ await page.evaluate(()=>{Object.assign(attrs,{side_to_move:'white',move_history_moves:[]});card.hass=hass;});
  await page.evaluate(()=>{attrs.physical_operation='moving';card.hass=hass;});
  assert.equal(await page.getByRole('button',{name:'e2, white pawn',exact:true}).isDisabled(),true);
  await page.evaluate(()=>{attrs.physical_operation='idle';attrs.local_game_active=false;card.setConfig({...config,view:'review'});attrs.saved_games=[{game_id:'g1',white:'<img src=x onerror=alert(1)>',black:'Computer',status:'paused',plies:0,result:'*',updated:'2026-09-05T00:00:00Z'}];card.hass=hass;});
